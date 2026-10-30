@@ -49,6 +49,41 @@ API, fast-forwards to `origin/main`, installs Python deps, rebuilds the
 frontend, and restarts the service. It rolls back automatically if any step
 fails.
 
+### Updating from the Fork (`piyushagade/bambuddy`)
+
+#### 1. Local Machine (Before Pushing)
+Always rebuild the frontend locally before committing so `static/` contains the latest production bundle (in case the remote server does not have `npm` installed):
+
+```powershell
+cd frontend
+npm run build
+cd ..
+git add backend/ frontend/ static/
+git commit -m "Describe your changes"
+git push origin main
+```
+
+#### 2. Remote Server (`abe` / `/opt/bambuddy`)
+On the first switch to the fork, allow `root` (`sudo`) to run `git` inside `/opt/bambuddy` and point `origin` at the fork:
+
+```bash
+cd /opt/bambuddy
+
+# One-time setup: allow root (sudo) to operate on /opt/bambuddy and point origin to the fork
+sudo git config --global --add safe.directory /opt/bambuddy
+sudo git remote set-url origin https://github.com/piyushagade/bambuddy.git
+
+# Run the updater (backs up data, stops service, resets to origin/main, updates deps, and restarts)
+sudo /opt/bambuddy/install/update.sh
+```
+
+If `bambuddy.service` ever encounters file-ownership issues after `sudo` runs `git reset --hard`, restore ownership to the `bambuddy` service user:
+
+```bash
+sudo chown -R bambuddy:bambuddy /opt/bambuddy
+sudo systemctl restart bambuddy
+```
+
 ### Manual equivalent
 
 If you'd rather run the steps yourself:

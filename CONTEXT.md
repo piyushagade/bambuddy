@@ -151,7 +151,9 @@ npm run build        # Production build (outputs to ../static) + check:baseline
 ---
 
 ## 6. Contribution & Git Workflow Notes
-- **Base Branch**: All feature (`feature/*`) and bugfix (`fix/*`) branches and PRs target `dev` (not `main`).
+- **Git Remotes**:
+  - `origin`: `https://github.com/piyushagade/bambuddy.git` (Primary fork repo; deployed branch is `main`)
+  - `upstream`: `https://github.com/maziggy/bambuddy.git`
 - **Adding a Permission**:
   1. Add enum value to `Permission` in `backend/app/core/permissions.py`.
   2. Register in `PERMISSION_CATEGORIES` and default group sets (`DEFAULT_GROUPS`).
@@ -160,3 +162,39 @@ npm run build        # Production build (outputs to ../static) + check:baseline
 - **Adding a Database Column/Table**:
   1. Define or update the model in `backend/app/models/` and import it in `backend/app/models/__init__.py`.
   2. Add an idempotent migration step in `backend/app/core/database.py` (`init_db()`) that works on both SQLite and PostgreSQL.
+
+---
+
+## 7. Fork Deployment & Remote Update Workflow
+
+### 7.1 Local Build & Push (`c:\AI\apps\BamBuddy`)
+Before pushing changes to `origin/main`, run `npm run build` in `frontend/` so the compiled `static/` assets are committed alongside source changes (ensuring servers without Node/npm still serve the updated frontend):
+
+```powershell
+cd frontend
+npm run build
+cd ..
+git add backend/ frontend/ static/
+git commit -m "feat: description of changes"
+git push origin main
+```
+
+### 7.2 Remote Server Deployment (`abe` at `/opt/bambuddy`)
+The remote server runs Bambuddy natively via `systemd` (`bambuddy.service`) out of `/opt/bambuddy`.
+
+```bash
+cd /opt/bambuddy
+
+# One-time setup (allows sudo/root git commands on /opt/bambuddy and sets fork remote)
+sudo git config --global --add safe.directory /opt/bambuddy
+sudo git remote set-url origin https://github.com/piyushagade/bambuddy.git
+
+# Pull latest fork changes, backup DB, update Python/frontend deps, and restart service
+sudo /opt/bambuddy/install/update.sh
+```
+
+> **Ownership Note:** Because `/opt/bambuddy` is owned by the `bambuddy` service user while `update.sh` runs under `sudo`, if `systemctl status bambuddy` ever reports permission errors after an update, run:
+> ```bash
+> sudo chown -R bambuddy:bambuddy /opt/bambuddy
+> sudo systemctl restart bambuddy
+> ```
