@@ -124,6 +124,8 @@ class FolderPermissionEntry(BaseModel):
     folder_id: int
     user_id: int | None = None
     username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     group_id: int | None = None
     group_name: str | None = None
     can_read: bool = True
@@ -133,12 +135,16 @@ class FolderPermissionEntry(BaseModel):
 class FolderShareTargetUser(BaseModel):
     id: int
     username: str
+    first_name: str | None = None
+    last_name: str | None = None
     email: str | None = None
+    group_names: list[str] = []
 
 
 class FolderShareTargetGroup(BaseModel):
     id: int
     name: str
+    description: str | None = None
 
 
 class FolderPermissionsListResponse(BaseModel):

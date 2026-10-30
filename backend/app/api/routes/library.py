@@ -1506,6 +1506,8 @@ async def _build_folder_permissions_response(
             select(
                 LibraryFolderPermission,
                 User.username,
+                User.first_name,
+                User.last_name,
                 Group.name,
             )
             .outerjoin(User, LibraryFolderPermission.user_id == User.id)
@@ -1521,13 +1523,15 @@ async def _build_folder_permissions_response(
             folder_id=perm.folder_id,
             user_id=perm.user_id,
             username=uname,
+            first_name=ufirst,
+            last_name=ulast,
             group_id=perm.group_id,
             group_name=gname,
             can_read=perm.can_read,
             can_write=perm.can_write,
             created_at=perm.created_at,
         )
-        for perm, uname, gname in perm_rows
+        for perm, uname, ufirst, ulast, gname in perm_rows
     ]
 
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1535,14 +1539,21 @@ async def _build_folder_permissions_response(
         select(User).where(User.is_active.is_(True)).order_by(User.username)
     )
     available_users = [
-        FolderShareTargetUser(id=u.id, username=u.username, email=u.email)
+        FolderShareTargetUser(
+            id=u.id,
+            username=u.username,
+            first_name=u.first_name,
+            last_name=u.last_name,
+            email=u.email,
+            group_names=[g.name for g in (u.groups or []) if g.name != "Administrators"],
+        )
         for u in users_res.scalars().all()
         if u.is_effectively_active and not u.is_admin
     ]
 
     groups_res = await db.execute(select(Group).order_by(Group.name))
     available_groups = [
-        FolderShareTargetGroup(id=g.id, name=g.name)
+        FolderShareTargetGroup(id=g.id, name=g.name, description=g.description)
         for g in groups_res.scalars().all()
         if g.name != "Administrators"
         and (

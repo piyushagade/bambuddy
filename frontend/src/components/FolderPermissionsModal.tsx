@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Users, User, Plus, Trash2, Loader2, X, Check } from 'lucide-react';
+import { Shield, Users, User, Plus, Trash2, Loader2, X, Check, Search } from 'lucide-react';
 import { api } from '../api/client';
 import type {
   LibraryFolderTree,
   FolderPermissionGrant,
+  FolderShareTargetUser,
+  FolderShareTargetGroup,
 } from '../api/client';
 import { Button } from './Button';
 import { useToast } from '../contexts/ToastContext';
@@ -18,10 +20,24 @@ interface EditableGrant {
   key: string;
   user_id?: number | null;
   username?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   group_id?: number | null;
   group_name?: string | null;
   can_read: boolean;
   can_write: boolean;
+}
+
+function formatUserDisplay(u: {
+  username?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+}): string {
+  const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+  if (fullName && u.username) {
+    return `${fullName} (@${u.username})`;
+  }
+  return fullName || u.username || 'Unknown User';
 }
 
 export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsModalProps) {
@@ -34,10 +50,14 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
   });
 
   const [grants, setGrants] = useState<EditableGrant[]>([]);
-  const [targetType, setTargetType] = useState<'group' | 'user'>('group');
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
-  const [newAccessLevel, setNewAccessLevel] = useState<'read' | 'write'>('write');
+  const [grantedFilterQuery, setGrantedFilterQuery] = useState('');
+
+  // Popup selector modal state ('group' | 'user' | null)
+  const [pickerMode, setPickerMode] = useState<'group' | 'user' | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerGroupFilter, setPickerGroupFilter] = useState<string>('');
+  const [selectedPickerIds, setSelectedPickerIds] = useState<Set<number>>(new Set());
+  const [pickerAccessLevel, setPickerAccessLevel] = useState<'read' | 'write'>('write');
 
   useEffect(() => {
     if (data) {
@@ -46,6 +66,8 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
           key: p.group_id ? `group:${p.group_id}` : `user:${p.user_id}`,
           user_id: p.user_id,
           username: p.username,
+          first_name: p.first_name,
+          last_name: p.last_name,
           group_id: p.group_id,
           group_name: p.group_name,
           can_read: p.can_read,
@@ -54,6 +76,21 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
       );
     }
   }, [data]);
+
+  const openPicker = (mode: 'group' | 'user') => {
+    setPickerMode(mode);
+    setPickerSearch('');
+    setPickerGroupFilter('');
+    setSelectedPickerIds(new Set());
+    setPickerAccessLevel('write');
+  };
+
+  const closePicker = () => {
+    setPickerMode(null);
+    setPickerSearch('');
+    setPickerGroupFilter('');
+    setSelectedPickerIds(new Set());
+  };
 
   const saveMutation = useMutation({
     mutationFn: (payload: FolderPermissionGrant[]) =>
@@ -70,48 +107,137 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
     },
   });
 
-  const handleAddGrant = () => {
-    if (targetType === 'group') {
-      const gid = parseInt(selectedGroupId, 10);
-      if (!gid) return;
-      const groupObj = data?.available_groups.find((g) => g.id === gid);
-      if (!groupObj) return;
-      const key = `group:${gid}`;
+  const grantedGroupIds = useMemo(
+    () => new Set(grants.filter((g) => g.group_id).map((g) => g.group_id!)),
+    [grants],
+  );
+  const grantedUserIds = useMemo(
+    () => new Set(grants.filter((g) => g.user_id).map((g) => g.user_id!)),
+    [grants],
+  );
+
+  const ungrantedGroups = useMemo(
+    () => (data?.available_groups ?? []).filter((g) => !grantedGroupIds.has(g.id)),
+    [data?.available_groups, grantedGroupIds],
+  );
+
+  const ungrantedUsers = useMemo(
+    () =>
+      (data?.available_users ?? []).filter(
+        (u) => !grantedUserIds.has(u.id) && u.id !== data?.created_by_id,
+      ),
+    [data?.available_users, grantedUserIds, data?.created_by_id],
+  );
+
+  const filteredPickerGroups = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q) return ungrantedGroups;
+    return ungrantedGroups.filter(
+      (g) =>
+        g.name.toLowerCase().includes(q) ||
+        (g.description && g.description.toLowerCase().includes(q)),
+    );
+  }, [ungrantedGroups, pickerSearch]);
+
+  const filteredPickerUsers = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    return ungrantedUsers.filter((u) => {
+      if (pickerGroupFilter && !(u.group_names ?? []).includes(pickerGroupFilter)) {
+        return false;
+      }
+      if (!q) return true;
+      const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').toLowerCase();
+      return (
+        u.username.toLowerCase().includes(q) ||
+        fullName.includes(q) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.group_names ?? []).some((gn) => gn.toLowerCase().includes(q))
+      );
+    });
+  }, [ungrantedUsers, pickerSearch, pickerGroupFilter]);
+
+  const togglePickerItem = (id: number) => {
+    setSelectedPickerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    const ids =
+      pickerMode === 'group'
+        ? filteredPickerGroups.map((g) => g.id)
+        : filteredPickerUsers.map((u) => u.id);
+    setSelectedPickerIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  };
+
+  const handleConfirmPicker = () => {
+    if (selectedPickerIds.size === 0 || !pickerMode) return;
+    if (pickerMode === 'group') {
+      const byId = new Map<number, FolderShareTargetGroup>(
+        (data?.available_groups ?? []).map((g) => [g.id, g]),
+      );
       setGrants((prev) => {
-        const filtered = prev.filter((item) => item.key !== key);
-        return [
-          ...filtered,
-          {
+        const next = [...prev];
+        for (const gid of selectedPickerIds) {
+          const groupObj = byId.get(gid);
+          if (!groupObj) continue;
+          const key = `group:${gid}`;
+          const existingIdx = next.findIndex((item) => item.key === key);
+          const entry: EditableGrant = {
             key,
             group_id: gid,
             group_name: groupObj.name,
             can_read: true,
-            can_write: newAccessLevel === 'write',
-          },
-        ];
+            can_write: pickerAccessLevel === 'write',
+          };
+          if (existingIdx >= 0) {
+            next[existingIdx] = entry;
+          } else {
+            next.push(entry);
+          }
+        }
+        return next;
       });
-      setSelectedGroupId('');
     } else {
-      const uid = parseInt(selectedUserId, 10);
-      if (!uid) return;
-      const userObj = data?.available_users.find((u) => u.id === uid);
-      if (!userObj) return;
-      const key = `user:${uid}`;
+      const byId = new Map<number, FolderShareTargetUser>(
+        (data?.available_users ?? []).map((u) => [u.id, u]),
+      );
       setGrants((prev) => {
-        const filtered = prev.filter((item) => item.key !== key);
-        return [
-          ...filtered,
-          {
+        const next = [...prev];
+        for (const uid of selectedPickerIds) {
+          const userObj = byId.get(uid);
+          if (!userObj) continue;
+          const key = `user:${uid}`;
+          const existingIdx = next.findIndex((item) => item.key === key);
+          const entry: EditableGrant = {
             key,
             user_id: uid,
             username: userObj.username,
+            first_name: userObj.first_name,
+            last_name: userObj.last_name,
             can_read: true,
-            can_write: newAccessLevel === 'write',
-          },
-        ];
+            can_write: pickerAccessLevel === 'write',
+          };
+          if (existingIdx >= 0) {
+            next[existingIdx] = entry;
+          } else {
+            next.push(entry);
+          }
+        }
+        return next;
       });
-      setSelectedUserId('');
     }
+    closePicker();
   };
 
   const handleChangeLevel = (key: string, level: 'read' | 'write') => {
@@ -138,13 +264,16 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
     saveMutation.mutate(payload);
   };
 
-  const grantedGroupIds = new Set(grants.filter((g) => g.group_id).map((g) => g.group_id!));
-  const grantedUserIds = new Set(grants.filter((g) => g.user_id).map((g) => g.user_id!));
-
-  const ungrantedGroups = (data?.available_groups ?? []).filter((g) => !grantedGroupIds.has(g.id));
-  const ungrantedUsers = (data?.available_users ?? []).filter(
-    (u) => !grantedUserIds.has(u.id) && u.id !== data?.created_by_id,
-  );
+  const visibleGrants = useMemo(() => {
+    const q = grantedFilterQuery.trim().toLowerCase();
+    if (!q) return grants;
+    return grants.filter((g) => {
+      const label = g.group_id
+        ? (g.group_name ?? '')
+        : formatUserDisplay(g);
+      return label.toLowerCase().includes(q);
+    });
+  }, [grants, grantedFilterQuery]);
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -187,93 +316,50 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
                 </span>
               </div>
 
-              {/* Add Group / User form */}
-              <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTargetType('group')}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-xs font-medium border transition-colors ${
-                      targetType === 'group'
-                        ? 'border-bambu-green bg-bambu-green/15 text-bambu-green'
-                        : 'border-bambu-dark-tertiary text-bambu-gray hover:text-white'
-                    }`}
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    Share with Group / Cohort
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTargetType('user')}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-xs font-medium border transition-colors ${
-                      targetType === 'user'
-                        ? 'border-bambu-green bg-bambu-green/15 text-bambu-green'
-                        : 'border-bambu-dark-tertiary text-bambu-gray hover:text-white'
-                    }`}
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    Share with Student / User
-                  </button>
+              {/* Action buttons to open scalable Group / User selector popup modal */}
+              <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-2">
+                <div className="text-xs font-medium text-bambu-gray">
+                  Grant Access to Groups or Students
                 </div>
-
-                <div className="flex flex-col sm:flex-row gap-2">
-                  {targetType === 'group' ? (
-                    <select
-                      value={selectedGroupId}
-                      onChange={(e) => setSelectedGroupId(e.target.value)}
-                      aria-label="Select group"
-                      className="flex-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
-                    >
-                      <option value="">Select a group...</option>
-                      {ungrantedGroups.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <select
-                      value={selectedUserId}
-                      onChange={(e) => setSelectedUserId(e.target.value)}
-                      aria-label="Select user"
-                      className="flex-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
-                    >
-                      <option value="">Select a student / user...</option>
-                      {ungrantedUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.username}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-
-                  <select
-                    value={newAccessLevel}
-                    onChange={(e) => setNewAccessLevel(e.target.value as 'read' | 'write')}
-                    aria-label="Access level"
-                    className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
-                  >
-                    <option value="write">Read & Write</option>
-                    <option value="read">Read Only</option>
-                  </select>
-
-                  <Button
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
                     type="button"
-                    size="sm"
-                    onClick={handleAddGrant}
-                    disabled={targetType === 'group' ? !selectedGroupId : !selectedUserId}
+                    onClick={() => openPicker('group')}
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-medium border border-bambu-green/40 bg-bambu-green/10 text-bambu-green hover:bg-bambu-green/20 transition-colors"
                   >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add
-                  </Button>
+                    <Users className="w-4 h-4" />
+                    <span>+ Share with Group / Cohort</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openPicker('user')}
+                    className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-medium border border-bambu-dark-tertiary bg-bambu-dark-secondary text-white hover:border-bambu-green/50 hover:text-bambu-green transition-colors"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>+ Share with Student / User</span>
+                  </button>
                 </div>
               </div>
 
               {/* Current permissions list */}
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-bambu-gray mb-2">
-                  Explicitly Granted Access ({grants.length})
-                </h3>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-bambu-gray">
+                    Explicitly Granted Access ({grants.length})
+                  </h3>
+                  {grants.length > 5 && (
+                    <div className="relative w-48">
+                      <Search className="w-3.5 h-3.5 text-bambu-gray absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={grantedFilterQuery}
+                        onChange={(e) => setGrantedFilterQuery(e.target.value)}
+                        placeholder="Filter granted list..."
+                        className="w-full pl-7 pr-2 py-1 text-xs bg-bambu-dark border border-bambu-dark-tertiary rounded text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green"
+                      />
+                    </div>
+                  )}
+                </div>
                 {grants.length === 0 ? (
                   <div className="text-center py-6 bg-bambu-dark rounded-lg border border-bambu-dark-tertiary text-sm text-bambu-gray">
                     No groups or students have been granted explicit access to this folder yet.
@@ -283,7 +369,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
                   </div>
                 ) : (
                   <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {grants.map((g) => (
+                    {visibleGrants.map((g) => (
                       <div
                         key={g.key}
                         className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary"
@@ -295,9 +381,9 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
                             <User className="w-4 h-4 text-bambu-green flex-shrink-0" />
                           )}
                           <span className="text-sm text-white truncate">
-                            {g.group_id ? g.group_name : g.username}
+                            {g.group_id ? g.group_name : formatUserDisplay(g)}
                           </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-bambu-dark-secondary text-bambu-gray">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-bambu-dark-secondary text-bambu-gray flex-shrink-0">
                             {g.group_id ? 'Group' : 'User'}
                           </span>
                         </div>
@@ -308,6 +394,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
                             onChange={(e) =>
                               handleChangeLevel(g.key, e.target.value as 'read' | 'write')
                             }
+                            aria-label="Permission level"
                             className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-bambu-green"
                           >
                             <option value="write">Read & Write</option>
@@ -350,6 +437,248 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
           </Button>
         </div>
       </div>
+
+      {/* Scalable Search & Multi-Select Popup Modal for Groups or Students */}
+      {pickerMode !== null && (
+        <div
+          className="fixed inset-0 bg-black/75 flex items-center justify-center z-[60] p-4"
+          onClick={closePicker}
+        >
+          <div
+            className="bg-bambu-dark-secondary rounded-lg w-full max-w-xl border border-bambu-dark-tertiary flex flex-col max-h-[85vh] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Picker Header */}
+            <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {pickerMode === 'group' ? (
+                  <Users className="w-5 h-5 text-bambu-green" />
+                ) : (
+                  <User className="w-5 h-5 text-bambu-green" />
+                )}
+                <div>
+                  <h3 className="text-base font-semibold text-white">
+                    {pickerMode === 'group'
+                      ? 'Select Groups / Cohorts'
+                      : 'Select Students / Users'}
+                  </h3>
+                  <p className="text-xs text-bambu-gray">
+                    Search and select one or more {pickerMode === 'group' ? 'groups' : 'students'} to grant access to <span className="text-white font-medium">{folder.name}</span>
+                  </p>
+                </div>
+              </div>
+              <button onClick={closePicker} className="p-1 hover:bg-bambu-dark rounded">
+                <X className="w-5 h-5 text-bambu-gray" />
+              </button>
+            </div>
+
+            {/* Search & Cohort Filter Bar */}
+            <div className="p-3 border-b border-bambu-dark-tertiary bg-bambu-dark/60 space-y-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-bambu-gray absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={pickerSearch}
+                    onChange={(e) => setPickerSearch(e.target.value)}
+                    autoFocus
+                    placeholder={
+                      pickerMode === 'group'
+                        ? 'Search groups by name or description...'
+                        : 'Search students by name, username, email, or group...'
+                    }
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green"
+                  />
+                </div>
+                {pickerMode === 'user' && (data?.available_groups?.length ?? 0) > 0 && (
+                  <select
+                    value={pickerGroupFilter}
+                    onChange={(e) => setPickerGroupFilter(e.target.value)}
+                    aria-label="Filter by group"
+                    className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-bambu-green sm:max-w-[190px]"
+                  >
+                    <option value="">All Groups / Cohorts</option>
+                    {data?.available_groups.map((g) => (
+                      <option key={g.id} value={g.name}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-bambu-gray px-1">
+                <span>
+                  {pickerMode === 'group'
+                    ? `${filteredPickerGroups.length} available group(s)`
+                    : `${filteredPickerUsers.length} available student(s)`}
+                  {selectedPickerIds.size > 0 && (
+                    <span className="ml-2 text-bambu-green font-medium">
+                      · {selectedPickerIds.size} selected
+                    </span>
+                  )}
+                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    className="text-bambu-green hover:underline"
+                  >
+                    Select All Shown
+                  </button>
+                  {selectedPickerIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPickerIds(new Set())}
+                      className="text-bambu-gray hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable Results List */}
+            <div className="p-3 overflow-y-auto flex-1 space-y-1.5 min-h-[240px] max-h-[380px]">
+              {pickerMode === 'group' ? (
+                filteredPickerGroups.length === 0 ? (
+                  <div className="text-center py-10 text-sm text-bambu-gray">
+                    No matching groups found.
+                  </div>
+                ) : (
+                  filteredPickerGroups.map((g) => {
+                    const checked = selectedPickerIds.has(g.id);
+                    return (
+                      <label
+                        key={g.id}
+                        className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                          checked
+                            ? 'bg-bambu-green/10 border-bambu-green/50'
+                            : 'bg-bambu-dark border-bambu-dark-tertiary hover:border-bambu-gray/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => togglePickerItem(g.id)}
+                            className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green bg-bambu-dark-secondary"
+                          />
+                          <Users className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-white truncate">
+                              {g.name}
+                            </div>
+                            {g.description && (
+                              <div className="text-xs text-bambu-gray truncate">
+                                {g.description}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )
+              ) : filteredPickerUsers.length === 0 ? (
+                <div className="text-center py-10 text-sm text-bambu-gray">
+                  No matching students or users found.
+                </div>
+              ) : (
+                filteredPickerUsers.map((u) => {
+                  const checked = selectedPickerIds.has(u.id);
+                  const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+                  return (
+                    <label
+                      key={u.id}
+                      className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-bambu-green/10 border-bambu-green/50'
+                          : 'bg-bambu-dark border-bambu-dark-tertiary hover:border-bambu-gray/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePickerItem(u.id)}
+                          className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green bg-bambu-dark-secondary"
+                        />
+                        <User className="w-4 h-4 text-bambu-green flex-shrink-0" />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-white truncate">
+                              {fullName || u.username}
+                            </span>
+                            {fullName && (
+                              <span className="text-xs text-bambu-gray">
+                                @{u.username}
+                              </span>
+                            )}
+                          </div>
+                          {u.email && (
+                            <div className="text-xs text-bambu-gray truncate">
+                              {u.email}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {(u.group_names?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap justify-end gap-1 max-w-[180px] flex-shrink-0">
+                          {u.group_names!.slice(0, 2).map((gn) => (
+                            <span
+                              key={gn}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-bambu-dark-secondary text-bambu-gray truncate max-w-[140px]"
+                            >
+                              {gn}
+                            </span>
+                          ))}
+                          {u.group_names!.length > 2 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bambu-dark-secondary text-bambu-gray">
+                              +{u.group_names!.length - 2}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Picker Footer */}
+            <div className="p-4 border-t border-bambu-dark-tertiary flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-bambu-gray">Access Level:</span>
+                <select
+                  value={pickerAccessLevel}
+                  onChange={(e) => setPickerAccessLevel(e.target.value as 'read' | 'write')}
+                  aria-label="Access level for selected"
+                  className="bg-bambu-dark border border-bambu-dark-tertiary rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-bambu-green"
+                >
+                  <option value="write">Read & Write</option>
+                  <option value="read">Read Only</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={closePicker}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleConfirmPicker}
+                  disabled={selectedPickerIds.size === 0}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Selected ({selectedPickerIds.size})
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

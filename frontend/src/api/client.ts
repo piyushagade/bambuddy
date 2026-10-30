@@ -8521,6 +8521,8 @@ export interface FolderPermissionEntry {
   folder_id: number;
   user_id?: number | null;
   username?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   group_id?: number | null;
   group_name?: string | null;
   can_read: boolean;
@@ -8531,11 +8533,16 @@ export interface FolderPermissionEntry {
 export interface FolderShareTargetUser {
   id: number;
   username: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  group_names?: string[];
 }
 
 export interface FolderShareTargetGroup {
   id: number;
   name: string;
+  description?: string | null;
 }
 
 export interface FolderPermissionsListResponse {
