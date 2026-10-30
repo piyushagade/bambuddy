@@ -1243,7 +1243,7 @@ export function ConfigureAmsSlotModal({
       {/* Modal */}
       <div className={fullScreen
         ? 'relative w-full h-full bg-bambu-dark-secondary flex flex-col'
-        : 'relative w-full max-w-lg mx-4 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl shadow-2xl'
+        : 'relative w-full max-w-lg mx-4 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl shadow-2xl max-h-[90vh] flex flex-col'
       }>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary shrink-0">
@@ -1278,7 +1278,7 @@ export function ConfigureAmsSlotModal({
         </div>
 
         {/* Content */}
-        <div className={`p-4 overflow-y-auto ${fullScreen ? 'flex-1 min-h-0' : 'space-y-4 max-h-[60vh]'}`}>
+        <div className={`p-4 overflow-y-auto flex-1 min-h-0 ${fullScreen ? '' : 'space-y-4'}`}>
           {/* Success overlay */}
           {showSuccess && (
             <div className="absolute inset-0 bg-bambu-dark-secondary/95 z-10 flex items-center justify-center rounded-xl">

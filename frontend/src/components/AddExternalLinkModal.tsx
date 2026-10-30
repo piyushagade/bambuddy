@@ -159,11 +159,11 @@ export function AddExternalLinkModal({ link, onClose }: AddExternalLinkModalProp
       onClick={onClose}
     >
       <div
-        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-md"
+        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-bambu-green/20 text-bambu-green">
               {useCustomIcon && customIconPreview ? (
@@ -185,7 +185,8 @@ export function AddExternalLinkModal({ link, onClose }: AddExternalLinkModalProp
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
@@ -288,20 +289,20 @@ export function AddExternalLinkModal({ link, onClose }: AddExternalLinkModalProp
             )}
           </div>
 
+          </div>
+
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             <Button
               type="button"
               variant="secondary"
               onClick={onClose}
-              className="flex-1"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={isPending}
-              className="flex-1"
             >
               {isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

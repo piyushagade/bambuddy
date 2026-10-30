@@ -358,15 +358,15 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg my-8 max-h-[90vh] overflow-y-auto"
+        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">
             {isEditing ? t('notifications.editTitle') : t('notifications.addTitle')}
           </h2>
@@ -379,7 +379,8 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
@@ -830,20 +831,20 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
             })()}
           </div>
 
+          </div>
+
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             <Button
               type="button"
               variant="secondary"
               onClick={onClose}
-              className="flex-1"
             >
               {t('notifications.cancel')}
             </Button>
             <Button
               type="submit"
               disabled={isPending}
-              className="flex-1"
             >
               {isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

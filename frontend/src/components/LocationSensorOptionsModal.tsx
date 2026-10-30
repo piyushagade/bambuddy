@@ -291,10 +291,10 @@ export function LocationSensorOptionsModal({ onClose }: Props) {
     <>
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-bambu-green/20 text-bambu-green">
               <Settings2 className="w-5 h-5" />
@@ -306,7 +306,8 @@ export function LocationSensorOptionsModal({ onClose }: Props) {
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="px-6 pb-6 pt-3 space-y-4">
+        <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
+          <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">{t('locationHaSensors.options.description')}</p>
 
           <div className="space-y-3">
@@ -416,7 +417,9 @@ export function LocationSensorOptionsModal({ onClose }: Props) {
             <p className="text-xs text-bambu-gray">{t('locationHaSensors.options.pollIntervalHint')}</p>
           </div>
 
-          <div className="flex items-center justify-between gap-2 pt-2">
+          </div>
+
+          <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             <Button type="button" variant="secondary" onClick={() => setShowResetConfirm(true)}>
               <RotateCcw className="w-4 h-4" />
               {t('locationHaSensors.options.reset')}

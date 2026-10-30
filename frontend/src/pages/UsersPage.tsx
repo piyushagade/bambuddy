@@ -460,10 +460,10 @@ export function UsersPage() {
           }}
         >
           <Card
-            className="w-full max-w-md"
+            className="w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader>
+            <CardHeader className="flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <UsersIcon className="w-5 h-5 text-bambu-green" />
@@ -482,7 +482,7 @@ export function UsersPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-y-auto flex-1">
               {ldapStatus?.ldap_enabled && (
                 <div
                   className="mb-4 flex items-center gap-1 p-1 bg-bambu-dark-secondary rounded-lg"
@@ -519,30 +519,15 @@ export function UsersPage() {
               )}
 
               {basicCreateTab === 'ldap' && ldapStatus?.ldap_enabled ? (
-                <>
-                  <LdapUserPicker
-                    onSuccess={(user) => {
-                      setShowCreateModal(false);
-                      setBasicCreateTab('local');
-                      setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                      showToast(t('users.toast.ldapProvisioned', { username: user.username }));
-                    }}
-                  />
-                  <div className="mt-6 flex justify-end">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setShowCreateModal(false);
-                        setBasicCreateTab('local');
-                        setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                      }}
-                    >
-                      {t('users.modal.cancel')}
-                    </Button>
-                  </div>
-                </>
+                <LdapUserPicker
+                  onSuccess={(user) => {
+                    setShowCreateModal(false);
+                    setBasicCreateTab('local');
+                    setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                    showToast(t('users.toast.ldapProvisioned', { username: user.username }));
+                  }}
+                />
               ) : (
-              <>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
@@ -624,16 +609,20 @@ export function UsersPage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                  }}
-                >
-                  {t('users.modal.cancel')}
-                </Button>
+              )}
+            </CardContent>
+            <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setBasicCreateTab('local');
+                  setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                }}
+              >
+                {t('users.modal.cancel')}
+              </Button>
+              {!(basicCreateTab === 'ldap' && ldapStatus?.ldap_enabled) && (
                 <Button
                   onClick={handleCreate}
                   disabled={isCreateButtonDisabled}
@@ -650,10 +639,8 @@ export function UsersPage() {
                     </>
                   )}
                 </Button>
-              </div>
-              </>
               )}
-            </CardContent>
+            </div>
           </Card>
         </div>
       )}
@@ -687,10 +674,10 @@ export function UsersPage() {
           onClick={closeEditModal}
         >
           <Card
-            className="w-full max-w-md"
+            className="w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader>
+            <CardHeader className="flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Edit2 className="w-5 h-5 text-bambu-green" />
@@ -705,7 +692,7 @@ export function UsersPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-y-auto flex-1">
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
@@ -801,31 +788,31 @@ export function UsersPage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={closeEditModal}
-                >
-                  {t('users.modal.cancel')}
-                </Button>
-                <Button
-                  onClick={() => handleUpdate(editingUserId)}
-                  disabled={updateMutation.isPending || !formData.username || !!(formData.password && (formData.password !== formData.confirmPassword || formData.password.length < 6))}
-                >
-                  {updateMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {t('users.modal.saving')}
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      {t('users.modal.saveChanges')}
-                    </>
-                  )}
-                </Button>
-              </div>
             </CardContent>
+            <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+              <Button
+                variant="secondary"
+                onClick={closeEditModal}
+              >
+                {t('users.modal.cancel')}
+              </Button>
+              <Button
+                onClick={() => handleUpdate(editingUserId)}
+                disabled={updateMutation.isPending || !formData.username || !!(formData.password && (formData.password !== formData.confirmPassword || formData.password.length < 6))}
+              >
+                {updateMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('users.modal.saving')}
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {t('users.modal.saveChanges')}
+                  </>
+                )}
+              </Button>
+            </div>
           </Card>
         </div>
       )}

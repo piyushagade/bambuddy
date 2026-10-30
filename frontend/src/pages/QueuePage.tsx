@@ -343,8 +343,8 @@ function BulkEditModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary">
+      <div className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">
             {t('queue.bulkEdit.title', { count: selectedCount })}
           </h2>
@@ -353,7 +353,7 @@ function BulkEditModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-sm text-bambu-gray">
             {t('queue.bulkEdit.description')}
           </p>
@@ -413,7 +413,7 @@ function BulkEditModal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 p-4 border-t border-bambu-dark-tertiary">
+        <div className="flex justify-end gap-3 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
           <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={handleSave}

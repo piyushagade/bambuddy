@@ -1762,10 +1762,10 @@ function CreatePresetModal({
         />
       )}
 
-      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col overflow-y-auto">
-        <CardContent className="p-0 flex flex-col h-full">
+      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary">
+          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
             <div>
               <h2 className="text-xl font-semibold text-white">
                 {isEditMode ? t('profiles.presets.editPreset') : (initialData ? t('profiles.presets.duplicatePreset') : t('profiles.presets.createNewPreset'))}
@@ -1943,7 +1943,7 @@ function CreatePresetModal({
           </div>
 
           {/* Tab Content */}
-          <div className="flex-1 p-4">
+          <div className="flex-1 p-4 overflow-y-auto min-h-0">
             {activeTab === 'common' && (
               <div className="space-y-6">
                 {/* Templates */}
@@ -2265,12 +2265,11 @@ function CreatePresetModal({
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-bambu-dark-tertiary flex gap-2">
-            <Button variant="secondary" onClick={onClose} className="flex-1">{t('common.cancel')}</Button>
+          <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
+            <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
             <Button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !name.trim() || (!isEditMode && !baseId) || !!jsonError}
-              className="flex-1"
             >
               {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (isEditMode ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />)}
               {isEditMode ? t('common.save') : (initialData ? t('common.duplicate') : t('common.create'))}

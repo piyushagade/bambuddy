@@ -1740,12 +1740,12 @@ export function PrintModal({
           "Bamb..." (#1784). 4xl is 896px, so it still fits a 1024-wide laptop
           with the surrounding padding, and `w-full` keeps it fluid below that. */}
       <Card
-        className="w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-4xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <CardContent className="p-0">
+        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary">
+          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
             <div className="flex items-center gap-2">
               <TitleIcon className="w-5 h-5 text-bambu-green" />
               <h2 className="text-lg font-semibold text-white">{modalConfig.title}</h2>
@@ -1755,7 +1755,8 @@ export function PrintModal({
             </Button>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="p-4 space-y-4 overflow-y-auto flex-1" style={{ scrollbarGutter: 'stable' }}>
             {/* Archive name */}
             <p className="text-sm text-bambu-gray">
               <span className="block text-bambu-gray mb-1">Print Job</span>
@@ -2118,15 +2119,16 @@ export function PrintModal({
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={onClose} className="flex-1" disabled={isSubmitting}>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+              <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={!canSubmit}
-                className="flex-1"
               >
                 {isPending ? (
                   <>

@@ -175,15 +175,15 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-lg border border-bambu-dark-tertiary">
-        <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+      <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-lg border border-bambu-dark-tertiary max-h-[90vh] flex flex-col">
+        <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">{t('fileManager.uploadFiles')}</h2>
           <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
             <X className="w-5 h-5 text-bambu-gray" />
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 overflow-y-auto flex-1">
           {/* Drop Zone */}
           <div
             onDragOver={handleDragOver}
@@ -354,7 +354,7 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
           )}
         </div>
 
-        <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2">
+        <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
           <Button variant="secondary" onClick={onClose}>
             {t('common.cancel')}
           </Button>

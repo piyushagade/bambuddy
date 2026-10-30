@@ -7776,10 +7776,10 @@ export function SettingsPage() {
           }}
         >
           <Card
-            className="w-full max-w-md"
+            className="w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader>
+            <CardHeader className="flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Key className="w-5 h-5 text-bambu-green" />
@@ -7797,7 +7797,7 @@ export function SettingsPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-y-auto flex-1">
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
@@ -7848,55 +7848,55 @@ export function SettingsPage() {
                   )}
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
+            </CardContent>
+            <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowChangePasswordModal(false);
+                  setChangePasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (changePasswordData.newPassword !== changePasswordData.confirmPassword) {
+                    showToast(t('settings.toast.passwordsDoNotMatch'), 'error');
+                    return;
+                  }
+                  if (changePasswordData.newPassword.length < 6) {
+                    showToast(t('settings.toast.passwordTooShort'), 'error');
+                    return;
+                  }
+                  setChangePasswordLoading(true);
+                  try {
+                    await api.changePassword(changePasswordData.currentPassword, changePasswordData.newPassword);
+                    showToast(t('settings.toast.passwordChanged'), 'success');
                     setShowChangePasswordModal(false);
                     setChangePasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                  }}
-                >
-                  {t('common.cancel')}
-                </Button>
-                <Button
-                  onClick={async () => {
-                    if (changePasswordData.newPassword !== changePasswordData.confirmPassword) {
-                      showToast(t('settings.toast.passwordsDoNotMatch'), 'error');
-                      return;
-                    }
-                    if (changePasswordData.newPassword.length < 6) {
-                      showToast(t('settings.toast.passwordTooShort'), 'error');
-                      return;
-                    }
-                    setChangePasswordLoading(true);
-                    try {
-                      await api.changePassword(changePasswordData.currentPassword, changePasswordData.newPassword);
-                      showToast(t('settings.toast.passwordChanged'), 'success');
-                      setShowChangePasswordModal(false);
-                      setChangePasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                    } catch (error: unknown) {
-                      const message = error instanceof Error ? error.message : 'Failed to change password';
-                      showToast(message, 'error');
-                    } finally {
-                      setChangePasswordLoading(false);
-                    }
-                  }}
-                  disabled={changePasswordLoading || !changePasswordData.currentPassword || !changePasswordData.newPassword || changePasswordData.newPassword !== changePasswordData.confirmPassword || changePasswordData.newPassword.length < 6}
-                >
-                  {changePasswordLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {t('settings.changing')}
-                    </>
-                  ) : (
-                    <>
-                      <Key className="w-4 h-4" />
-                      {t('settings.changePassword')}
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
+                  } catch (error: unknown) {
+                    const message = error instanceof Error ? error.message : 'Failed to change password';
+                    showToast(message, 'error');
+                  } finally {
+                    setChangePasswordLoading(false);
+                  }
+                }}
+                disabled={changePasswordLoading || !changePasswordData.currentPassword || !changePasswordData.newPassword || changePasswordData.newPassword !== changePasswordData.confirmPassword || changePasswordData.newPassword.length < 6}
+              >
+                {changePasswordLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('settings.changing')}
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-4 h-4" />
+                    {t('settings.changePassword')}
+                  </>
+                )}
+              </Button>
+            </div>
           </Card>
         </div>
       )}

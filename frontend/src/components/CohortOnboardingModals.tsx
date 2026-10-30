@@ -60,10 +60,10 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
       onClick={onClose}
     >
       <Card
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-xl max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader>
+        <CardHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-bambu-green" />
@@ -76,7 +76,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">
             Upload a <strong className="text-white">UF Class Roll CSV</strong> (
             <code className="text-white">UFID,Last Name,First Name,Email,Subject,Catalog Number,Term,...</code>
@@ -86,7 +86,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
             <code className="text-white">Email</code> before <code className="text-white">@</code>, their
             initial <strong className="text-white">password</strong> is set to their{' '}
             <code className="text-white">UFID</code>, and their course group (e.g.{' '}
-            <code className="text-white">ABE4042C-Fall2026</code>) and semester expiration are created
+            <code className="text-white">F26 - ABE4042C</code>) and semester expiration are created
             automatically.
           </p>
 
@@ -157,28 +157,28 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" onClick={onClose}>
-              Close
-            </Button>
-            <Button
-              onClick={() => importMutation.mutate()}
-              disabled={importMutation.isPending || !csvContent.trim()}
-            >
-              {importMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4" />
-                  Import Roster
-                </>
-              )}
-            </Button>
-          </div>
         </CardContent>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            onClick={() => importMutation.mutate()}
+            disabled={importMutation.isPending || !csvContent.trim()}
+          >
+            {importMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Importing...
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                Import Roster
+              </>
+            )}
+          </Button>
+        </div>
       </Card>
     </div>
   );
@@ -265,10 +265,10 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
       onClick={onClose}
     >
       <Card
-        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader>
+        <CardHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Link2 className="w-5 h-5 text-bambu-green" />
@@ -281,7 +281,7 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 overflow-y-auto flex-1">
           <div className="p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary space-y-3">
             <h3 className="text-sm font-medium text-white">Create Course / Cohort Invite Code</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -476,6 +476,11 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
             )}
           </div>
         </CardContent>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
       </Card>
     </div>
   );
@@ -542,10 +547,10 @@ export function RedeemInviteModal({
       onClick={onClose}
     >
       <Card
-        className="w-full max-w-md"
+        className="w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader>
+        <CardHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Link2 className="w-5 h-5 text-bambu-green" />
@@ -558,7 +563,7 @@ export function RedeemInviteModal({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">
             {isAuthenticated
               ? 'Enter the course invite code provided by your instructor or TA to join the course group and extend your semester access.'
@@ -621,26 +626,25 @@ export function RedeemInviteModal({
               </div>
             </>
           )}
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => redeemMutation.mutate()}
-              disabled={redeemMutation.isPending || !canSubmit}
-            >
-              {redeemMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Enrolling...
-                </>
-              ) : (
-                'Enroll in Course'
-              )}
-            </Button>
-          </div>
         </CardContent>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => redeemMutation.mutate()}
+            disabled={redeemMutation.isPending || !canSubmit}
+          >
+            {redeemMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Enrolling...
+              </>
+            ) : (
+              'Enroll in Course'
+            )}
+          </Button>
+        </div>
       </Card>
     </div>
   );

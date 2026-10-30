@@ -95,10 +95,10 @@ export function BatchTagModal({ selectedIds, existingTags, onClose }: BatchTagMo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardContent className="p-0">
+      <Card className="w-full max-w-md max-h-[90vh] flex flex-col">
+        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary">
+          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
             <div className="flex items-center gap-2">
               <Tag className="w-5 h-5 text-bambu-green" />
               <h2 className="text-xl font-semibold text-white">
@@ -114,7 +114,7 @@ export function BatchTagModal({ selectedIds, existingTags, onClose }: BatchTagMo
           </div>
 
           {/* Content */}
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1">
             <p className="text-sm text-bambu-gray">
               {mode === 'add' ? 'Add' : 'Remove'} tags for {selectedIds.length} selected archive{selectedIds.length !== 1 ? 's' : ''}
             </p>
@@ -202,14 +202,13 @@ export function BatchTagModal({ selectedIds, existingTags, onClose }: BatchTagMo
           </div>
 
           {/* Footer */}
-          <div className="flex gap-3 p-4 border-t border-bambu-dark-tertiary">
-            <Button variant="secondary" onClick={onClose} className="flex-1">
+          <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+            <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>
             <Button
               onClick={() => batchTagMutation.mutate()}
               disabled={selectedTags.size === 0 || batchTagMutation.isPending}
-              className="flex-1"
             >
               {batchTagMutation.isPending ? (
                 <>

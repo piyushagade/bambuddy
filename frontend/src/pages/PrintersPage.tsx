@@ -7856,15 +7856,22 @@ export function AddPrinterModal({
   return (
     <>
     <div
-      className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
-      <Card className="w-full max-w-md my-auto max-h-[calc(100vh-2rem)] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-        <CardContent>
-          <h2 className="text-xl font-semibold mb-4">{t('printers.addPrinter')}</h2>
+      <Card className="w-full max-w-md max-h-[90vh] flex flex-col" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
+            <h2 className="text-lg font-semibold text-white">{t('printers.addPrinter')}</h2>
+            <button onClick={onClose} className="p-1 text-bambu-gray hover:text-white rounded transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
 
-          {/* Discovery Section */}
-          <div className="mb-4 pb-4 border-b border-bambu-dark-tertiary">
+          <form onSubmit={handleAddSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
+              {/* Discovery Section */}
+              <div className="pb-4 border-b border-bambu-dark-tertiary">
             {/* Subnet picker — always visible. The dropdown lists detected
                 interface subnets and a "Custom..." sentinel that reveals
                 a CIDR text input for printers on a different L3 segment
@@ -7990,7 +7997,6 @@ export function AddPrinterModal({
               </p>
             )}
           </div>
-          <form onSubmit={handleAddSubmit} className="space-y-4">
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.name')}</label>
               <input
@@ -8104,37 +8110,41 @@ export function AddPrinterModal({
               <Stethoscope className="w-4 h-4" />
               {t('diagnostic.runButton')}
             </button>
-            {saveWarning ? (
+            {saveWarning && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 p-3 space-y-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                   <p className="text-sm text-amber-700 dark:text-amber-300">{t('printers.addPreflight.warning')}</p>
                 </div>
                 <DiagnosticChecklist result={saveWarning} />
-                <div className="flex gap-3">
+              </div>
+            )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+              {saveWarning ? (
+                <>
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => setSaveWarning(null)}
-                    className="flex-1"
                   >
                     {t('printers.addPreflight.back')}
                   </Button>
-                  <Button type="button" onClick={() => onAdd(form)} className="flex-1">
+                  <Button type="button" onClick={() => onAdd(form)}>
                     {t('printers.addPreflight.saveAnyway')}
                   </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-3 pt-2">
-                <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
-                  {t('common.cancel')}
-                </Button>
-                <Button type="submit" disabled={checkingSave} className="flex-1">
-                  {checkingSave ? t('printers.addPreflight.checking') : t('printers.addPrinter')}
-                </Button>
-              </div>
-            )}
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="secondary" onClick={onClose}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button type="submit" disabled={checkingSave}>
+                    {checkingSave ? t('printers.addPreflight.checking') : t('printers.addPrinter')}
+                  </Button>
+                </>
+              )}
+            </div>
           </form>
         </CardContent>
       </Card>
@@ -8517,13 +8527,19 @@ function EditPrinterModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
-      <Card className="w-full max-w-md my-auto max-h-[calc(100vh-2rem)] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-        <CardContent>
-          <h2 className="text-xl font-semibold mb-4">{t('printers.editPrinter')}</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
+      <Card className="w-full max-w-md max-h-[90vh] flex flex-col" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
+            <h2 className="text-lg font-semibold text-white">{t('printers.editPrinter')}</h2>
+            <button onClick={onClose} className="p-1 text-bambu-gray hover:text-white rounded transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.name')}</label>
               <input
@@ -8647,50 +8663,52 @@ function EditPrinterModal({
                 {t('printers.maintenance.editFieldHelp')}
               </p>
             </div>
-            {saveWarning ? (
+            {saveWarning && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 p-3 space-y-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
                   <p className="text-sm text-amber-700 dark:text-amber-300">{t('printers.addPreflight.warning')}</p>
                 </div>
                 <DiagnosticChecklist result={saveWarning} />
-                <div className="flex gap-3">
+              </div>
+            )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+              {saveWarning ? (
+                <>
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => setSaveWarning(null)}
-                    className="flex-1"
                   >
                     {t('printers.addPreflight.back')}
                   </Button>
                   <Button
                     type="button"
                     onClick={doSave}
-                    className="flex-1"
                     disabled={updateMutation.isPending}
                   >
                     {t('printers.addPreflight.saveAnyway')}
                   </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
-                  {t('common.cancel')}
-                </Button>
-                <Button
-                  type="submit"
-                  className="flex-1"
-                  disabled={updateMutation.isPending || checkingSave}
-                >
-                  {checkingSave
-                    ? t('printers.addPreflight.checking')
-                    : updateMutation.isPending
-                      ? t('common.saving')
-                      : t('printers.modal.saveChanges')}
-                </Button>
-              </div>
-            )}
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="secondary" onClick={onClose}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={updateMutation.isPending || checkingSave}
+                  >
+                    {checkingSave
+                      ? t('printers.addPreflight.checking')
+                      : updateMutation.isPending
+                        ? t('common.saving')
+                        : t('printers.modal.saveChanges')}
+                  </Button>
+                </>
+              )}
+            </div>
           </form>
         </CardContent>
       </Card>
