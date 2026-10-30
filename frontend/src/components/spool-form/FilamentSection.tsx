@@ -231,10 +231,10 @@ export function FilamentSection({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
       {/* Cloud status indicator */}
       {!quickAdd && (
-        <div className="flex items-center gap-2 text-xs text-bambu-gray">
+        <div className="sm:col-span-2 flex items-center gap-2 text-xs text-bambu-gray -mb-2">
           {loadingCloudPresets ? (
             <><Loader2 className="w-3 h-3 animate-spin" /> {t('inventory.loadingPresets')}</>
           ) : cloudAuthenticated ? (
@@ -247,7 +247,7 @@ export function FilamentSection({
 
       {/* Slicer Preset (autocomplete) — hidden in quick-add mode */}
       {!quickAdd && (
-        <div>
+        <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-bambu-gray mb-1">
             {t('inventory.slicerPreset')}{detailsRequired && ' *'}
           </label>
@@ -526,7 +526,7 @@ export function FilamentSection({
 
       {/* Quantity — only in quick-add mode */}
       {quickAdd && (
-        <div>
+        <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-bambu-gray mb-1">{t('inventory.quantity')}</label>
           <NumberInput
             className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:outline-none focus:border-bambu-green"
@@ -541,7 +541,7 @@ export function FilamentSection({
 
       {/* Access Control (Authorized Groups & Users) — internal inventory only */}
       {!spoolmanMode && (
-        <div className="pt-2 border-t border-bambu-dark-tertiary">
+        <div className="sm:col-span-2 pt-2 border-t border-bambu-dark-tertiary">
           <div className="flex items-center gap-1.5 mb-1">
             <Shield className="w-4 h-4 text-bambu-green" />
             <label className="text-sm font-medium text-white">

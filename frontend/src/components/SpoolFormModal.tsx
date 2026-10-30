@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { X, Loader2, Save, Beaker, Palette, Zap, Tag, Link2, Unlink } from 'lucide-react';
+import { X, Loader2, Save, Beaker, Palette, Zap, Tag, Link2, Unlink, ChevronDown, Store } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type { InventorySpool, SlicerSetting, SpoolCatalogEntry, LocalPreset, BuiltinFilament, SpoolmanBulkCreateResult, SpoolFilamentPresetInput, SpoolKProfileInput, SpoolmanFilamentEntry } from '../api/client';
 import { Button } from './Button';
@@ -30,8 +30,6 @@ import {
   invalidateInventoryLocations,
   invalidateSpoolAndLocationQueries,
 } from '../utils/inventoryQueries';
-
-type TabId = 'filament' | 'appearance' | 'printers';
 
 const CLEAR_TAG_PAYLOAD = { tag_uid: null, tray_uuid: null, tag_type: null, data_origin: null };
 
@@ -75,7 +73,8 @@ export function SpoolFormModal({
   // Form state
   const [formData, setFormData] = useState<SpoolFormData>(defaultFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof SpoolFormData, string>>>({});
-  const [activeTab, setActiveTab] = useState<TabId>('filament');
+  const [showSuppliers, setShowSuppliers] = useState(false);
+  const [showPrinters, setShowPrinters] = useState(false);
   const [weightTouched, setWeightTouched] = useState(false);
   // Keyed on core_weight, not core_weight_catalog_id: SpoolWeightPicker selects
   // a catalogue entry by itself on mount when one matches the current weight,
@@ -234,7 +233,7 @@ export function SpoolFormModal({
       api.getLocalPresets().then(r => setLocalPresets(r.filament)).catch(console.error);
       api.getBuiltinFilaments().then(setBuiltinFilaments).catch(console.error);
       api.getLocations().then((locs) => setStorageLocations(locs.map((l) => ({ id: l.id, name: l.name })))).catch(console.error);
-      api.getSpoolAccessOptions().then((opts) => {
+      api.getSpoolAccessOptions?.().then((opts) => {
         if (!cancelled) {
           setAccessGroups(opts.groups || []);
           setAccessUsers(opts.users || []);
@@ -497,7 +496,8 @@ export function SpoolFormModal({
       setQuickAdd(false);
       setQuantity(1);
       setErrors({});
-      setActiveTab('filament');
+      setShowSuppliers(Boolean(spool?.suppliers?.length));
+      setShowPrinters(Boolean(spool?.k_profiles?.length));
       setSelectedGroupId('');
       // Cleared on every open, both branches: the modal keeps its state while
       // closed, so editing spool B after spool A would otherwise show (and
@@ -953,9 +953,6 @@ export function SpoolFormModal({
     const validation = validateForm(formData, quickAdd, spoolmanMode, mode);
     if (!validation.isValid) {
       setErrors(validation.errors);
-      if (validation.errors.slicer_filament || validation.errors.material || validation.errors.brand || validation.errors.subtype) {
-        setActiveTab('filament');
-      }
       return;
     }
 
@@ -1066,7 +1063,6 @@ export function SpoolFormModal({
               type="button"
               onClick={() => {
                 setQuickAdd(!quickAdd);
-                if (!quickAdd) setActiveTab('filament');
               }}
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                 quickAdd ? 'bg-bambu-green' : 'bg-bambu-dark-tertiary'
@@ -1081,188 +1077,191 @@ export function SpoolFormModal({
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex border-b border-bambu-dark-tertiary flex-shrink-0">
-          <button
-            onClick={() => setActiveTab('filament')}
-            className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-              activeTab === 'filament'
-                ? 'text-bambu-green border-b-2 border-bambu-green'
-                : 'text-bambu-gray hover:text-white'
-            }`}
-          >
-            <Beaker className="w-4 h-4" />
-            {t('inventory.filamentInfoTab')}
-          </button>
-          {!quickAdd && (
-            <button
-              onClick={() => setActiveTab('appearance')}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                activeTab === 'appearance'
-                  ? 'text-bambu-green border-b-2 border-bambu-green'
-                  : 'text-bambu-gray hover:text-white'
-              }`}
-            >
-              <Palette className="w-4 h-4" />
-              {t('inventory.colorAndCostTab')}
-            </button>
-          )}
-          {!quickAdd && (
-            <button
-              onClick={() => setActiveTab('printers')}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                activeTab === 'printers'
-                  ? 'text-bambu-green border-b-2 border-bambu-green'
-                  : 'text-bambu-gray hover:text-white'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              {t('inventory.printersTab')}
-              {selectedProfileCount > 0 && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-bambu-green/20 text-bambu-green">
-                  {selectedProfileCount}
-                </span>
+        {/* Single-View Scrollable Content */}
+        <div className="p-4 overflow-y-auto flex-1 space-y-6" style={{ scrollbarGutter: 'stable' }}>
+          {/* Spoolman Filament Catalog Picker — only when creating a spool in Spoolman mode */}
+          {spoolmanMode && !isEditing && (
+            <div>
+              {filamentsError ? (
+                <p className="text-sm text-red-700 dark:text-red-400 px-1">{t('inventory.spoolmanCatalogLoadFailed')}</p>
+              ) : (
+                <SpoolmanFilamentPicker
+                  filaments={spoolmanFilaments}
+                  isLoading={isLoadingFilaments}
+                  selectedId={formData.spoolman_filament_id}
+                  onSelect={handleFilamentSelect}
+                />
               )}
-            </button>
+            </div>
           )}
-        </div>
 
-        {/* Content */}
-        <div className="p-4 overflow-y-auto flex-1" style={{ scrollbarGutter: 'stable' }}>
-          {activeTab === 'filament' ? (
-            <div className="space-y-6">
-              {/* Spoolman Filament Catalog Picker — only when creating a spool in Spoolman mode */}
-              {spoolmanMode && !isEditing && (
+          {/* Filament Info Section */}
+          <div>
+            <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3 flex items-center gap-2">
+              <Beaker className="w-4 h-4 text-bambu-green" />
+              {t('inventory.filamentInfoTab')}
+            </h3>
+            <FilamentSection
+              formData={formData}
+              updateField={updateField}
+              cloudAuthenticated={cloudAuthenticated}
+              loadingCloudPresets={loadingCloudPresets}
+              presetInputValue={presetInputValue}
+              setPresetInputValue={setPresetInputValue}
+              selectedPresetOption={selectedPresetOption}
+              filamentOptions={filamentOptions}
+              availableBrands={availableBrands}
+              availableMaterials={availableMaterials}
+              suggestedBrands={suggestedBrands}
+              suggestedMaterials={suggestedMaterials}
+              quickAdd={quickAdd}
+              detailsRequired={!quickAdd && !spoolmanMode && mode === 'create'}
+              quantity={quantity}
+              onQuantityChange={setQuantity}
+              errors={errors}
+              accessGroups={accessGroups}
+              accessUsers={accessUsers}
+              spoolmanMode={spoolmanMode}
+            />
+          </div>
+
+          {!quickAdd && (
+            <>
+              {/* Color & Cost Section */}
+              <div className="pt-4 border-t border-bambu-dark-tertiary space-y-6">
                 <div>
-                  {filamentsError ? (
-                    <p className="text-sm text-red-700 dark:text-red-400 px-1">{t('inventory.spoolmanCatalogLoadFailed')}</p>
-                  ) : (
-                    <SpoolmanFilamentPicker
-                      filaments={spoolmanFilaments}
-                      isLoading={isLoadingFilaments}
-                      selectedId={formData.spoolman_filament_id}
-                      onSelect={handleFilamentSelect}
+                  <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <Palette className="w-4 h-4 text-bambu-green" />
+                    <span>{t('inventory.colorAndCostTab')}</span>
+                    <span className="text-xs font-normal text-bambu-gray/60 normal-case">({t('inventory.color')})</span>
+                  </h3>
+                  <ColorSection
+                    formData={formData}
+                    updateField={updateField}
+                    recentColors={recentColors}
+                    onColorUsed={handleColorUsed}
+                    catalogColors={colorCatalog}
+                  />
+                </div>
+
+                {/* Additional Section */}
+                <div>
+                  <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3">
+                    {t('inventory.additional')}
+                  </h3>
+                  <AdditionalSection
+                    formData={formData}
+                    updateField={updateField}
+                    spoolCatalog={spoolCatalog}
+                    currencySymbol={currencySymbol}
+                    availableCategories={availableCategories}
+                    availableMaterialNumbers={availableMaterialNumbers}
+                    availableLocations={storageLocations}
+                    onCreateLocation={async (name) => {
+                      try {
+                        const created = await api.createLocation({ name });
+                        setStorageLocations((prev) => [...prev, { id: created.id, name: created.name }].sort((a, b) => a.name.localeCompare(b.name)));
+                        await invalidateInventoryLocations(queryClient);
+                        return { id: created.id, name: created.name };
+                      } catch (e) {
+                        // Surface the backend's actual error so the user can
+                        // distinguish 409 duplicate / 400 validation / 500 from
+                        // a generic "save failed" message.
+                        console.error(e);
+                        const message = e instanceof Error ? e.message : t('locations.saveFailed');
+                        showToast(message || t('locations.saveFailed'), 'error');
+                        return null;
+                      }
+                    }}
+                    globalLowStockThreshold={globalLowStockThreshold}
+                    spoolmanMode={spoolmanMode}
+                  />
+                </div>
+              </div>
+
+              {/* Collapsible Advanced Sections: Suppliers & Printers */}
+              <div className="pt-4 border-t border-bambu-dark-tertiary space-y-3">
+                {/* Suppliers (#2988) */}
+                <div className="border border-bambu-dark-tertiary rounded-lg bg-bambu-dark/40">
+                  <button
+                    type="button"
+                    onClick={() => setShowSuppliers((prev) => !prev)}
+                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-bambu-dark-tertiary/40 transition-colors rounded-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Store className="w-4 h-4 text-bambu-gray" />
+                      <span className="text-sm font-medium text-white">{t('inventory.suppliers.label')}</span>
+                      {supplierLinks.length > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-bambu-green/20 text-bambu-green">
+                          {supplierLinks.length}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-bambu-gray transition-transform ${showSuppliers ? 'rotate-180' : ''}`}
                     />
+                  </button>
+                  {showSuppliers && (
+                    <div className="px-4 pb-4 pt-1 border-t border-bambu-dark-tertiary/60">
+                      <SupplierSection
+                        links={supplierLinks}
+                        onChange={(next) => {
+                          setSupplierLinks(next);
+                          setSupplierLinksTouched(true);
+                        }}
+                        currencySymbol={currencySymbol}
+                      />
+                    </div>
                   )}
                 </div>
-              )}
 
-              {/* Filament Info Section */}
-              <div>
-                <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3">
-                  {t('inventory.filamentInfo')}
-                </h3>
-                <FilamentSection
-                  formData={formData}
-                  updateField={updateField}
-                  cloudAuthenticated={cloudAuthenticated}
-                  loadingCloudPresets={loadingCloudPresets}
-                  presetInputValue={presetInputValue}
-                  setPresetInputValue={setPresetInputValue}
-                  selectedPresetOption={selectedPresetOption}
-                  filamentOptions={filamentOptions}
-                  availableBrands={availableBrands}
-                  availableMaterials={availableMaterials}
-                  suggestedBrands={suggestedBrands}
-                  suggestedMaterials={suggestedMaterials}
-                  quickAdd={quickAdd}
-                  detailsRequired={!quickAdd && !spoolmanMode && mode === 'create'}
-                  quantity={quantity}
-                  onQuantityChange={setQuantity}
-                  errors={errors}
-                  accessGroups={accessGroups}
-                  accessUsers={accessUsers}
-                  spoolmanMode={spoolmanMode}
-                />
-              </div>
-
-            </div>
-          ) : activeTab === 'appearance' ? (
-            <div className="space-y-6">
-              {/* Color Section */}
-              <div>
-                <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3">
-                  {t('inventory.color')}
-                </h3>
-                <ColorSection
-                  formData={formData}
-                  updateField={updateField}
-                  recentColors={recentColors}
-                  onColorUsed={handleColorUsed}
-                  catalogColors={colorCatalog}
-                />
-              </div>
-
-              {/* Additional Section */}
-              <div>
-                <h3 className="text-sm font-semibold text-bambu-gray uppercase tracking-wide mb-3">
-                  {t('inventory.additional')}
-                </h3>
-                <AdditionalSection
-                  formData={formData}
-                  updateField={updateField}
-                  spoolCatalog={spoolCatalog}
-                  currencySymbol={currencySymbol}
-                  availableCategories={availableCategories}
-                  availableMaterialNumbers={availableMaterialNumbers}
-                  availableLocations={storageLocations}
-                  onCreateLocation={async (name) => {
-                    try {
-                      const created = await api.createLocation({ name });
-                      setStorageLocations((prev) => [...prev, { id: created.id, name: created.name }].sort((a, b) => a.name.localeCompare(b.name)));
-                      await invalidateInventoryLocations(queryClient);
-                      return { id: created.id, name: created.name };
-                    } catch (e) {
-                      // Surface the backend's actual error so the user can
-                      // distinguish 409 duplicate / 400 validation / 500 from
-                      // a generic "save failed" message.
-                      console.error(e);
-                      const message = e instanceof Error ? e.message : t('locations.saveFailed');
-                      showToast(message || t('locations.saveFailed'), 'error');
-                      return null;
-                    }
-                  }}
-                  globalLowStockThreshold={globalLowStockThreshold}
-                  spoolmanMode={spoolmanMode}
-                />
-              </div>
-
-              {/* Suppliers (#2988) — both inventories: the assignments live
-                  Bambuddy-side either way (Spoolman's vendor is the
-                  manufacturer, not the seller), so the same section renders
-                  in Spoolman mode and saves to the twin endpoint. */}
-              <div>
-                <SupplierSection
-                  links={supplierLinks}
-                  onChange={(next) => {
-                    setSupplierLinks(next);
-                    setSupplierLinksTouched(true);
-                  }}
-                  currencySymbol={currencySymbol}
-                />
+                {/* Printers (Per-Model Presets & K-Profiles) */}
+                <div className="border border-bambu-dark-tertiary rounded-lg bg-bambu-dark/40">
+                  <button
+                    type="button"
+                    onClick={() => setShowPrinters((prev) => !prev)}
+                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-bambu-dark-tertiary/40 transition-colors rounded-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-bambu-gray" />
+                      <span className="text-sm font-medium text-white">{t('inventory.printersTab')}</span>
+                      {selectedProfileCount > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-bambu-green/20 text-bambu-green">
+                          {selectedProfileCount}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-bambu-gray transition-transform ${showPrinters ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {showPrinters && (
+                    <div className="p-4 border-t border-bambu-dark-tertiary/60">
+                      <PrinterProfilesSection
+                        formData={formData}
+                        printersWithCalibrations={resolvedCalibrations}
+                        filamentOptions={filamentOptions}
+                        modelPresets={modelPresets}
+                        setModelPresets={setModelPresets}
+                        selectedProfiles={selectedProfiles}
+                        setSelectedProfiles={setSelectedProfiles}
+                        selectedGroupId={selectedGroupId}
+                        setSelectedGroupId={setSelectedGroupId}
+                        printerModels={printerModelsData}
+                        isLoading={loadingCalibrations}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Usage History (only when editing internal inventory; Spoolman tracks its own) */}
               {isEditing && spool && !spoolmanMode && (
-                <div>
+                <div className="pt-2">
                   <SpoolUsageHistory spoolId={spool.id} />
                 </div>
               )}
-            </div>
-          ) : (
-            <PrinterProfilesSection
-              formData={formData}
-              printersWithCalibrations={resolvedCalibrations}
-              filamentOptions={filamentOptions}
-              modelPresets={modelPresets}
-              setModelPresets={setModelPresets}
-              selectedProfiles={selectedProfiles}
-              setSelectedProfiles={setSelectedProfiles}
-              selectedGroupId={selectedGroupId}
-              setSelectedGroupId={setSelectedGroupId}
-              printerModels={printerModelsData}
-              isLoading={loadingCalibrations}
-            />
+            </>
           )}
         </div>
 
