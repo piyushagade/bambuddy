@@ -84,6 +84,47 @@ sudo chown -R bambuddy:bambuddy /opt/bambuddy
 sudo systemctl restart bambuddy
 ```
 
+#### 3. Integrating Updates from Upstream (`maziggy/bambuddy`)
+The original repository is configured as the `upstream` remote (`https://github.com/maziggy/bambuddy.git`).
+
+**Option A: Full Sync (`git merge upstream/main`)**
+```powershell
+# 1. Fetch upstream and inspect incoming commits
+git fetch upstream
+git log HEAD..upstream/main --oneline
+
+# 2. Merge into local main
+git merge upstream/main
+```
+When resolving merge conflicts:
+- **`static/` (Compiled Frontend Assets)**: Never resolve `static/` conflicts by hand. Resolve source conflicts in `frontend/src/` and `backend/` first, then regenerate `static/` cleanly:
+  ```powershell
+  cd frontend
+  npm install
+  npm run build
+  cd ..
+  git add static/
+  ```
+- **`backend/app/core/database.py` (Startup Migrations)**: Keep both upstream's new `_migrate_*()` calls and the fork's `_migrate_*()` calls inside `init_db()`.
+- **Shared UI / i18n Files (`SettingsPage.tsx`, `Layout.tsx`, `en.ts`)**: Keep both upstream sections and fork-specific sections (cohort onboarding, user expiration, filament deficit), then commit and push:
+  ```powershell
+  git commit -m "chore: merge upstream/main into fork"
+  git push origin main
+  ```
+
+**Option B: Selective Feature Sync (`git cherry-pick`)**
+To pull only a specific upstream improvement (e.g., support for a new printer model) without merging everything:
+```powershell
+git fetch upstream
+git log upstream/main --oneline --grep="printer" -n 20
+git cherry-pick <commit-hash>
+
+cd frontend && npm run build && cd ..
+git add static/
+git commit --amend --no-edit
+git push origin main
+```
+
 ### Manual equivalent
 
 If you'd rather run the steps yourself:
