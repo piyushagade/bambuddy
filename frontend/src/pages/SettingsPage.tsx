@@ -40,6 +40,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { ApiKeyQRCodeModal } from '../components/ApiKeyQRCodeModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
 import { RosterImportModal, EnrollmentInvitesModal, RedeemInviteModal } from '../components/CohortOnboardingModals';
+import { UsersManagerModal, GroupsManagerModal } from '../components/UsersGroupsManagerModals';
 import { UserExpirationBadge, UserExpirationField, datetimeLocalToIso, isoToDatetimeLocal } from '../components/UserExpirationField';
 import { LdapUserPicker } from '../components/LdapUserPicker';
 import { SpoolmanSettings } from '../components/SpoolmanSettings';
@@ -327,6 +328,8 @@ export function SettingsPage() {
   const [storageUsageRefreshing, setStorageUsageRefreshing] = useState(false);
 
   // User management state
+  const [showUsersManagerModal, setShowUsersManagerModal] = useState(false);
+  const [showGroupsManagerModal, setShowGroupsManagerModal] = useState(false);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   // Local / LDAP tab inside the create-user modal (#1298).
   const [createUserTab, setCreateUserTab] = useState<'local' | 'ldap'>('local');
@@ -6934,44 +6937,57 @@ export function SettingsPage() {
                   </Card>
                 )}
 
-                {/* User List */}
+                {/* User List Summary Card */}
                 <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="text-lg font-semibold text-white flex items-center gap-2" id="card-users">
                         <Users className="w-5 h-5 text-bambu-green" />
                         {t('settings.users')}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-bambu-dark-tertiary text-bambu-gray font-normal">
+                          {usersData.length}
+                        </span>
                       </h3>
-                      {hasPermission('users:create') && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setShowRosterImportModal(true)}
-                          >
-                            <UploadCloud className="w-4 h-4" />
-                            Import Roster CSV
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setShowEnrollmentInvitesModal(true)}
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            Enrollment Invites
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setShowCreateUserModal(true);
-                              setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                            }}
-                          >
-                            <Plus className="w-4 h-4" />
-                            {t('settings.addUser')}
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          onClick={() => setShowUsersManagerModal(true)}
+                        >
+                          <Search className="w-4 h-4" />
+                          Manage Users ({usersData.length})
+                        </Button>
+                        {hasPermission('users:create') && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setShowRosterImportModal(true)}
+                            >
+                              <UploadCloud className="w-4 h-4" />
+                              Import Roster CSV
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setShowEnrollmentInvitesModal(true)}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Enrollment Invites
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setShowCreateUserModal(true);
+                                setUserFormData({ username: '', first_name: '', last_name: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                              }}
+                            >
+                              <Plus className="w-4 h-4" />
+                              {t('settings.addUser')}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -6982,86 +6998,133 @@ export function SettingsPage() {
                     ) : usersData.length === 0 ? (
                       <p className="text-center text-bambu-gray py-8">{t('settings.noUsersFound')}</p>
                     ) : (
-                      <div className="divide-y divide-bambu-dark-tertiary">
-                        {usersData.map((userItem) => (
-                          <div key={userItem.id} className="py-3 flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-baseline gap-2 flex-wrap">
-                                <p className="text-white font-medium truncate">{userItem.username}</p>
-                                {(userItem.first_name || userItem.last_name) && (
-                                  <span className="text-xs text-bambu-gray truncate">
-                                    ({[userItem.first_name, userItem.last_name].filter(Boolean).join(' ')})
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {userItem.auth_source === 'ldap' && (
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
-                                    LDAP
-                                  </span>
-                                )}
-                                {userItem.is_admin && (
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
-                                    {t('settings.admin')}
-                                  </span>
-                                )}
-                                {userItem.groups?.map(group => (
-                                  <span
-                                    key={group.id}
-                                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                                      group.name === 'Administrators'
-                                        ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                                        : group.name === 'Operators'
-                                        ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
-                                        : group.name === 'Viewers'
-                                        ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
-                                        : 'bg-gray-500/20 text-gray-300'
-                                    }`}
-                                  >
-                                    {group.name}
-                                  </span>
-                                ))}
-                                <UserExpirationBadge user={userItem} />
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1 ml-4">
-                              {hasPermission('users:update') && (
-                                <Button size="sm" variant="ghost" onClick={() => startEditUser(userItem)}>
-                                  <Edit2 className="w-4 h-4" />
-                                </Button>
-                              )}
-                              {hasPermission('users:delete') && userItem.id !== user?.id && (
-                                <Button size="sm" variant="ghost" onClick={() => handleDeleteUserClick(userItem.id)}>
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              )}
-                            </div>
+                      <div className="space-y-4">
+                        {/* Summary Metrics */}
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">Total Users</p>
+                            <p className="text-lg font-semibold text-white mt-0.5">{usersData.length}</p>
                           </div>
-                        ))}
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">Active</p>
+                            <p className="text-lg font-semibold text-bambu-green mt-0.5">
+                              {usersData.filter((u) => u.is_active && !u.is_expired).length}
+                            </p>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">With Expiry</p>
+                            <p className="text-lg font-semibold text-amber-400 mt-0.5">
+                              {usersData.filter((u) => Boolean(u.expires_at)).length}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Compact Preview (up to 5 users) */}
+                        <div className="divide-y divide-bambu-dark-tertiary">
+                          {usersData.slice(0, 5).map((userItem) => (
+                            <div key={userItem.id} className="py-2.5 flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  <p className="text-white font-medium text-sm truncate">{userItem.username}</p>
+                                  {(userItem.first_name || userItem.last_name) && (
+                                    <span className="text-xs text-bambu-gray truncate">
+                                      ({[userItem.first_name, userItem.last_name].filter(Boolean).join(' ')})
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {userItem.auth_source === 'ldap' && (
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
+                                      LDAP
+                                    </span>
+                                  )}
+                                  {userItem.is_admin && (
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                                      {t('settings.admin')}
+                                    </span>
+                                  )}
+                                  {userItem.groups?.map((group) => (
+                                    <span
+                                      key={group.id}
+                                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                        group.name === 'Administrators'
+                                          ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                                          : group.name === 'Operators'
+                                          ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
+                                          : group.name === 'Viewers'
+                                          ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
+                                          : 'bg-gray-500/20 text-gray-300'
+                                      }`}
+                                    >
+                                      {group.name}
+                                    </span>
+                                  ))}
+                                  <UserExpirationBadge user={userItem} />
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 ml-4">
+                                {hasPermission('users:update') && (
+                                  <Button size="sm" variant="ghost" onClick={() => startEditUser(userItem)}>
+                                    <Edit2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                                {hasPermission('users:delete') && userItem.id !== user?.id && (
+                                  <Button size="sm" variant="ghost" onClick={() => handleDeleteUserClick(userItem.id)}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowUsersManagerModal(true)}
+                          className="w-full py-2 px-3 rounded-lg bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary border border-bambu-dark-tertiary text-xs font-medium text-bambu-green transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                          {usersData.length > 5
+                            ? `View all ${usersData.length} users, filter by cohort & run bulk actions...`
+                            : 'Open Users Directory & Bulk Manager...'}
+                        </button>
                       </div>
                     )}
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Right Column: Groups */}
+              {/* Right Column: Groups Summary Card */}
               <div>
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="text-lg font-semibold text-white flex items-center gap-2" id="card-groups">
                         <Shield className="w-5 h-5 text-bambu-green" />
                         {t('settings.groups')}
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-bambu-dark-tertiary text-bambu-gray font-normal">
+                          {groupsData.length}
+                        </span>
                       </h3>
-                      {hasPermission('groups:create') && (
+                      <div className="flex items-center gap-2">
                         <Button
                           size="sm"
-                          onClick={() => navigate('/groups/new')}
+                          onClick={() => setShowGroupsManagerModal(true)}
                         >
-                          <Plus className="w-4 h-4" />
-                          {t('settings.addGroup')}
+                          <Search className="w-4 h-4" />
+                          Manage Groups ({groupsData.length})
                         </Button>
-                      )}
+                        {hasPermission('groups:create') && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => navigate('/groups/new')}
+                          >
+                            <Plus className="w-4 h-4" />
+                            {t('settings.addGroup')}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -7072,52 +7135,84 @@ export function SettingsPage() {
                     ) : groupsData.length === 0 ? (
                       <p className="text-center text-bambu-gray py-8">{t('settings.noGroupsFound')}</p>
                     ) : (
-                      <div className="divide-y divide-bambu-dark-tertiary">
-                        {groupsData.map((group) => (
-                          <div key={group.id} className="py-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Shield
-                                  className={`w-4 h-4 ${
-                                    group.name === 'Administrators'
-                                      ? 'text-purple-600 dark:text-purple-400'
-                                      : group.name === 'Operators'
-                                      ? 'text-blue-600 dark:text-blue-400'
-                                      : group.name === 'Viewers'
-                                      ? 'text-green-600 dark:text-green-400'
-                                      : 'text-bambu-gray'
-                                  }`}
-                                />
-                                <span className="text-white font-medium">{group.name}</span>
-                                {group.is_system && (
-                                  <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400">
-                                    {t('settings.system')}
-                                  </span>
-                                )}
-                                <UserExpirationBadge user={group} />
-                              </div>
-                              <div className="flex items-center gap-1">
-                                {hasPermission('groups:update') && (
-                                  <Button size="sm" variant="ghost" onClick={() => navigate(`/groups/${group.id}/edit`)}>
-                                    <Edit2 className="w-4 h-4" />
-                                  </Button>
-                                )}
-                                {hasPermission('groups:delete') && !group.is_system && (
-                                  <Button size="sm" variant="ghost" onClick={() => setDeleteGroupId(group.id)}>
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                            <p className="text-sm text-bambu-gray mt-1 ml-6">
-                              {group.description || t('settings.noDescription')}
-                            </p>
-                            <div className="flex items-center gap-4 mt-2 ml-6 text-xs text-bambu-gray">
-                              <span>{t('settings.userCount', { count: group.user_count })}</span>
-                              <span>{t('settings.permissionCount', { count: group.permissions.length })}</span>
-                            </div>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">Total Groups</p>
+                            <p className="text-lg font-semibold text-white mt-0.5">{groupsData.length}</p>
                           </div>
-                        ))}
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">Course / Custom</p>
+                            <p className="text-lg font-semibold text-bambu-green mt-0.5">
+                              {groupsData.filter((g) => !g.is_system).length}
+                            </p>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary">
+                            <p className="text-xs text-bambu-gray">System</p>
+                            <p className="text-lg font-semibold text-purple-400 mt-0.5">
+                              {groupsData.filter((g) => g.is_system).length}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="divide-y divide-bambu-dark-tertiary">
+                          {groupsData.slice(0, 5).map((group) => (
+                            <div key={group.id} className="py-2.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Shield
+                                    className={`w-4 h-4 ${
+                                      group.name === 'Administrators'
+                                        ? 'text-purple-600 dark:text-purple-400'
+                                        : group.name === 'Operators'
+                                        ? 'text-blue-600 dark:text-blue-400'
+                                        : group.name === 'Viewers'
+                                        ? 'text-green-600 dark:text-green-400'
+                                        : 'text-bambu-gray'
+                                    }`}
+                                  />
+                                  <span className="text-white font-medium text-sm">{group.name}</span>
+                                  {group.is_system && (
+                                    <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400">
+                                      {t('settings.system')}
+                                    </span>
+                                  )}
+                                  <UserExpirationBadge user={group} />
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {hasPermission('groups:update') && (
+                                    <Button size="sm" variant="ghost" onClick={() => navigate(`/groups/${group.id}/edit`)}>
+                                      <Edit2 className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                  {hasPermission('groups:delete') && !group.is_system && (
+                                    <Button size="sm" variant="ghost" onClick={() => setDeleteGroupId(group.id)}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-xs text-bambu-gray mt-1 ml-6">
+                                {group.description || t('settings.noDescription')}
+                              </p>
+                              <div className="flex items-center gap-4 mt-1.5 ml-6 text-xs text-bambu-gray">
+                                <span>{t('settings.userCount', { count: group.user_count })}</span>
+                                <span>{t('settings.permissionCount', { count: group.permissions.length })}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowGroupsManagerModal(true)}
+                          className="w-full py-2 px-3 rounded-lg bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary border border-bambu-dark-tertiary text-xs font-medium text-bambu-green transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                          {groupsData.length > 5
+                            ? `View all ${groupsData.length} groups, filter cohorts & run bulk actions...`
+                            : 'Open Groups & Cohorts Manager...'}
+                        </button>
                       </div>
                     )}
                   </CardContent>
@@ -7208,6 +7303,56 @@ export function SettingsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Users Directory & Bulk Manager Popup Modal */}
+      {showUsersManagerModal && (
+        <UsersManagerModal
+          users={usersData}
+          groups={groupsData}
+          currentUserId={user?.id}
+          canCreate={hasPermission('users:create')}
+          canUpdate={hasPermission('users:update')}
+          canDelete={hasPermission('users:delete')}
+          onClose={() => setShowUsersManagerModal(false)}
+          onAddUser={() => {
+            setShowCreateUserModal(true);
+            setUserFormData({
+              username: '',
+              first_name: '',
+              last_name: '',
+              password: '',
+              email: '',
+              confirmPassword: '',
+              role: 'user',
+              group_ids: [],
+            });
+          }}
+          onImportRoster={() => setShowRosterImportModal(true)}
+          onEnrollmentInvites={() => setShowEnrollmentInvitesModal(true)}
+          onEditUser={(u) => startEditUser(u)}
+          onDeleteUser={(uid) => handleDeleteUserClick(uid)}
+        />
+      )}
+
+      {/* Groups & Cohorts Bulk Manager Popup Modal */}
+      {showGroupsManagerModal && (
+        <GroupsManagerModal
+          groups={groupsData}
+          canCreate={hasPermission('groups:create')}
+          canUpdate={hasPermission('groups:update')}
+          canDelete={hasPermission('groups:delete')}
+          onClose={() => setShowGroupsManagerModal(false)}
+          onAddGroup={() => {
+            setShowGroupsManagerModal(false);
+            navigate('/groups/new');
+          }}
+          onEditGroup={(gid) => {
+            setShowGroupsManagerModal(false);
+            navigate(`/groups/${gid}/edit`);
+          }}
+          onDeleteGroup={(gid) => setDeleteGroupId(gid)}
+        />
       )}
 
       {/* Create User Modal */}
