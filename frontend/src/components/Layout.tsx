@@ -104,8 +104,43 @@ export function Layout() {
   // catalog fetched — and cached HSL-fallback color names during their first
   // render — refresh with the real catalog names. See #857.
   useColorCatalogVersion();
-  const { user, authEnabled, logout, hasPermission, hasAnyPermission, loading: authLoading } = useAuth();
+  const { user, isAdmin, authEnabled, logout, hasPermission, hasAnyPermission, loading: authLoading } = useAuth();
   const { showToast } = useToast();
+  const [pullingForkUpdate, setPullingForkUpdate] = useState(false);
+
+  const handlePullForkUpdate = useCallback(async () => {
+    if (pullingForkUpdate) return;
+    setPullingForkUpdate(true);
+    setShowFooterMenu(false);
+    try {
+      const res = await api.pullForkUpdate();
+      if (!res.success) {
+        showToast(res.message || 'Failed to update server', 'error');
+        setPullingForkUpdate(false);
+        return;
+      }
+      showToast(res.message || 'Updating & restarting server...', 'success');
+      // Wait for systemd RestartSec=5 and poll until server responds again, then reload
+      const start = Date.now();
+      const poll = async () => {
+        if (Date.now() - start > 45000) {
+          window.location.reload();
+          return;
+        }
+        try {
+          await api.getVersion();
+          window.location.reload();
+        } catch {
+          setTimeout(poll, 1500);
+        }
+      };
+      setTimeout(poll, 5500);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to trigger update';
+      showToast(message, 'error');
+      setPullingForkUpdate(false);
+    }
+  }, [pullingForkUpdate, showToast]);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [changePasswordData, setChangePasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
@@ -738,6 +773,25 @@ export function Layout() {
             <ThemeIcon className="w-4 h-4 flex-shrink-0" />
             <span className="truncate">{themeSwitchTitle}</span>
           </button>
+          {isAdmin && (
+            <button
+              onClick={handlePullForkUpdate}
+              disabled={pullingForkUpdate}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-green hover:text-bambu-green/80 text-left disabled:opacity-50"
+              title={t('nav.pullAndRestart', { defaultValue: 'Update Server (Pull & Restart)' })}
+            >
+              {pullingForkUpdate ? (
+                <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+              ) : (
+                <ArrowUpCircle className="w-4 h-4 flex-shrink-0" />
+              )}
+              <span className="truncate">
+                {pullingForkUpdate
+                  ? t('nav.updatingServer', { defaultValue: 'Updating server...' })
+                  : t('nav.pullAndRestart', { defaultValue: 'Update Server' })}
+              </span>
+            </button>
+          )}
           {authEnabled && user && (
             <button
               onClick={() => {

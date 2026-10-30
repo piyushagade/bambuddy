@@ -7196,6 +7196,10 @@ export const api = {
     request<{ success: boolean; message: string; status?: UpdateStatus; is_docker?: boolean; is_ha_addon?: boolean; is_windows_installer?: boolean }>('/updates/apply', {
       method: 'POST',
     }),
+  pullForkUpdate: () =>
+    request<{ success: boolean; message: string; old_commit?: string; new_commit?: string }>('/updates/pull-fork', {
+      method: 'POST',
+    }),
   getUpdateStatus: () => request<UpdateStatus>('/updates/status'),
 
   // Maintenance

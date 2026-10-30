@@ -13,9 +13,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import RequirePermissionIfAuthEnabled
+from backend.app.core.auth import RequireAdminIfAuthEnabled, RequirePermissionIfAuthEnabled
 from backend.app.core.config import APP_VERSION, GITHUB_REPO, settings
-from backend.app.core.database import get_db
+from backend.app.core.database import engine, get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.settings import Settings
 from backend.app.models.user import User
@@ -1012,3 +1012,113 @@ async def get_update_status(
 ):
     """Get current update status."""
     return _update_status
+
+
+async def _delayed_service_restart() -> None:
+    """Wait briefly for the HTTP response to flush, dispose DB connections, and exit so systemd restarts."""
+    await asyncio.sleep(1.2)
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
+    # Exit with code 1 so systemd's Restart=on-failure automatically restarts bambuddy.service
+    os._exit(1)
+
+
+@router.post("/pull-fork")
+async def pull_fork_update(
+    _: User | None = RequireAdminIfAuthEnabled(),
+):
+    """Pull latest changes from origin/main, update Python dependencies, and restart the service."""
+    app_dir = settings.app_dir
+    git_path = _find_executable("git")
+    if not git_path:
+        return {
+            "success": False,
+            "message": "Could not find git executable on the server.",
+        }
+
+    git_config = ["-c", f"safe.directory={app_dir}"]
+
+    async def _run_git(*args: str) -> tuple[int, str, str]:
+        proc = await asyncio.create_subprocess_exec(
+            git_path,
+            *git_config,
+            *args,
+            cwd=str(app_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await proc.communicate()
+        return (
+            proc.returncode or 0,
+            out.decode(errors="replace").strip() if out else "",
+            err.decode(errors="replace").strip() if err else "",
+        )
+
+    _, old_commit, _ = await _run_git("rev-parse", "--short", "HEAD")
+    _, branch, _ = await _run_git("rev-parse", "--abbrev-ref", "HEAD")
+    if not branch or branch == "HEAD":
+        branch = "main"
+
+    rc, _, err = await _run_git("fetch", "--prune", "origin")
+    if rc != 0:
+        if "Permission denied" in err:
+            return {
+                "success": False,
+                "message": (
+                    f"Permission denied accessing .git in {app_dir}. "
+                    f"Run once on the server: sudo chown -R bambuddy:bambuddy {app_dir}"
+                ),
+            }
+        return {
+            "success": False,
+            "message": f"git fetch failed: {err or 'unknown error'}",
+        }
+
+    rc, _, err = await _run_git("reset", "--hard", f"origin/{branch}")
+    if rc != 0:
+        if "Permission denied" in err:
+            return {
+                "success": False,
+                "message": (
+                    f"Permission denied resetting files in {app_dir}. "
+                    f"Run once on the server: sudo chown -R bambuddy:bambuddy {app_dir}"
+                ),
+            }
+        return {
+            "success": False,
+            "message": f"git reset failed: {err or 'unknown error'}",
+        }
+
+    _, new_commit, _ = await _run_git("rev-parse", "--short", "HEAD")
+
+    # Install any updated Python dependencies in the active virtualenv
+    if (app_dir / "requirements.txt").exists():
+        pip_proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-r",
+            "requirements.txt",
+            "-q",
+            cwd=str(app_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await pip_proc.communicate()
+
+    asyncio.create_task(_delayed_service_restart())
+
+    summary = (
+        f"Already at {new_commit}; restarting service..."
+        if old_commit == new_commit
+        else f"Updated {old_commit} → {new_commit}; restarting service..."
+    )
+    return {
+        "success": True,
+        "old_commit": old_commit,
+        "new_commit": new_commit,
+        "message": summary,
+    }

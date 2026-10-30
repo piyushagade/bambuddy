@@ -310,6 +310,13 @@ fi
 
 repair_loop_flag
 
+service_user="$(systemctl show "$SERVICE_NAME" --property=User --value 2>/dev/null || echo 'bambuddy')"
+[ -z "$service_user" ] && service_user="bambuddy"
+if id "$service_user" >/dev/null 2>&1; then
+  log "Restoring file ownership to $service_user:$service_user on $INSTALL_DIR"
+  chown -R "$service_user:$service_user" "$INSTALL_DIR" || warn "Failed to chown $INSTALL_DIR"
+fi
+
 log "Starting service: $SERVICE_NAME"
 systemctl start "$SERVICE_NAME"
 SERVICE_STOPPED=0
