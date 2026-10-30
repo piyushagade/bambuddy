@@ -49,6 +49,8 @@ class LoginResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(..., max_length=150)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, max_length=256)  # M-NEW-4: cap before pbkdf2
     email: str | None = Field(default=None, max_length=254)  # L-NEW-5: RFC 5321 max
     role: str = "user"
@@ -67,6 +69,8 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     username: str | None = Field(default=None, max_length=150)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, max_length=256)  # M-NEW-4: cap before pbkdf2
     email: str | None = Field(default=None, max_length=254)  # L-NEW-5: RFC 5321 max
     role: str | None = None
@@ -87,6 +91,8 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    first_name: str | None = None
+    last_name: str | None = None
     email: str | None = None
     role: str  # Deprecated, kept for backward compatibility
     is_active: bool
@@ -176,6 +182,8 @@ class EnrollmentRedeemRequest(BaseModel):
 
     code: str = Field(..., max_length=64)
     username: str | None = Field(default=None, max_length=150)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, max_length=256)
     email: str | None = Field(default=None, max_length=254)
 

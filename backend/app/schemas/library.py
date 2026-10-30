@@ -56,6 +56,11 @@ class FolderResponse(BaseModel):
     # tracks rename/move events. Recursion across subfolders is intentionally
     # left out to keep the route a single GROUP BY rather than a recursive CTE.
     latest_activity_at: datetime | None = None
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    can_read: bool = True
+    can_write: bool = True
+    can_manage: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -92,10 +97,62 @@ class FolderTreeItem(BaseModel):
     file_count: int = 0
     # See FolderResponse.latest_activity_at — #1770 folder sort source.
     latest_activity_at: datetime | None = None
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    can_read: bool = True
+    can_write: bool = True
+    can_manage: bool = False
     children: list["FolderTreeItem"] = []
 
     class Config:
         from_attributes = True
+
+
+class FolderPermissionGrant(BaseModel):
+    """Single user or group permission grant on a folder."""
+
+    user_id: int | None = None
+    group_id: int | None = None
+    can_read: bool = True
+    can_write: bool = False
+
+
+class FolderPermissionEntry(BaseModel):
+    """Resolved folder permission entry returned by GET /folders/{id}/permissions."""
+
+    id: int
+    folder_id: int
+    user_id: int | None = None
+    username: str | None = None
+    group_id: int | None = None
+    group_name: str | None = None
+    can_read: bool = True
+    can_write: bool = False
+
+
+class FolderShareTargetUser(BaseModel):
+    id: int
+    username: str
+    email: str | None = None
+
+
+class FolderShareTargetGroup(BaseModel):
+    id: int
+    name: str
+
+
+class FolderPermissionsListResponse(BaseModel):
+    folder_id: int
+    folder_name: str
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    permissions: list[FolderPermissionEntry] = []
+    available_users: list[FolderShareTargetUser] = []
+    available_groups: list[FolderShareTargetGroup] = []
+
+
+class FolderPermissionsUpdateRequest(BaseModel):
+    permissions: list[FolderPermissionGrant] = []
 
 
 # ============ File Schemas ============

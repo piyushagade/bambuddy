@@ -151,6 +151,36 @@ export function CreateUserAdvancedAuthModal({
               />
             </div>
 
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name || ''}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder="First name"
+                  autoComplete="given-name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name || ''}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder="Last name"
+                  autoComplete="family-name"
+                />
+              </div>
+            </div>
+
             {/* Email Field */}
             <div>
               <label className="block text-sm font-medium text-white mb-2">

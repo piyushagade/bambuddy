@@ -74,6 +74,8 @@ def _user_to_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
         email=user.email,
         role=user.role,
         is_active=user.is_effectively_active,
@@ -178,6 +180,8 @@ async def create_user(
 
     new_user = User(
         username=user_data.username,
+        first_name=user_data.first_name.strip() if user_data.first_name and user_data.first_name.strip() else None,
+        last_name=user_data.last_name.strip() if user_data.last_name and user_data.last_name.strip() else None,
         email=user_data.email,
         password_hash=get_password_hash(password),
         role=user_data.role,
@@ -329,6 +333,12 @@ async def import_roster_csv(
                 header_map["username"] = idx
             elif col in ("ufid", "sis user id", "sis_user_id", "password"):
                 header_map["ufid"] = idx
+            elif col in ("first name", "first_name", "firstname", "first", "given name", "given_name"):
+                header_map["first_name"] = idx
+            elif col in ("last name", "last_name", "lastname", "last", "surname", "family name", "family_name"):
+                header_map["last_name"] = idx
+            elif col in ("student", "name", "full name", "full_name"):
+                header_map["full_name"] = idx
             elif col in ("email", "mail"):
                 header_map["email"] = idx
             elif col in ("group", "course", "section", "cohort"):
@@ -408,6 +418,16 @@ async def import_roster_csv(
         if header_map is not None:
             username = cells[header_map["username"]] if "username" in header_map and header_map["username"] < len(cells) else ""
             ufid_str = cells[header_map["ufid"]] if "ufid" in header_map and header_map["ufid"] < len(cells) else ""
+            first_name_str = cells[header_map["first_name"]] if "first_name" in header_map and header_map["first_name"] < len(cells) else ""
+            last_name_str = cells[header_map["last_name"]] if "last_name" in header_map and header_map["last_name"] < len(cells) else ""
+            full_name_str = cells[header_map["full_name"]] if "full_name" in header_map and header_map["full_name"] < len(cells) else ""
+            if not first_name_str and not last_name_str and full_name_str:
+                if "," in full_name_str:
+                    last_name_str, first_name_str = [p.strip() for p in full_name_str.split(",", 1)]
+                elif " " in full_name_str:
+                    first_name_str, last_name_str = [p.strip() for p in full_name_str.split(" ", 1)]
+                else:
+                    first_name_str = full_name_str.strip()
             email = cells[header_map["email"]] if "email" in header_map and header_map["email"] < len(cells) else ""
             group_str = cells[header_map["group"]] if "group" in header_map and header_map["group"] < len(cells) else ""
             cc_str = cells[header_map["cost_center"]] if "cost_center" in header_map and header_map["cost_center"] < len(cells) else ""
@@ -437,6 +457,8 @@ async def import_roster_csv(
             cc_str = cells[3] if len(cells) > 3 else ""
             exp_str = cells[4] if len(cells) > 4 else ""
             ufid_str = ""
+            first_name_str = ""
+            last_name_str = ""
             term_exp_dt = None
 
         # If SIS Login ID is an email address (e.g. gator@ufl.edu), derive email and username
@@ -526,6 +548,8 @@ async def import_roster_csv(
             initial_password = ufid_str if ufid_str else generate_secure_password()
             user = User(
                 username=username,
+                first_name=first_name_str or None,
+                last_name=last_name_str or None,
                 email=email or None,
                 password_hash=get_password_hash(initial_password),
                 role="user",
@@ -542,6 +566,10 @@ async def import_roster_csv(
             created_count += 1
             touched_user_ids.append(user.id)
         else:
+            if first_name_str:
+                user.first_name = first_name_str
+            if last_name_str:
+                user.last_name = last_name_str
             if email and not user.email:
                 user.email = email
             if ufid_str and user.password_changed_at is None:
@@ -702,6 +730,8 @@ async def redeem_enrollment_invite(
             )
         user = User(
             username=payload.username,
+            first_name=payload.first_name.strip() if payload.first_name and payload.first_name.strip() else None,
+            last_name=payload.last_name.strip() if payload.last_name and payload.last_name.strip() else None,
             email=payload.email or None,
             password_hash=get_password_hash(payload.password),
             role="user",
@@ -831,6 +861,11 @@ async def update_user(
                 detail="Username already exists",
             )
         user.username = user_data.username
+
+    if "first_name" in user_data.model_fields_set:
+        user.first_name = user_data.first_name.strip() if user_data.first_name and user_data.first_name.strip() else None
+    if "last_name" in user_data.model_fields_set:
+        user.last_name = user_data.last_name.strip() if user_data.last_name and user_data.last_name.strip() else None
 
     if user_data.email is not None:
         # Check if new email already exists (case-insensitive)

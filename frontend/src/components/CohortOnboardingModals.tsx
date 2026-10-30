@@ -82,10 +82,12 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
             <code className="text-white">UFID,Last Name,First Name,Email,Subject,Catalog Number,Term,...</code>
             ) or a custom CSV (
             <code className="text-white">username,email,group,cost_center,expires_at</code>). Each
-            student&apos;s <strong className="text-white">username</strong> is set to the prefix of their{' '}
-            <code className="text-white">Email</code> before <code className="text-white">@</code>, their
-            initial <strong className="text-white">password</strong> is set to their{' '}
-            <code className="text-white">UFID</code>, and their course group (e.g.{' '}
+            student&apos;s <strong className="text-white">first name</strong>,{' '}
+            <strong className="text-white">last name</strong>, and{' '}
+            <strong className="text-white">username</strong> (prefix of their{' '}
+            <code className="text-white">Email</code> before <code className="text-white">@</code>) are
+            populated automatically, their initial <strong className="text-white">password</strong> is set to
+            their <code className="text-white">UFID</code>, and their course group (e.g.{' '}
             <code className="text-white">F26 - ABE4042C</code>) and semester expiration are created
             automatically.
           </p>

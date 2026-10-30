@@ -54,6 +54,7 @@ import {
   Eye,
   Combine,
   Columns,
+  Shield,
   ChevronRight as ChevronRightIcon,
 } from 'lucide-react';
 import { api } from '../api/client';
@@ -79,6 +80,7 @@ import { RunWithPipelineModal } from '../components/RunWithPipelineModal';
 import { BulkTagsPickerModal } from '../components/BulkTagsPickerModal';
 import { FileUploadModal } from '../components/FileUploadModal';
 import { FolderReadmePanel } from '../components/FolderReadmePanel';
+import { FolderPermissionsModal } from '../components/FolderPermissionsModal';
 import { LibraryTagsModal } from '../components/LibraryTagsModal';
 import { LibraryFileDetailsModal } from '../components/LibraryFileDetailsModal';
 import { PurgeOldFilesModal } from '../components/PurgeOldFilesModal';
@@ -527,10 +529,10 @@ interface MoveFilesModalProps {
 function MoveFilesModal({ folders, selectedFiles, currentFolderId, onClose, onMove, isLoading, t }: MoveFilesModalProps) {
   const [targetFolder, setTargetFolder] = useState<number | null>(null);
 
-  const flattenFolders = (items: LibraryFolderTree[], depth = 0): { id: number | null; name: string; depth: number }[] => {
-    const result: { id: number | null; name: string; depth: number }[] = [];
+  const flattenFolders = (items: LibraryFolderTree[], depth = 0): { id: number | null; name: string; depth: number; canWrite: boolean }[] => {
+    const result: { id: number | null; name: string; depth: number; canWrite: boolean }[] = [];
     for (const item of items) {
-      result.push({ id: item.id, name: item.name, depth });
+      result.push({ id: item.id, name: item.name, depth, canWrite: item.can_write !== false });
       if (item.children.length > 0) {
         result.push(...flattenFolders(item.children, depth + 1));
       }
@@ -538,7 +540,7 @@ function MoveFilesModal({ folders, selectedFiles, currentFolderId, onClose, onMo
     return result;
   };
 
-  const flatFolders = [{ id: null, name: t('fileManager.rootNoFolder'), depth: 0 }, ...flattenFolders(folders)];
+  const flatFolders = [{ id: null, name: t('fileManager.rootNoFolder'), depth: 0, canWrite: true }, ...flattenFolders(folders)];
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -548,25 +550,29 @@ function MoveFilesModal({ folders, selectedFiles, currentFolderId, onClose, onMo
         </div>
         <div className="p-4 space-y-4">
           <div className="max-h-64 overflow-y-auto space-y-1">
-            {flatFolders.map((folder) => (
-              <button
-                key={folder.id ?? 'root'}
-                onClick={() => setTargetFolder(folder.id)}
-                disabled={folder.id === currentFolderId}
-                className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
-                  targetFolder === folder.id
-                    ? 'bg-bambu-green/20 text-bambu-green'
-                    : folder.id === currentFolderId
-                    ? 'opacity-50 cursor-not-allowed text-bambu-gray'
-                    : 'hover:bg-bambu-dark text-white'
-                }`}
-                style={{ paddingLeft: `${12 + folder.depth * 16}px` }}
-              >
-                <FolderOpen className="w-4 h-4" />
-                {folder.name}
-                {folder.id === currentFolderId && <span className="text-xs text-bambu-gray ml-auto">({t('fileManager.current')})</span>}
-              </button>
-            ))}
+            {flatFolders.map((folder) => {
+              const isDisabled = folder.id === currentFolderId || !folder.canWrite;
+              return (
+                <button
+                  key={folder.id ?? 'root'}
+                  onClick={() => !isDisabled && setTargetFolder(folder.id)}
+                  disabled={isDisabled}
+                  className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
+                    targetFolder === folder.id
+                      ? 'bg-bambu-green/20 text-bambu-green'
+                      : isDisabled
+                      ? 'opacity-50 cursor-not-allowed text-bambu-gray'
+                      : 'hover:bg-bambu-dark text-white'
+                  }`}
+                  style={{ paddingLeft: `${12 + folder.depth * 16}px` }}
+                >
+                  <FolderOpen className="w-4 h-4" />
+                  <span className="truncate">{folder.name}</span>
+                  {!folder.canWrite && <Lock className="w-3 h-3 text-amber-400 ml-auto flex-shrink-0" />}
+                  {folder.id === currentFolderId && <span className="text-xs text-bambu-gray ml-auto">({t('fileManager.current')})</span>}
+                </button>
+              );
+            })}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={onClose}>
@@ -760,6 +766,7 @@ interface FolderTreeItemProps {
   onDelete: (id: number) => void;
   onLink: (folder: LibraryFolderTree) => void;
   onRename: (folder: LibraryFolderTree) => void;
+  onPermissions?: (folder: LibraryFolderTree) => void;
   depth?: number;
   wrapNames?: boolean;
   defaultExpanded?: boolean;
@@ -768,7 +775,7 @@ interface FolderTreeItemProps {
   t: TFunction;
 }
 
-// Folder kebab: Rename / Link / Delete. Shared by the tree sidebar and the
+// Folder kebab: Rename / Link / Permissions / Delete. Shared by the tree sidebar and the
 // columns view so both offer exactly the same entries and permission gates.
 // Rendered through `ContextMenu` (position: fixed, anchored to the button)
 // rather than an absolutely positioned dropdown, because both hosts scroll —
@@ -778,6 +785,7 @@ interface FolderActionsMenuProps {
   onDelete: (id: number) => void;
   onLink: (folder: LibraryFolderTree) => void;
   onRename: (folder: LibraryFolderTree) => void;
+  onPermissions?: (folder: LibraryFolderTree) => void;
   hasPermission: (permission: Permission) => boolean;
   // Hide the kebab until its `group` row is hovered or focused — only for
   // pointers that can hover (#2865). The menu is a DOM descendant, so the
@@ -788,7 +796,7 @@ interface FolderActionsMenuProps {
   t: TFunction;
 }
 
-function FolderActionsMenu({ folder, onDelete, onLink, onRename, hasPermission, revealOnHover = false, tabIndex, t }: FolderActionsMenuProps) {
+function FolderActionsMenu({ folder, onDelete, onLink, onRename, onPermissions, hasPermission, revealOnHover = false, tabIndex, t }: FolderActionsMenuProps) {
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -802,10 +810,11 @@ function FolderActionsMenu({ folder, onDelete, onLink, onRename, hasPermission, 
   const hasChildren = folder.children.length > 0;
   const isLinked = folder.project_id || folder.archive_id;
   const isExternal = folder.is_external;
+  const canManageFolder = Boolean(folder.can_manage);
   // #1781: users with only library:delete_own may delete empty, unlinked,
-  // non-external folders. The backend enforces the same rule and additionally
-  // counts trashed files (invisible here), so a 403 can still come back.
+  // non-external folders or folders they own.
   const canDeleteFolder =
+    canManageFolder ||
     hasPermission('library:delete_all') ||
     (hasPermission('library:delete_own') && folder.file_count === 0 && !hasChildren && !isExternal && !isLinked);
   const deleteDisabledTooltip = canDeleteFolder
@@ -813,9 +822,19 @@ function FolderActionsMenu({ folder, onDelete, onLink, onRename, hasPermission, 
     : hasPermission('library:delete_own') && !isExternal && !isLinked
       ? t('fileManager.onlyEmptyFoldersDeletable')
       : t('fileManager.noPermissionDeleteFolder');
-  const canRename = hasPermission('library:update_all');
+  const canRename = canManageFolder || hasPermission('library:update_all');
 
-  const items: ContextMenuItem[] = [
+  const items: ContextMenuItem[] = [];
+  if (onPermissions) {
+    items.push({
+      label: 'Access & Permissions',
+      icon: <Shield className="w-3.5 h-3.5 text-bambu-green" />,
+      onClick: () => onPermissions(folder),
+      disabled: !canManageFolder,
+      title: !canManageFolder ? 'Only the folder owner or an administrator can manage folder permissions' : undefined,
+    });
+  }
+  items.push(
     {
       label: t('common.rename'),
       icon: <Pencil className="w-3.5 h-3.5" />,
@@ -838,7 +857,7 @@ function FolderActionsMenu({ folder, onDelete, onLink, onRename, hasPermission, 
       disabled: !canDeleteFolder,
       title: deleteDisabledTooltip,
     },
-  ];
+  );
 
   return (
     <div
@@ -877,11 +896,13 @@ function FolderActionsMenu({ folder, onDelete, onLink, onRename, hasPermission, 
   );
 }
 
-function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, onRename, depth = 0, wrapNames = false, defaultExpanded = true, showModified = false, hasPermission, t }: FolderTreeItemProps) {
+function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, onRename, onPermissions, depth = 0, wrapNames = false, defaultExpanded = true, showModified = false, hasPermission, t }: FolderTreeItemProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const hasChildren = folder.children.length > 0;
   const isLinked = folder.project_id || folder.archive_id;
   const isExternal = folder.is_external;
+  const isTraverseOnly = folder.can_read === false;
+  const isReadOnlyFolder = (isExternal && folder.external_readonly) || (folder.can_read !== false && folder.can_write === false);
 
   return (
     <div>
@@ -910,10 +931,10 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
         {isExternal ? (
           <FolderSymlink className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
         ) : (
-          <FolderOpen className="w-4 h-4 text-bambu-green flex-shrink-0" />
+          <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isTraverseOnly ? 'text-bambu-gray' : 'text-bambu-green'}`} />
         )}
         <div className="flex-1 min-w-0">
-          <span className={`block text-sm ${wrapNames ? 'break-all' : 'truncate'}`} title={folder.name}>{folder.name}</span>
+          <span className={`block text-sm ${wrapNames ? 'break-all' : 'truncate'} ${isTraverseOnly ? 'text-bambu-gray' : ''}`} title={folder.name}>{folder.name}</span>
           {/* #2680 follow-up: the same toolbar toggle that shows dates on file
               cards also shows them here. This is `latest_activity_at` — the
               newest timestamp among the folder itself, its files and its
@@ -941,8 +962,8 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
             )}
           </button>
         )}
-        {/* Read-only indicator for external folders */}
-        {isExternal && folder.external_readonly && (
+        {/* Read-only indicator for external or read-only ACL folders */}
+        {isReadOnlyFolder && (
           <span title={t('fileManager.readOnly')}>
             <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 flex-shrink-0" />
           </span>
@@ -950,8 +971,18 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
         {folder.file_count > 0 && (
           <span className="flex-shrink-0 text-xs text-bambu-gray">{folder.file_count}</span>
         )}
-        {/* Quick link button - always visible for unlinked folders */}
-        {!isLinked && !isExternal && (
+        {/* Quick permissions button for owners & admins */}
+        {folder.can_manage && onPermissions && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPermissions(folder); }}
+            className="flex-shrink-0 p-1 rounded hover:bg-bambu-dark-tertiary"
+            title="Manage folder access & permissions"
+          >
+            <Shield className="w-3.5 h-3.5 text-bambu-gray hover:text-bambu-green" />
+          </button>
+        )}
+        {/* Quick link button - visible for unlinked folders that user can manage */}
+        {!isLinked && !isExternal && (folder.can_manage || hasPermission('library:update_all')) && (
           <button
             onClick={(e) => { e.stopPropagation(); onLink(folder); }}
             className="flex-shrink-0 p-1 rounded hover:bg-bambu-dark-tertiary"
@@ -965,6 +996,7 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
           onDelete={onDelete}
           onLink={onLink}
           onRename={onRename}
+          onPermissions={onPermissions}
           hasPermission={hasPermission}
           revealOnHover={!wrapNames}
           t={t}
@@ -981,6 +1013,7 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
               onDelete={onDelete}
               onLink={onLink}
               onRename={onRename}
+              onPermissions={onPermissions}
               depth={depth + 1}
               wrapNames={wrapNames}
               defaultExpanded={defaultExpanded}
@@ -1592,6 +1625,7 @@ export function FileManagerPage() {
   const [showBulkTagsModal, setShowBulkTagsModal] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [linkFolder, setLinkFolder] = useState<LibraryFolderTree | null>(null);
+  const [permissionsFolder, setPermissionsFolder] = useState<LibraryFolderTree | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'file' | 'folder' | 'bulk'; id: number; count?: number } | null>(null);
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
   const [sliceFile, setSliceFile] = useState<LibraryFileListItem | null>(null);
@@ -2732,8 +2766,14 @@ export function FileManagerPage() {
               variant="secondary"
               size="sm"
               onClick={() => setShowNewFolderModal(true)}
-              disabled={!hasPermission('library:upload')}
-              title={!hasPermission('library:upload') ? t('fileManager.noPermissionCreateFolder') : undefined}
+              disabled={!hasPermission('library:upload') || (selectedFolder !== null && selectedFolder.can_write === false)}
+              title={
+                !hasPermission('library:upload')
+                  ? t('fileManager.noPermissionCreateFolder')
+                  : selectedFolder !== null && selectedFolder.can_write === false
+                  ? 'You do not have write permission in this folder'
+                  : undefined
+              }
             >
               <FolderPlus className="w-4 h-4" />
               {t('fileManager.newFolder')}
@@ -2741,8 +2781,14 @@ export function FileManagerPage() {
             <Button
               size="sm"
               onClick={() => setShowUploadModal(true)}
-              disabled={!hasPermission('library:upload')}
-              title={!hasPermission('library:upload') ? t('fileManager.noPermissionUpload') : undefined}
+              disabled={!hasPermission('library:upload') || (selectedFolder !== null && selectedFolder.can_write === false)}
+              title={
+                !hasPermission('library:upload')
+                  ? t('fileManager.noPermissionUpload')
+                  : selectedFolder !== null && selectedFolder.can_write === false
+                  ? 'You do not have write permission in this folder'
+                  : undefined
+              }
             >
               <Upload className="w-4 h-4" />
               {t('common.upload')}
@@ -2976,6 +3022,7 @@ export function FileManagerPage() {
                 onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
                 onLink={setLinkFolder}
                 onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
+                onPermissions={setPermissionsFolder}
                 wrapNames={wrapFolderNames}
                 defaultExpanded={!collapseFoldersByDefault}
                 showModified={showModified}
@@ -3031,6 +3078,42 @@ export function FileManagerPage() {
                 >
                   {t('fileManager.tags.clearAll')}
                 </button>
+              )}
+            </div>
+          )}
+          {/* Selected non-external folder status / permissions banner */}
+          {selectedFolder && !selectedFolder.is_external && (selectedFolder.can_manage || selectedFolder.can_write === false) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <FolderOpen className="w-4 h-4 text-bambu-green flex-shrink-0" />
+                <span className="text-sm font-medium text-white truncate">{selectedFolder.name}</span>
+                {selectedFolder.created_by_username && (
+                  <span className="text-xs text-bambu-gray flex items-center gap-1">
+                    <User className="w-3 h-3" />
+                    {selectedFolder.created_by_username}
+                  </span>
+                )}
+                {selectedFolder.can_read === false && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-bambu-dark text-bambu-gray border border-bambu-dark-tertiary">
+                    Parent Container (select an accessible subfolder)
+                  </span>
+                )}
+                {selectedFolder.can_read !== false && selectedFolder.can_write === false && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    {t('fileManager.readOnly')}
+                  </span>
+                )}
+              </div>
+              {selectedFolder.can_manage && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPermissionsFolder(selectedFolder)}
+                >
+                  <Shield className="w-3.5 h-3.5 mr-1.5 text-bambu-green" />
+                  Permissions
+                </Button>
               )}
             </div>
           )}
@@ -3470,6 +3553,7 @@ export function FileManagerPage() {
                             onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
                             onLink={setLinkFolder}
                             onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
+                            onPermissions={setPermissionsFolder}
                             hasPermission={hasPermission}
                             revealOnHover={!isSelectedFolder}
                             tabIndex={isSelectedFolder ? 0 : -1}
@@ -3865,6 +3949,13 @@ export function FileManagerPage() {
           onLink={(data) => updateFolderMutation.mutate({ id: linkFolder.id, data })}
           isLoading={updateFolderMutation.isPending}
           t={t}
+        />
+      )}
+
+      {permissionsFolder && (
+        <FolderPermissionsModal
+          folder={permissionsFolder}
+          onClose={() => setPermissionsFolder(null)}
         />
       )}
 

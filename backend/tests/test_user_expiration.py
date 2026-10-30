@@ -366,8 +366,13 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
     usernames = {u["username"] for u in body["users"]}
     assert usernames == {"davidarceozamora", "sareasmayorga"}
 
-    # Verify group 'F26 - ABE4042C' was auto-created and assigned
+    # Verify group 'F26 - ABE4042C' was auto-created and assigned, along with first_name and last_name
     first_user = next(u for u in body["users"] if u["username"] == "davidarceozamora")
+    assert first_user["first_name"] == "David"
+    assert first_user["last_name"] == "Arceo Zamora"
+    second_user = next(u for u in body["users"] if u["username"] == "sareasmayorga")
+    assert second_user["first_name"] == "Sofia Eugenia"
+    assert second_user["last_name"] == "Areas Mayorga"
     group_names = [g["name"] for g in first_user["groups"]]
     assert "F26 - ABE4042C" in group_names
     assert first_user["expires_at"].startswith("2026-12-15T23:59:00")
@@ -379,5 +384,190 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
     )
     assert login_resp.status_code == 200, login_resp.text
     assert login_resp.json()["user"]["username"] == "davidarceozamora"
+    assert login_resp.json()["user"]["first_name"] == "David"
+    assert login_resp.json()["user"]["last_name"] == "Arceo Zamora"
+
+
+@pytest.mark.asyncio
+async def test_library_folder_permissions_and_ownership(async_client, db_session):
+    """Test folder-level read/write ACLs, ancestor tree traversal, and student folder ownership."""
+    _, admin_token = await _create_admin_with_token(db_session)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Create folder hierarchy: Course -> F26 - ABE4042C -> [ExoGlove, GatorByte, Stella]
+    r_course = await async_client.post(
+        "/api/v1/library/folders", headers=admin_headers, json={"name": "Course"}
+    )
+    assert r_course.status_code == 200
+    course_id = r_course.json()["id"]
+
+    r_f26 = await async_client.post(
+        "/api/v1/library/folders",
+        headers=admin_headers,
+        json={"name": "F26 - ABE4042C", "parent_id": course_id},
+    )
+    assert r_f26.status_code == 200
+    f26_id = r_f26.json()["id"]
+
+    r_exo = await async_client.post(
+        "/api/v1/library/folders",
+        headers=admin_headers,
+        json={"name": "ExoGlove", "parent_id": f26_id},
+    )
+    exo_id = r_exo.json()["id"]
+
+    r_gator = await async_client.post(
+        "/api/v1/library/folders",
+        headers=admin_headers,
+        json={"name": "GatorByte", "parent_id": f26_id},
+    )
+    gator_id = r_gator.json()["id"]
+
+    r_stella = await async_client.post(
+        "/api/v1/library/folders",
+        headers=admin_headers,
+        json={"name": "Stella", "parent_id": f26_id},
+    )
+    assert r_stella.status_code == 200
+
+    # 2. Create two student groups with library permissions and two students
+    student_perms = [
+        "library:read_all",
+        "library:read_own",
+        "library:upload",
+        "library:update_own",
+        "library:delete_own",
+    ]
+    g_exo_resp = await async_client.post(
+        "/api/v1/groups/",
+        headers=admin_headers,
+        json={"name": "Team ExoGlove", "permissions": student_perms},
+    )
+    g_exo_id = g_exo_resp.json()["id"]
+
+    g_gator_resp = await async_client.post(
+        "/api/v1/groups/",
+        headers=admin_headers,
+        json={"name": "Team GatorByte", "permissions": student_perms},
+    )
+    g_gator_id = g_gator_resp.json()["id"]
+
+    u_exo_resp = await async_client.post(
+        "/api/v1/users/",
+        headers=admin_headers,
+        json={
+            "username": "student_exo",
+            "password": "StudentPass1!",
+            "role": "user",
+            "group_ids": [g_exo_id],
+        },
+    )
+    assert u_exo_resp.status_code in (200, 201), u_exo_resp.text
+    u_exo_id = u_exo_resp.json()["id"]
+    exo_token = create_access_token(data={"sub": "student_exo", "role": "user"})
+    exo_headers = {"Authorization": f"Bearer {exo_token}"}
+
+    u_gator_resp = await async_client.post(
+        "/api/v1/users/",
+        headers=admin_headers,
+        json={
+            "username": "student_gator",
+            "password": "StudentPass1!",
+            "role": "user",
+            "group_ids": [g_gator_id],
+        },
+    )
+    assert u_gator_resp.status_code in (200, 201), u_gator_resp.text
+    u_gator_id = u_gator_resp.json()["id"]
+    gator_token = create_access_token(data={"sub": "student_gator", "role": "user"})
+    gator_headers = {"Authorization": f"Bearer {gator_token}"}
+
+    # 3. Default deny: before granting folder permissions, neither student sees any folders
+    exo_folders = (await async_client.get("/api/v1/library/folders", headers=exo_headers)).json()
+    assert exo_folders == []
+
+    # 4. Admin grants Team ExoGlove Read & Write on ExoGlove, and Team GatorByte Read-Only on GatorByte
+    perm_exo = await async_client.put(
+        f"/api/v1/library/folders/{exo_id}/permissions",
+        headers=admin_headers,
+        json={"permissions": [{"group_id": g_exo_id, "can_read": True, "can_write": True}]},
+    )
+    assert perm_exo.status_code == 200
+
+    perm_gator = await async_client.put(
+        f"/api/v1/library/folders/{gator_id}/permissions",
+        headers=admin_headers,
+        json={"permissions": [{"group_id": g_gator_id, "can_read": True, "can_write": False}]},
+    )
+    assert perm_gator.status_code == 200
+
+    # 5. Verify student_exo sees Course (traverse-only) -> F26 - ABE4042C (traverse-only) -> ExoGlove (read+write)
+    #    and does NOT see GatorByte or Stella
+    exo_tree = (await async_client.get("/api/v1/library/folders", headers=exo_headers)).json()
+    assert len(exo_tree) == 1
+    assert exo_tree[0]["name"] == "Course"
+    assert exo_tree[0]["can_read"] is False
+    assert exo_tree[0]["can_write"] is False
+    f26_node = exo_tree[0]["children"][0]
+    assert f26_node["name"] == "F26 - ABE4042C"
+    assert f26_node["can_read"] is False
+    child_names = [c["name"] for c in f26_node["children"]]
+    assert child_names == ["ExoGlove"]
+    assert f26_node["children"][0]["can_read"] is True
+    assert f26_node["children"][0]["can_write"] is True
+
+    # student_exo can create a subfolder inside ExoGlove (has write permission)
+    sub_resp = await async_client.post(
+        "/api/v1/library/folders",
+        headers=exo_headers,
+        json={"name": "FingerJoints", "parent_id": exo_id},
+    )
+    assert sub_resp.status_code == 200
+
+    # 6. Verify student_gator sees GatorByte as Read-Only and cannot create a subfolder inside GatorByte
+    gator_tree = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
+    gator_children = gator_tree[0]["children"][0]["children"]
+    assert [c["name"] for c in gator_children] == ["GatorByte"]
+    assert gator_children[0]["can_read"] is True
+    assert gator_children[0]["can_write"] is False
+
+    forbidden_sub = await async_client.post(
+        "/api/v1/library/folders",
+        headers=gator_headers,
+        json={"name": "ForbiddenSub", "parent_id": gator_id},
+    )
+    assert forbidden_sub.status_code == 403
+
+    # 7. Student creates their own top-level folder -> owns it (can_manage=True) -> shares with another student
+    own_folder_resp = await async_client.post(
+        "/api/v1/library/folders",
+        headers=exo_headers,
+        json={"name": "DavidPersonalProject"},
+    )
+    assert own_folder_resp.status_code == 200
+    own_folder_id = own_folder_resp.json()["id"]
+    assert own_folder_resp.json()["created_by_id"] == u_exo_id
+    assert own_folder_resp.json()["can_manage"] is True
+
+    # student_gator cannot see DavidPersonalProject yet
+    gator_tree_before = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
+    assert "DavidPersonalProject" not in [f["name"] for f in gator_tree_before]
+
+    # student_exo shares DavidPersonalProject with student_gator
+    share_resp = await async_client.put(
+        f"/api/v1/library/folders/{own_folder_id}/permissions",
+        headers=exo_headers,
+        json={"permissions": [{"user_id": u_gator_id, "can_read": True, "can_write": True}]},
+    )
+    assert share_resp.status_code == 200
+
+    # Now student_gator sees DavidPersonalProject with read & write access!
+    gator_tree_after = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
+    shared_node = next((f for f in gator_tree_after if f["name"] == "DavidPersonalProject"), None)
+    assert shared_node is not None
+    assert shared_node["can_read"] is True
+    assert shared_node["can_write"] is True
+    assert shared_node["can_manage"] is False
+
 
 

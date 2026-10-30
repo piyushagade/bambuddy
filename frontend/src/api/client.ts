@@ -4405,6 +4405,8 @@ export interface EnrollmentInviteCreate {
 export interface EnrollmentRedeemRequest {
   code: string;
   username?: string;
+  first_name?: string | null;
+  last_name?: string | null;
   password?: string;
   email?: string;
 }
@@ -4457,6 +4459,8 @@ export interface LoginResponse {
 export interface UserResponse {
   id: number;
   username: string;
+  first_name?: string | null;
+  last_name?: string | null;
   email?: string;
   role: string;  // Deprecated, kept for backward compatibility
   is_active: boolean;
@@ -4482,6 +4486,8 @@ export interface UserSlim {
 
 export interface UserCreate {
   username: string;
+  first_name?: string | null;
+  last_name?: string | null;
   password?: string;  // Optional when advanced auth is enabled
   email?: string;
   role: string;
@@ -4491,6 +4497,8 @@ export interface UserCreate {
 
 export interface UserUpdate {
   username?: string;
+  first_name?: string | null;
+  last_name?: string | null;
   password?: string;
   email?: string;
   role?: string;
@@ -7680,6 +7688,13 @@ export const api = {
     }),
   deleteLibraryFolder: (id: number) =>
     request<{ status: string; message: string }>(`/library/folders/${id}`, { method: 'DELETE' }),
+  getLibraryFolderPermissions: (folderId: number) =>
+    request<FolderPermissionsListResponse>(`/library/folders/${folderId}/permissions`),
+  updateLibraryFolderPermissions: (folderId: number, permissions: FolderPermissionGrant[]) =>
+    request<FolderPermissionsListResponse>(`/library/folders/${folderId}/permissions`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    }),
   createExternalFolder: (data: ExternalFolderCreate) =>
     request<LibraryFolder>('/library/folders/external', {
       method: 'POST',
@@ -8463,6 +8478,11 @@ export interface LibraryFolderTree {
   // max(folder.updated_at, max(immediate-child file.updated_at)). Used by
   // the File Manager folder tree's "sort by recent activity" mode (#1770).
   latest_activity_at: string | null;
+  created_by_id?: number | null;
+  created_by_username?: string | null;
+  can_read?: boolean;
+  can_write?: boolean;
+  can_manage?: boolean;
   children: LibraryFolderTree[];
 }
 
@@ -8480,8 +8500,52 @@ export interface LibraryFolder {
   external_show_hidden: boolean;
   file_count: number;
   latest_activity_at: string | null;
+  created_by_id?: number | null;
+  created_by_username?: string | null;
+  can_read?: boolean;
+  can_write?: boolean;
+  can_manage?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface FolderPermissionGrant {
+  user_id?: number | null;
+  group_id?: number | null;
+  can_read: boolean;
+  can_write: boolean;
+}
+
+export interface FolderPermissionEntry {
+  id: number;
+  folder_id: number;
+  user_id?: number | null;
+  username?: string | null;
+  group_id?: number | null;
+  group_name?: string | null;
+  can_read: boolean;
+  can_write: boolean;
+  created_at: string;
+}
+
+export interface FolderShareTargetUser {
+  id: number;
+  username: string;
+}
+
+export interface FolderShareTargetGroup {
+  id: number;
+  name: string;
+}
+
+export interface FolderPermissionsListResponse {
+  folder_id: number;
+  folder_name: string;
+  created_by_id?: number | null;
+  created_by_username?: string | null;
+  permissions: FolderPermissionEntry[];
+  available_users: FolderShareTargetUser[];
+  available_groups: FolderShareTargetGroup[];
 }
 
 export interface LibraryFolderCreate {

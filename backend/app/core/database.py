@@ -1851,6 +1851,46 @@ async def run_migrations(conn):
         "ALTER TABLE pipeline_runs ADD COLUMN source_archive_id INTEGER REFERENCES print_archives(id) ON DELETE SET NULL",
     )
 
+    # Migration: Add first_name and last_name columns to users
+    await _safe_execute(conn, "ALTER TABLE users ADD COLUMN first_name VARCHAR(100)")
+    await _safe_execute(conn, "ALTER TABLE users ADD COLUMN last_name VARCHAR(100)")
+
+    # Migration: Add created_by_id to library_folders and create library_folder_permissions table
+    await _safe_execute(
+        conn,
+        "ALTER TABLE library_folders ADD COLUMN created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    )
+    if is_sqlite():
+        await _safe_execute(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS library_folder_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_id INTEGER NOT NULL REFERENCES library_folders(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+                can_read BOOLEAN NOT NULL DEFAULT 1,
+                can_write BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+        )
+    else:
+        await _safe_execute(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS library_folder_permissions (
+                id SERIAL PRIMARY KEY,
+                folder_id INTEGER NOT NULL REFERENCES library_folders(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+                can_read BOOLEAN NOT NULL DEFAULT TRUE,
+                can_write BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+        )
+
     # Migration: Add is_favorite column to print_archives
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN is_favorite BOOLEAN DEFAULT 0")
 

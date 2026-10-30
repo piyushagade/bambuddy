@@ -11,7 +11,7 @@ from backend.app.models.filament import Filament
 from backend.app.models.github_backup import GitHubBackupConfig, GitHubBackupLog
 from backend.app.models.group import Group, user_groups
 from backend.app.models.kprofile_note import KProfileNote
-from backend.app.models.library import FileVariantGroup, LibraryFile, LibraryFolder
+from backend.app.models.library import FileVariantGroup, LibraryFile, LibraryFolder, LibraryFolderPermission
 from backend.app.models.local_preset import LocalPreset
 from backend.app.models.location import Location
 from backend.app.models.location_ha_sensor import LocationHASensor
@@ -71,6 +71,7 @@ __all__ = [
     "PrintBatch",
     "PrintBatchPlate",
     "LibraryFolder",
+    "LibraryFolderPermission",
     "LibraryFile",
     "FileVariantGroup",
     "Location",

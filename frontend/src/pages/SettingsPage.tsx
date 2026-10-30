@@ -337,6 +337,8 @@ export function SettingsPage() {
   const [deleteUserLoading, setDeleteUserLoading] = useState(false);
   const [userFormData, setUserFormData] = useState<{
     username: string;
+    first_name?: string | null;
+    last_name?: string | null;
     password?: string;
     email?: string;
     confirmPassword: string;
@@ -345,6 +347,8 @@ export function SettingsPage() {
     expires_at?: string | null;
   }>({
     username: '',
+    first_name: '',
+    last_name: '',
     password: '',
     email: '',
     confirmPassword: '',
@@ -889,6 +893,8 @@ export function SettingsPage() {
 
     createUserMutation.mutate({
       username: userFormData.username,
+      first_name: userFormData.first_name?.trim() || undefined,
+      last_name: userFormData.last_name?.trim() || undefined,
       password: advancedAuthEnabled ? undefined : userFormData.password,
       email: userFormData.email || undefined,
       role: userFormData.role,
@@ -918,6 +924,8 @@ export function SettingsPage() {
     }
     const updateData: UserUpdate = {
       username: userFormData.username || undefined,
+      first_name: userFormData.first_name?.trim() ?? null,
+      last_name: userFormData.last_name?.trim() ?? null,
       password: userFormData.password || undefined,
       email: userFormData.email || undefined,
       role: userFormData.role,
@@ -934,6 +942,8 @@ export function SettingsPage() {
     setEditingUserId(userToEdit.id);
     setUserFormData({
       username: userToEdit.username,
+      first_name: userToEdit.first_name || '',
+      last_name: userToEdit.last_name || '',
       password: '',
       email: userToEdit.email || '',
       confirmPassword: '',
@@ -6889,7 +6899,12 @@ export function SettingsPage() {
                     <CardContent>
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-white font-medium text-lg">{user.username}</p>
+                          <p className="text-white font-medium text-lg">
+                            {[user.first_name, user.last_name].filter(Boolean).join(' ') || user.username}
+                          </p>
+                          {(user.first_name || user.last_name) && (
+                            <p className="text-xs text-bambu-gray">@{user.username}</p>
+                          )}
                           <div className="flex flex-wrap gap-1 mt-2">
                             {user.is_admin && (
                               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
@@ -6971,7 +6986,14 @@ export function SettingsPage() {
                         {usersData.map((userItem) => (
                           <div key={userItem.id} className="py-3 flex items-center justify-between">
                             <div className="flex-1 min-w-0">
-                              <p className="text-white font-medium truncate">{userItem.username}</p>
+                              <div className="flex items-baseline gap-2 flex-wrap">
+                                <p className="text-white font-medium truncate">{userItem.username}</p>
+                                {(userItem.first_name || userItem.last_name) && (
+                                  <span className="text-xs text-bambu-gray truncate">
+                                    ({[userItem.first_name, userItem.last_name].filter(Boolean).join(' ')})
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {userItem.auth_source === 'ldap' && (
                                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300">
@@ -7292,6 +7314,30 @@ export function SettingsPage() {
                     autoComplete="username"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">First Name</label>
+                    <input
+                      type="text"
+                      value={userFormData.first_name || ''}
+                      onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
+                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                      placeholder="First name"
+                      autoComplete="given-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">Last Name</label>
+                    <input
+                      type="text"
+                      value={userFormData.last_name || ''}
+                      onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
+                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                      placeholder="Last name"
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">{t('settings.password')}</label>
                   <input
@@ -7458,6 +7504,32 @@ export function SettingsPage() {
                     placeholder={t('settings.enterUsername')}
                     autoComplete="username"
                   />
+                </div>
+
+                {/* First Name & Last Name Fields */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">First Name</label>
+                    <input
+                      type="text"
+                      value={userFormData.first_name || ''}
+                      onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
+                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                      placeholder="First name"
+                      autoComplete="given-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">Last Name</label>
+                    <input
+                      type="text"
+                      value={userFormData.last_name || ''}
+                      onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
+                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                      placeholder="Last name"
+                      autoComplete="family-name"
+                    />
+                  </div>
                 </div>
 
                 {/* Email Field */}

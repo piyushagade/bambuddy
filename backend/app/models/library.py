@@ -52,6 +52,7 @@ class LibraryFolder(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Real on-disk modification time of the directory this folder mirrors (#2680).
     # For external folders this is captured from ``os.stat().st_mtime`` on scan so
@@ -80,6 +81,36 @@ class LibraryFolder(Base):
     )
     project: Mapped["Project | None"] = relationship()
     archive: Mapped["PrintArchive | None"] = relationship()
+    created_by: Mapped["User | None"] = relationship(foreign_keys="LibraryFolder.created_by_id")
+    permissions: Mapped[list["LibraryFolderPermission"]] = relationship(
+        "LibraryFolderPermission",
+        back_populates="folder",
+        cascade="all, delete-orphan",
+    )
+
+
+class LibraryFolderPermission(Base):
+    """Explicit Read / Write access grant on a LibraryFolder for a User or Group."""
+
+    __tablename__ = "library_folder_permissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    folder_id: Mapped[int] = mapped_column(
+        ForeignKey("library_folders.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    can_read: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_write: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    folder: Mapped["LibraryFolder"] = relationship("LibraryFolder", back_populates="permissions")
+    user: Mapped["User | None"] = relationship("User", foreign_keys="LibraryFolderPermission.user_id")
+    group: Mapped["Group | None"] = relationship("Group", foreign_keys="LibraryFolderPermission.group_id")
 
 
 class FileVariantGroup(Base):
@@ -265,5 +296,6 @@ class LibraryFileTag(Base):
 
 
 from backend.app.models.archive import PrintArchive  # noqa: E402, F811
+from backend.app.models.group import Group  # noqa: E402, F811
 from backend.app.models.project import Project  # noqa: E402, F811
 from backend.app.models.user import User  # noqa: E402, F811
