@@ -13,6 +13,7 @@ import {
 } from '../api/client';
 import { openInSlicer, resolveDesktopSlicer, type SlicerType } from '../utils/slicer';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { Card, CardContent, CardHeader } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { SliceModal, type SliceSource } from '../components/SliceModal';
@@ -420,15 +421,11 @@ export function MakerworldPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-screen-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Globe className="w-7 h-7 text-bambu-green" />
-          {t('makerworld.title')}
-        </h1>
-        <p className="text-bambu-gray mt-1">
-          {t('makerworld.description')}
-        </p>
-      </div>
+      <PageHeader
+        icon={<Globe className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('makerworld.title')}
+        subtitle={t('makerworld.description')}
+      />
 
       {/* Two-column layout: main flow on the left, sticky "Recent imports"
           sidebar on the right at lg+. Collapses to single column on narrow

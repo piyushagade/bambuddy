@@ -48,6 +48,7 @@ import { formatRelativeTime } from '../utils/date';
 import type { SlicerSetting, SlicerSettingsResponse, SlicerSettingDetail, SlicerSettingCreate, Printer, FieldDefinition, Permission } from '../api/client';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { KProfilesView } from '../components/KProfilesView';
@@ -2912,13 +2913,12 @@ export function ProfilesPage() {
   return (
     <div className="p-4 md:p-8">
       {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Cloud className="w-7 h-7 text-bambu-green" />
-          {t('profiles.title')}
-        </h1>
-        <p className="text-bambu-gray mt-1">{t('profiles.subtitle')}</p>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={<Cloud className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('profiles.title')}
+        subtitle={t('profiles.subtitle')}
+      />
 
       {/* Tab Navigation */}
       <div className="flex border-b border-bambu-dark-tertiary mb-6">

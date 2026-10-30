@@ -41,6 +41,7 @@ import type { MaintenanceStatus, PrinterMaintenanceOverview, MaintenanceType, Pe
 import { getMaintenanceWikiUrl } from '../utils/maintenanceWikiUrls';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { Toggle } from '../components/Toggle';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
@@ -1230,13 +1231,12 @@ export function MaintenancePage() {
   return (
     <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Wrench className="w-7 h-7 text-bambu-green" />
-          {t('maintenance.title')}
-        </h1>
-        <p className="text-bambu-gray mt-1">
-          {activeTab === 'status' ? (
+      <PageHeader
+        className="mb-6"
+        icon={<Wrench className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('maintenance.title')}
+        subtitle={
+          activeTab === 'status' ? (
             <>
               {totalDue > 0 && <span className="text-red-700 dark:text-red-400">{t('maintenance.dueCount', { count: totalDue })}</span>}
               {totalDue > 0 && totalWarning > 0 && ' · '}
@@ -1245,9 +1245,9 @@ export function MaintenancePage() {
             </>
           ) : (
             t('maintenance.configureSettings')
-          )}
-        </p>
-      </div>
+          )
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-bambu-dark-tertiary">

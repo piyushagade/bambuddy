@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Eye, EyeOff, Link2, Plus, Pencil, Trash2, GripVertical, Loader2, ExternalLink as ExternalLinkIcon, RotateCcw } from 'lucide-react';
+import { Eye, EyeOff, Link2, Plus, Pencil, Trash2, GripVertical, Loader2, ExternalLink as ExternalLinkIcon, RotateCcw, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import type { ExternalLink } from '../api/client';
@@ -12,6 +12,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { getIconByName } from './IconPicker';
 import { defaultNavItems } from './Layout';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import {
   getHiddenSidebarSystemItemIds,
@@ -28,7 +29,9 @@ export function ExternalLinksSettings() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { authEnabled, hasPermission } = useAuth();
+  const { resolvedMode } = useTheme();
   const { showToast } = useToast();
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingLink, setEditingLink] = useState<ExternalLink | null>(null);
   const [deletingLink, setDeletingLink] = useState<ExternalLink | null>(null);
@@ -54,6 +57,52 @@ export function ExternalLinksSettings() {
     queryFn: api.getSettings,
     enabled: authEnabled && hasPermission('settings:update'),
   });
+
+  const { data: defaultSidebarData } = useQuery({
+    queryKey: ['default-sidebar-order'],
+    queryFn: api.getDefaultSidebarOrder,
+  });
+
+  const uploadLogoMutation = useMutation({
+    mutationFn: (file: File) => api.uploadSidebarLogo(file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['default-sidebar-order'] });
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      showToast(t('externalLinks.logoUpdated', { defaultValue: 'Sidebar logo updated' }), 'success');
+    },
+    onError: (err: Error) => {
+      showToast(err.message, 'error');
+    },
+  });
+
+  const deleteLogoMutation = useMutation({
+    mutationFn: () => api.deleteSidebarLogo(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['default-sidebar-order'] });
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      showToast(t('externalLinks.logoReset', { defaultValue: 'Sidebar logo reset to default' }), 'success');
+    },
+    onError: (err: Error) => {
+      showToast(err.message, 'error');
+    },
+  });
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp', 'image/x-icon'];
+    if (!validTypes.includes(file.type)) {
+      showToast('Please select a valid image file (PNG, JPG, GIF, SVG, WebP, or ICO)', 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Image file must be less than 2MB', 'error');
+      return;
+    }
+    uploadLogoMutation.mutate(file);
+  };
 
   const updateDefaultSidebarMutation = useMutation({
     mutationFn: (defaultSidebarOrder: string) => api.updateSettings({ default_sidebar_order: defaultSidebarOrder }),
@@ -194,7 +243,11 @@ export function ExternalLinksSettings() {
   };
 
   const canSetDefaultSidebarOrder = authEnabled && hasPermission('settings:update');
+  const canManageLogo = !authEnabled || hasPermission('settings:update');
   const isDefaultSidebarEnabled = !!settings?.default_sidebar_order;
+  const customLogo = defaultSidebarData?.custom_logo || settings?.custom_logo || '';
+  const defaultLogoSrc = resolvedMode === 'dark' ? '/img/bambuddy_logo_dark_transparent.png' : '/img/bambuddy_logo_light.png';
+  const currentLogoSrc = customLogo ? api.getSidebarLogoUrl(customLogo) : defaultLogoSrc;
 
   return (
     <>
@@ -228,6 +281,72 @@ export function ExternalLinksSettings() {
           </div>
         </CardHeader>
         <CardContent>
+          {canManageLogo && (
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 mb-4 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-12 px-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary flex items-center justify-center flex-shrink-0">
+                  <img
+                    src={currentLogoSrc}
+                    alt="Sidebar logo preview"
+                    className="h-8 w-auto max-w-[120px] object-contain"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-white font-medium block">
+                    {t('externalLinks.sidebarLogo', { defaultValue: 'Sidebar Logo' })}
+                  </span>
+                  <span className="text-xs text-bambu-gray block">
+                    {customLogo
+                      ? t('externalLinks.customLogoActive', { defaultValue: 'Custom logo active' })
+                      : t('externalLinks.sidebarLogoHint', { defaultValue: 'PNG, JPG, GIF, SVG, WebP, or ICO (max 2MB)' })}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/x-icon"
+                  className="hidden"
+                  onChange={handleLogoFileChange}
+                  data-testid="sidebar-logo-input"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadLogoMutation.isPending || deleteLogoMutation.isPending}
+                >
+                  {uploadLogoMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  {customLogo
+                    ? t('externalLinks.changeLogo', { defaultValue: 'Change Logo' })
+                    : t('externalLinks.uploadLogo', { defaultValue: 'Upload Logo' })}
+                </Button>
+                {customLogo && (
+                  <button
+                    type="button"
+                    onClick={() => deleteLogoMutation.mutate()}
+                    disabled={deleteLogoMutation.isPending || uploadLogoMutation.isPending}
+                    className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/20 text-bambu-gray hover:text-red-900 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+                    title={t('externalLinks.removeCustomIcon', { defaultValue: 'Remove custom icon' })}
+                    aria-label={t('externalLinks.removeCustomIcon', { defaultValue: 'Remove custom icon' })}
+                  >
+                    {deleteLogoMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <p className="text-sm text-bambu-gray mb-4">
             {t('externalLinks.sidebarLayoutDescription')}
           </p>

@@ -1544,6 +1544,8 @@ export interface AppSettings {
   fan_speed_presets: string;
   // Default sidebar order (admin-set for all users)
   default_sidebar_order: string;
+  custom_logo?: string;
+  document_title?: string;
   // LDAP authentication
   ldap_enabled: boolean;
   ldap_server_url: string;
@@ -3734,9 +3736,16 @@ export interface InventorySpool {
   k_profiles?: SpoolKProfile[];
   storage_location?: string | null;
   location_id?: number | null;
+  allowed_group_ids?: number[];
+  allowed_user_ids?: number[];
   // Supplier assignments (#2988). Absent in Spoolman mode — Spoolman's
   // vendor is the manufacturer, not the seller, so there is no mapping.
   suppliers?: SpoolSupplierLink[];
+}
+
+export interface SpoolAccessOptions {
+  groups: Array<{ id: number; name: string }>;
+  users: Array<{ id: number; username: string }>;
 }
 
 // ── Suppliers (#2988) ──────────────────────────────────────────────────────
@@ -3949,6 +3958,10 @@ export interface SlotSpoolIdentity {
    *  every reader here already falls back to a solid swatch. */
   extra_colors?: string | null;
   effect_type?: string | null;
+  spool_id?: number | null;
+  allowed_group_ids?: number[];
+  allowed_user_ids?: number[];
+  is_authorized?: boolean;
 }
 
 export interface InventoryRemainResponse {
@@ -4287,12 +4300,15 @@ export type Permission =
   | 'users:read' | 'users:read_slim' | 'users:create' | 'users:update' | 'users:delete'
   | 'groups:read' | 'groups:create' | 'groups:update' | 'groups:delete'
   | 'pipelines:read' | 'pipelines:write' | 'pipelines:run'
+  | 'queue:approve'
   | 'websocket:connect';
 
 // Group types
 export interface GroupBrief {
   id: number;
   name: string;
+  expires_at?: string | null;
+  is_expired?: boolean;
 }
 
 export interface Group {
@@ -4302,6 +4318,14 @@ export interface Group {
   permissions: Permission[];
   is_system: boolean;
   user_count: number;
+  expires_at?: string | null;
+  is_expired?: boolean;
+  max_print_duration_minutes?: number | null;
+  max_filament_grams_per_job?: number | null;
+  max_active_queue_items?: number | null;
+  requires_approval?: boolean;
+  allowed_hours_start?: number | null;
+  allowed_hours_end?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -4314,12 +4338,81 @@ export interface GroupCreate {
   name: string;
   description?: string;
   permissions: Permission[];
+  expires_at?: string | null;
+  max_print_duration_minutes?: number | null;
+  max_filament_grams_per_job?: number | null;
+  max_active_queue_items?: number | null;
+  requires_approval?: boolean;
+  allowed_hours_start?: number | null;
+  allowed_hours_end?: number | null;
 }
 
 export interface GroupUpdate {
   name?: string;
   description?: string;
   permissions?: Permission[];
+  expires_at?: string | null;
+  max_print_duration_minutes?: number | null;
+  max_filament_grams_per_job?: number | null;
+  max_active_queue_items?: number | null;
+  requires_approval?: boolean;
+  allowed_hours_start?: number | null;
+  allowed_hours_end?: number | null;
+}
+
+export interface RosterImportRequest {
+  csv_content: string;
+  default_group_id?: number | null;
+  default_cost_center_id?: number | null;
+  default_expires_at?: string | null;
+}
+
+export interface RosterImportResponse {
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  errors: string[];
+  users: UserResponse[];
+}
+
+export interface EnrollmentInvite {
+  id: number;
+  code: string;
+  name: string;
+  group_id?: number | null;
+  group_name?: string | null;
+  cost_center_id?: number | null;
+  cost_center_name?: string | null;
+  user_expires_at?: string | null;
+  invite_expires_at?: string | null;
+  max_uses?: number | null;
+  uses_count: number;
+  is_active: boolean;
+  is_redeemable: boolean;
+  created_at: string;
+}
+
+export interface EnrollmentInviteCreate {
+  name: string;
+  code?: string | null;
+  group_id?: number | null;
+  cost_center_id?: number | null;
+  user_expires_at?: string | null;
+  invite_expires_at?: string | null;
+  max_uses?: number | null;
+}
+
+export interface EnrollmentRedeemRequest {
+  code: string;
+  username?: string;
+  password?: string;
+  email?: string;
+}
+
+export interface EnrollmentRedeemResponse {
+  user: UserResponse;
+  invite_name: string;
+  access_token?: string | null;
 }
 
 export interface PermissionInfo {
@@ -4372,6 +4465,8 @@ export interface UserResponse {
   groups: GroupBrief[];
   permissions: Permission[];  // All permissions from groups
   created_at: string;
+  expires_at?: string | null;
+  is_expired?: boolean;
 }
 
 /**
@@ -4391,6 +4486,7 @@ export interface UserCreate {
   email?: string;
   role: string;
   group_ids?: number[];
+  expires_at?: string | null;
 }
 
 export interface UserUpdate {
@@ -4400,6 +4496,7 @@ export interface UserUpdate {
   role?: string;
   is_active?: boolean;
   group_ids?: number[];
+  expires_at?: string | null;
 }
 
 export interface SetupRequest {
@@ -4814,6 +4911,27 @@ export const api = {
     request<{ message: string }>('/users/me/change-password', {
       method: 'POST',
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  importRosterCsv: (data: RosterImportRequest) =>
+    request<RosterImportResponse>('/users/roster-import', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getEnrollmentInvites: () =>
+    request<EnrollmentInvite[]>('/users/invites'),
+  createEnrollmentInvite: (data: EnrollmentInviteCreate) =>
+    request<EnrollmentInvite>('/users/invites', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteEnrollmentInvite: (id: number) =>
+    request<void>(`/users/invites/${id}`, {
+      method: 'DELETE',
+    }),
+  redeemEnrollmentInvite: (data: EnrollmentRedeemRequest) =>
+    request<EnrollmentRedeemResponse>('/users/invites/redeem', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   // User Email Notifications
@@ -5913,7 +6031,30 @@ export const api = {
 
   // Settings
   getSettings: () => request<AppSettings>('/settings/'),
-  getDefaultSidebarOrder: () => request<{ default_sidebar_order: string }>('/settings/default-sidebar-order'),
+  getDefaultSidebarOrder: () =>
+    request<{ default_sidebar_order: string; custom_logo?: string; document_title?: string }>('/settings/default-sidebar-order'),
+  uploadSidebarLogo: async (file: File): Promise<{ custom_logo: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers: Record<string, string> = {};
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const response = await fetch(`${API_BASE}/settings/sidebar-logo`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  },
+  deleteSidebarLogo: () =>
+    request<{ custom_logo: string }>('/settings/sidebar-logo', { method: 'DELETE' }),
+  getSidebarLogoUrl: (filename?: string) =>
+    `${API_BASE}/settings/sidebar-logo${filename ? `?v=${encodeURIComponent(filename)}` : ''}`,
   // Public subset of settings for UI rendering — no settings:read required.
   // Used by pages whose users may not have SETTINGS_READ (e.g. operators with
   // only printers:clear_plate). Keep in sync with _UI_PREFERENCE_FIELDS in
@@ -6681,6 +6822,8 @@ export const api = {
   // Inventory
   getSpools: (includeArchived = false) =>
     request<InventorySpool[]>(`/inventory/spools?include_archived=${includeArchived}`),
+  getSpoolAccessOptions: () =>
+    request<SpoolAccessOptions>('/inventory/access-options'),
   getSpool: (id: number) => request<InventorySpool>(`/inventory/spools/${id}`),
   createSpool: (data: Omit<InventorySpool, 'id' | 'archived_at' | 'created_at' | 'updated_at' | 'k_profiles'>) =>
     request<InventorySpool>('/inventory/spools', {

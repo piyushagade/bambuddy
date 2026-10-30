@@ -10,6 +10,11 @@ interface BeforeInstallPromptEvent extends Event {
   readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+interface InstallAppButtonProps {
+  variant?: 'icon' | 'menuItem';
+  onInstalled?: () => void;
+}
+
 /**
  * Sidebar-footer button that installs Bambuddy as a PWA.
  *
@@ -20,7 +25,7 @@ interface BeforeInstallPromptEvent extends Event {
  * pending prompt - already installed, unsupported browser, or iOS Safari
  * (which has no programmatic install at all).
  */
-export function InstallAppButton() {
+export function InstallAppButton({ variant = 'icon', onInstalled }: InstallAppButtonProps = {}) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
@@ -32,12 +37,12 @@ export function InstallAppButton() {
       e.preventDefault();
       setPromptEvent(e as BeforeInstallPromptEvent);
     };
-    const onInstalled = () => setPromptEvent(null);
+    const onInstalledEvent = () => setPromptEvent(null);
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
-    window.addEventListener('appinstalled', onInstalled);
+    window.addEventListener('appinstalled', onInstalledEvent);
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
+      window.removeEventListener('appinstalled', onInstalledEvent);
     };
   }, []);
 
@@ -54,7 +59,22 @@ export function InstallAppButton() {
     if (outcome === 'accepted') {
       showToast(t('nav.installAppSuccess'), 'success');
     }
+    onInstalled?.();
   };
+
+  if (variant === 'menuItem') {
+    return (
+      <button
+        onClick={handleInstall}
+        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white text-left"
+        title={t('nav.installApp')}
+        aria-label={t('nav.installApp')}
+      >
+        <Download className="w-4 h-4 flex-shrink-0" />
+        <span className="truncate">{t('nav.installApp')}</span>
+      </button>
+    );
+  }
 
   return (
     <button

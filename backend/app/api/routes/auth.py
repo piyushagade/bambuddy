@@ -83,12 +83,14 @@ def _user_to_response(user: User) -> UserResponse:
         username=user.username,
         email=user.email,
         role=user.role,
-        is_active=user.is_active,
+        is_active=user.is_effectively_active,
         is_admin=user.is_admin,
         auth_source=getattr(user, "auth_source", "local"),
         groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
         permissions=sorted(user.get_permissions()),
         created_at=user.created_at.isoformat(),
+        expires_at=user.expires_at.isoformat() if user.expires_at else None,
+        is_expired=user.is_expired,
     )
 
 
@@ -502,6 +504,9 @@ async def login(raw_request: Request, request: LoginRequest, response: Response,
                         # Username exists as local user — don't override
                         user = None
                         ldap_user = None
+                    elif user and not user.is_effectively_active:
+                        user = None
+                        ldap_user = None
                     elif not user:
                         if not ldap_config.auto_provision:
                             # User doesn't exist and auto-provision is off
@@ -750,7 +755,7 @@ async def get_current_user_info(
             )
 
         user = await get_user_by_username(db, username)
-        if user is None or not user.is_active:
+        if user is None or not user.is_effectively_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
@@ -1146,7 +1151,7 @@ async def forgot_password(
     user = await get_user_by_email(db, request.email)
 
     # M-1: exclude LDAP and OIDC users — they must use their respective provider.
-    if user and user.is_active and user.auth_source not in ("ldap", "oidc"):
+    if user and user.is_effectively_active and user.auth_source not in ("ldap", "oidc"):
         try:
             # Record email-level slot only for local users who will actually receive
             # the reset email (Nit7: don't waste the user's quota for LDAP/OIDC no-ops).
@@ -1233,7 +1238,7 @@ async def forgot_password_confirm(request: ForgotPasswordConfirmRequest, db: Asy
 
     user = await get_user_by_username(db, username)
     # M-1: block LDAP/OIDC users — they authenticate via their provider, not local password.
-    if not user or not user.is_active or user.auth_source in ("ldap", "oidc"):
+    if not user or not user.is_effectively_active or user.auth_source in ("ldap", "oidc"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset token")
 
     user.password_hash = get_password_hash(request.new_password)

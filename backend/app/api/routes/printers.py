@@ -2428,7 +2428,7 @@ async def set_ams_backup(
 @router.get("/{printer_id}/inventory-remain")
 async def get_inventory_remain(
     printer_id: int,
-    _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
+    current_user=RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
     db: AsyncSession = Depends(get_db),
 ):
     """Per-globalTrayId remaining grams for slots bound to an inventory spool.
@@ -2458,7 +2458,7 @@ async def get_inventory_remain(
     scheduler = PrintScheduler()
     loaded = scheduler._build_loaded_filaments(state)
     overrides = await scheduler._build_inventory_remain_overrides(db, printer_id, loaded)
-    slot_materials = await build_slot_materials(db, printer_id)
+    slot_materials = await build_slot_materials(db, printer_id, current_user=current_user)
     return {
         "inventory_remain_g": {str(k): v for k, v in overrides.items()},
         "slot_materials": [s.to_dict() for s in slot_materials],
@@ -3635,6 +3635,9 @@ async def clear_plate(
         )
 
     printer_manager.set_awaiting_plate_clear(printer_id, False)
+    printer.plate_finished_at = None
+    printer.pickup_sla_notified_at = None
+    await db.commit()
 
     # #1898: releasing the plate without answering the outcome prompt can
     # count as "good" (opt-in setting) — this is the moment the operator

@@ -9,6 +9,7 @@ import { X, Mail, Shield, Smartphone, Key } from 'lucide-react';
 import { api, type LoginResponse, type OIDCProviderPublic, type TokenPersistence } from '../api/client';
 import { Card, CardHeader, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
+import { RedeemInviteModal } from '../components/CohortOnboardingModals';
 
 type LoginStep = 'credentials' | '2fa' | 'reset-password';
 
@@ -136,6 +137,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
+  const [showRedeemInvite, setShowRedeemInvite] = useState(() => Boolean(searchParams.get('invite')));
 
   // 2FA step state
   const [step, setStep] = useState<LoginStep>('credentials');
@@ -800,7 +802,14 @@ export function LoginPage() {
             </button>
           </div>
 
-          <div className="text-center">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <button
+              type="button"
+              onClick={() => setShowRedeemInvite(true)}
+              className="text-sm font-medium text-bambu-green hover:underline transition-colors"
+            >
+              Have a Course / Cohort Invite Code? Self-Enroll
+            </button>
             <button
               type="button"
               onClick={() => setShowForgotPassword(true)}
@@ -956,6 +965,19 @@ export function LoginPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+      {showRedeemInvite && (
+        <RedeemInviteModal
+          initialCode={searchParams.get('invite') ?? ''}
+          isAuthenticated={false}
+          onSuccess={(resp) => {
+            if (resp.access_token && resp.user) {
+              loginWithToken(resp.access_token, resp.user, toPersistence(rememberMe));
+              navigate(resolvePostLoginRedirect(), { replace: true });
+            }
+          }}
+          onClose={() => setShowRedeemInvite(false)}
+        />
       )}
     </div>
   );

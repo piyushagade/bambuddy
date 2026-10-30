@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { queueItemDisplayName } from '../utils/queueItemName';
+import { PageHeader } from '../components/PageHeader';
 import {
   Clock,
   Trash2,
@@ -2584,15 +2585,12 @@ export function QueuePage() {
   return (
     <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <ListOrdered className="w-7 h-7 text-bambu-green" />
-            {t('queue.title')}
-          </h1>
-          <p className="text-bambu-gray mt-1">{t('queue.subtitle')}</p>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={<ListOrdered className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('queue.title')}
+        subtitle={t('queue.subtitle')}
+      />
 
       {/* Tab strip — Active queue is the main view; History and Timeline
           live in their own tabs so the queue page stays focused. */}

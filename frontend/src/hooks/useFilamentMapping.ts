@@ -88,6 +88,7 @@ export function buildLoadedFilaments(
           extraColors: identity?.extra_colors ?? undefined,
           effectType: identity?.effect_type ?? undefined,
           spoolSubtype: identity?.subtype ?? undefined,
+          isAuthorized: identity?.is_authorized ?? true,
           extruderId: amsExtruderMap?.[String(amsUnit.id)],
           remain: tray.remain ?? -1,
         });
@@ -120,6 +121,7 @@ export function buildLoadedFilaments(
         extraColors: identity?.extra_colors ?? undefined,
         effectType: identity?.effect_type ?? undefined,
         spoolSubtype: identity?.subtype ?? undefined,
+        isAuthorized: identity?.is_authorized ?? true,
         extruderId: hasDualNozzle ? (255 - trayId) : undefined,
         remain: extTray.remain ?? -1,
       });
@@ -150,8 +152,9 @@ export function computeAmsMapping(
   printerStatus: PrinterStatus | undefined,
   preferLowest?: boolean,
   inventoryByTrayId?: Map<number, number>,
+  slotSpools?: SlotSpoolIdentities,
 ): number[] | undefined {
-  const loadedFilaments = buildLoadedFilaments(printerStatus);
+  const loadedFilaments = buildLoadedFilaments(printerStatus, slotSpools);
   if (loadedFilaments.length === 0) return undefined;
 
   // FTS routes any AMS slot to any extruder, so per-nozzle slot restriction
@@ -200,6 +203,8 @@ export interface LoadedFilament {
   /** The bound spool's subtype ("PLA Silk", "Multicolor"), which decides
    *  whether the swatch renders its stops as a conic sweep. */
   spoolSubtype?: string;
+  /** Whether the current user is authorized to print with the bound spool. */
+  isAuthorized?: boolean;
 }
 
 /**
@@ -226,7 +231,7 @@ export interface FilamentRequirement {
 /**
  * Status of filament comparison between required and loaded.
  */
-export type FilamentStatus = 'match' | 'type_only' | 'mismatch' | 'empty';
+export type FilamentStatus = 'match' | 'type_only' | 'mismatch' | 'unauthorized' | 'empty';
 
 /**
  * Result of comparing a required filament with loaded filaments.
@@ -255,6 +260,8 @@ interface UseFilamentMappingResult {
   hasTypeMismatch: boolean;
   /** Whether any required filament has a color mismatch */
   hasColorMismatch: boolean;
+  /** Whether any required filament maps to an unauthorized spool (or only unauthorized spools match) */
+  hasUnauthorizedSpool: boolean;
 }
 
 /**
@@ -327,7 +334,9 @@ export function buildFilamentComparison(
         const colorMatch = coloursMatch(manualLoaded.color, req.color);
 
         let status: FilamentStatus;
-        if (typeMatch && colorMatch) {
+        if (manualLoaded.isAuthorized === false) {
+          status = 'unauthorized';
+        } else if (typeMatch && colorMatch) {
           status = 'match';
         } else if (typeMatch) {
           status = 'type_only';
@@ -349,11 +358,13 @@ export function buildFilamentComparison(
 
     // Auto-match: Find a loaded filament
     // Priority: unique tray_info_idx match > exact color match > similar color match > type-only match
-    // IMPORTANT: Exclude trays that are already assigned (manually or auto)
+    // IMPORTANT: Exclude trays that are already assigned (manually or auto) or unauthorized
     const reqTrayInfoIdx = req.tray_info_idx || '';
 
-    // Get available trays (not already used)
-    let available = loadedFilaments.filter((f) => !usedTrayIds.has(f.globalTrayId));
+    // Get available trays (not already used and authorized for this user)
+    let available = loadedFilaments.filter(
+      (f) => !usedTrayIds.has(f.globalTrayId) && f.isAuthorized !== false,
+    );
 
     // Nozzle-aware filtering: restrict to trays on the correct nozzle.
     // This is a hard filter — cross-nozzle assignment causes print failures.
@@ -455,9 +466,22 @@ export function buildFilamentComparison(
     const colorMatch = hasFilament && coloursMatch(loaded.color, req.color);
 
     // No tray of the required type at all is a type mismatch; otherwise the
-    // colour decides between a full match and type-only.
+    // colour decides between a full match and type-only. If no authorized tray
+    // matched only because a compatible loaded tray is restricted, surface
+    // 'unauthorized' so the UI prompts the user to pick another spool.
+    const blockedByUnauthorized =
+      !hasFilament &&
+      loadedFilaments.some(
+        (f) =>
+          f.isAuthorized === false &&
+          filamentTypesCompatible(f.type, req.type) &&
+          (req.nozzle_id == null || ftsActive || f.extruderId === req.nozzle_id),
+      );
+
     let status: FilamentStatus;
-    if (!hasFilament) {
+    if (blockedByUnauthorized) {
+      status = 'unauthorized';
+    } else if (!hasFilament) {
       status = 'mismatch';
     } else if (colorMatch) {
       status = 'match';
@@ -548,6 +572,9 @@ export function useFilamentMapping(
 
   const hasTypeMismatch = filamentComparison.some((f) => f.status === 'mismatch');
   const hasColorMismatch = filamentComparison.some((f) => f.status === 'type_only');
+  const hasUnauthorizedSpool = filamentComparison.some(
+    (f) => f.status === 'unauthorized' || f.loaded?.isAuthorized === false,
+  );
 
   return {
     loadedFilaments,
@@ -555,5 +582,6 @@ export function useFilamentMapping(
     amsMapping,
     hasTypeMismatch,
     hasColorMismatch,
+    hasUnauthorizedSpool,
   };
 }

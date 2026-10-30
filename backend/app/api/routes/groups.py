@@ -1,7 +1,9 @@
 """Group management API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,8 +14,9 @@ from backend.app.core.permissions import (
     PERMISSION_CATEGORIES,
     Permission,
 )
-from backend.app.models.group import Group
+from backend.app.models.group import Group, user_groups
 from backend.app.models.user import User
+from backend.app.utils.local_time import to_naive_utc
 from backend.app.schemas.group import (
     GroupCreate,
     GroupDetailResponse,
@@ -70,6 +73,27 @@ async def list_permissions(
     )
 
 
+def _group_to_response(group: Group, user_count: int | None = None) -> GroupResponse:
+    return GroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        permissions=group.permissions or [],
+        is_system=group.is_system,
+        user_count=len(group.users) if user_count is None else user_count,
+        expires_at=group.expires_at,
+        is_expired=group.is_expired,
+        max_print_duration_minutes=group.max_print_duration_minutes,
+        max_filament_grams_per_job=group.max_filament_grams_per_job,
+        max_active_queue_items=group.max_active_queue_items,
+        requires_approval=bool(group.requires_approval),
+        allowed_hours_start=group.allowed_hours_start,
+        allowed_hours_end=group.allowed_hours_end,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
 @router.get("", response_model=list[GroupResponse])
 @router.get("/", response_model=list[GroupResponse])
 async def list_groups(
@@ -79,19 +103,7 @@ async def list_groups(
     """List all groups."""
     result = await db.execute(select(Group).options(selectinload(Group.users)).order_by(Group.name))
     groups = result.scalars().all()
-    return [
-        GroupResponse(
-            id=group.id,
-            name=group.name,
-            description=group.description,
-            permissions=group.permissions or [],
-            is_system=group.is_system,
-            user_count=len(group.users),
-            created_at=group.created_at,
-            updated_at=group.updated_at,
-        )
-        for group in groups
-    ]
+    return [_group_to_response(group) for group in groups]
 
 
 @router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
@@ -124,21 +136,19 @@ async def create_group(
         description=group_data.description,
         permissions=group_data.permissions,
         is_system=False,  # User-created groups are not system groups
+        expires_at=to_naive_utc(group_data.expires_at),
+        max_print_duration_minutes=group_data.max_print_duration_minutes,
+        max_filament_grams_per_job=group_data.max_filament_grams_per_job,
+        max_active_queue_items=group_data.max_active_queue_items,
+        requires_approval=bool(group_data.requires_approval),
+        allowed_hours_start=group_data.allowed_hours_start,
+        allowed_hours_end=group_data.allowed_hours_end,
     )
     db.add(group)
     await db.commit()
     await db.refresh(group)
 
-    return GroupResponse(
-        id=group.id,
-        name=group.name,
-        description=group.description,
-        permissions=group.permissions or [],
-        is_system=group.is_system,
-        user_count=0,
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-    )
+    return _group_to_response(group, user_count=0)
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)
@@ -157,15 +167,9 @@ async def get_group(
             detail="Group not found",
         )
 
+    base = _group_to_response(group)
     return GroupDetailResponse(
-        id=group.id,
-        name=group.name,
-        description=group.description,
-        permissions=group.permissions or [],
-        is_system=group.is_system,
-        user_count=len(group.users),
-        created_at=group.created_at,
-        updated_at=group.updated_at,
+        **base.model_dump(),
         users=[UserBrief(id=u.id, username=u.username, is_active=u.is_active) for u in group.users],
     )
 
@@ -226,19 +230,33 @@ async def update_group(
             )
         group.permissions = group_data.permissions
 
+    if "expires_at" in group_data.model_fields_set:
+        if group.is_system and group_data.expires_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot set expiration date on system groups",
+            )
+        group.expires_at = to_naive_utc(group_data.expires_at)
+        group.expiry_warned_7d_at = None
+        group.expiry_warned_1d_at = None
+
+    for quota_field in (
+        "max_print_duration_minutes",
+        "max_filament_grams_per_job",
+        "max_active_queue_items",
+        "allowed_hours_start",
+        "allowed_hours_end",
+    ):
+        if quota_field in group_data.model_fields_set:
+            setattr(group, quota_field, getattr(group_data, quota_field))
+
+    if group_data.requires_approval is not None:
+        group.requires_approval = group_data.requires_approval
+
     await db.commit()
     await db.refresh(group)
 
-    return GroupResponse(
-        id=group.id,
-        name=group.name,
-        description=group.description,
-        permissions=group.permissions or [],
-        is_system=group.is_system,
-        user_count=len(group.users),
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-    )
+    return _group_to_response(group)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -271,11 +289,12 @@ async def delete_group(
 async def add_user_to_group(
     group_id: int,
     user_id: int,
+    expires_at: datetime | None = Query(default=None),
     _admin: User | None = RequireAdminIfAuthEnabled(),
     _: User | None = RequirePermissionIfAuthEnabled(Permission.GROUPS_UPDATE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a user to a group."""
+    """Add a user to a group (with optional per-membership expiration datetime)."""
     # Get group with users
     result = await db.execute(select(Group).where(Group.id == group_id).options(selectinload(Group.users)))
     group = result.scalar_one_or_none()
@@ -301,7 +320,13 @@ async def add_user_to_group(
             detail="User is already in this group",
         )
 
-    group.users.append(user)
+    await db.execute(
+        insert(user_groups).values(
+            user_id=user.id,
+            group_id=group.id,
+            expires_at=to_naive_utc(expires_at),
+        )
+    )
     await db.commit()
 
 

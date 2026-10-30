@@ -687,3 +687,68 @@ async def send_user_print_notification(
         logger.info("Sent %s notification email to %s", event_type, user_email)
     except Exception as e:
         logger.error("Failed to send %s notification to %s: %s", event_type, user_email, e)
+
+
+async def send_user_expiration_warning(
+    db: AsyncSession,
+    user_email: str,
+    username: str,
+    expires_at: datetime,
+    time_remaining: str,
+    target_label: str = "account",
+) -> bool:
+    """Send an impending account or group expiration warning email to a user.
+
+    Returns True if the email was sent (or rendered when SMTP is mocked), False if SMTP is not configured.
+    """
+    smtp_settings = await get_smtp_settings(db)
+    if not smtp_settings:
+        logger.debug("Skipping expiration warning email for %s: SMTP not configured", username)
+        return False
+
+    template = await get_notification_template(db, "user_expiration_warning")
+    expires_str = expires_at.strftime("%Y-%m-%d %H:%M UTC")
+    variables = {
+        "username": username,
+        "app_name": "BamBuddy",
+        "expires_at": expires_str,
+        "time_remaining": time_remaining,
+        "target_label": target_label,
+    }
+
+    if template:
+        subject = render_template(template.title_template, variables)
+        text_body = render_template(template.body_template, variables)
+    else:
+        subject = f"BamBuddy - Access Expires in {time_remaining}"
+        text_body = (
+            f"Hello {username},\n\n"
+            f"Your {target_label} access on BamBuddy is scheduled to expire on {expires_str}.\n\n"
+            "Please make sure any queued prints are completed and download any 3MF files or logs you need before then."
+        )
+
+    escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); background-color: #f59e0b; padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
+    </div>
+    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
+        <div style="font-size: 16px;">{escaped_text_body}</div>
+    </div>
+</body>
+</html>
+"""
+
+    try:
+        send_email(smtp_settings, user_email, subject, text_body, html_body)
+        logger.info("Sent expiration warning (%s) email to %s", time_remaining, user_email)
+        return True
+    except Exception as e:
+        logger.error("Failed to send expiration warning email to %s: %s", user_email, e)
+        return False

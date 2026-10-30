@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -479,18 +480,119 @@ async def reset_settings(
     return DEFAULT_SETTINGS
 
 
+_ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"}
+_MAX_LOGO_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
 @router.get("/default-sidebar-order")
 async def get_default_sidebar_order(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the admin-set default sidebar order.
+    """Get the admin-set default sidebar order, custom sidebar logo, and document title.
 
     Intentionally unauthenticated: non-admin users need to read this value to apply
-    the default sidebar order, but may lack SETTINGS_READ permission.
-    The value is non-sensitive (sidebar item IDs only).
+    the default sidebar order and display the custom logo and document title, but may
+    lack SETTINGS_READ permission. The values are non-sensitive (sidebar item IDs,
+    logo filename, and document title only).
     """
     value = await get_setting(db, "default_sidebar_order")
-    return {"default_sidebar_order": value or ""}
+    custom_logo = await get_setting(db, "custom_logo")
+    document_title = await get_setting(db, "document_title")
+    return {
+        "default_sidebar_order": value or "",
+        "custom_logo": custom_logo or "",
+        "document_title": document_title or "",
+    }
+
+
+@router.post("/sidebar-logo")
+async def upload_sidebar_logo(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
+):
+    """Upload a custom sidebar logo image."""
+    from backend.app.utils.safe_path import safe_join_under
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _ALLOWED_LOGO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Allowed: {', '.join(sorted(_ALLOWED_LOGO_EXTENSIONS))}",
+        )
+
+    content = await file.read()
+    if len(content) > _MAX_LOGO_BYTES:
+        raise HTTPException(status_code=400, detail="Image file must be less than 2MB")
+
+    icons_dir = app_settings.base_dir / "icons"
+    icons_dir.mkdir(parents=True, exist_ok=True)
+
+    old_logo = await get_setting(db, "custom_logo")
+    if old_logo:
+        old_path = safe_join_under(icons_dir, old_logo)
+        if old_path.exists():
+            old_path.unlink()
+
+    filename = f"sidebar_logo_{uuid.uuid4().hex}{ext}"
+    filepath = safe_join_under(icons_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    await set_setting(db, "custom_logo", filename)
+    await db.commit()
+    db.expire_all()
+
+    logger.info("Uploaded custom sidebar logo: %s", filename)
+    return {"custom_logo": filename}
+
+
+@router.delete("/sidebar-logo")
+async def delete_sidebar_logo(
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_UPDATE),
+):
+    """Delete the custom sidebar logo and revert to the default."""
+    from backend.app.utils.safe_path import safe_join_under
+
+    old_logo = await get_setting(db, "custom_logo")
+    if old_logo:
+        icons_dir = app_settings.base_dir / "icons"
+        old_path = safe_join_under(icons_dir, old_logo)
+        if old_path.exists():
+            old_path.unlink()
+        await set_setting(db, "custom_logo", "")
+        await db.commit()
+        db.expire_all()
+        logger.info("Deleted custom sidebar logo: %s", old_logo)
+
+    return {"custom_logo": ""}
+
+
+@router.get("/sidebar-logo")
+async def get_sidebar_logo(
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the custom sidebar logo image (public, no auth).
+
+    Unauthenticated because ``<img>`` tags cannot send Authorization headers
+    and the sidebar logo is non-sensitive instance branding.
+    """
+    from backend.app.utils.safe_path import safe_join_under
+
+    custom_logo = await get_setting(db, "custom_logo")
+    if not custom_logo:
+        raise HTTPException(status_code=404, detail="No custom sidebar logo set")
+
+    icons_dir = app_settings.base_dir / "icons"
+    filepath = safe_join_under(icons_dir, custom_logo)
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Sidebar logo file not found")
+
+    return FileResponse(filepath)
 
 
 # Fields exposed via /ui-preferences without SETTINGS_READ. Each entry MUST be

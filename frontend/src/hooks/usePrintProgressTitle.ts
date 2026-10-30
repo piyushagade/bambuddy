@@ -104,6 +104,12 @@ export function usePrintProgressTitle() {
   // Re-draw the ring when the active accent changes.
   const accent = resolvedMode === 'dark' ? darkAccent : lightAccent;
 
+  const { data: defaultSidebarData } = useQuery({
+    queryKey: ['default-sidebar-order'],
+    queryFn: () => api.getDefaultSidebarOrder?.(),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: printers } = useQuery({
     queryKey: ['printers'],
     queryFn: api.getPrinters,
@@ -130,22 +136,27 @@ export function usePrintProgressTitle() {
   // off (never touch the tab) yet still restore once if we ever took it over.
   const ownsRef = useRef(false);
 
+  const customDocTitle = defaultSidebarData?.document_title?.trim();
+  const baseTitle = customDocTitle || defaultTitleRef.current;
+
   const active = progressInTitle ? pickActivePrint(statusQueries.map((q) => q.data)) : null;
   const pct = active && active.progress != null ? Math.round(active.progress) : null;
 
   useEffect(() => {
     if (progressInTitle && pct != null) {
-      document.title = `${pct}% · ${defaultTitleRef.current}`;
+      document.title = `${pct}% · ${baseTitle}`;
       setFavicon(drawProgressFavicon(pct), originalsRef.current);
       ownsRef.current = true;
     } else if (ownsRef.current) {
       // Disabled or idle after having taken over — hand the tab back.
-      document.title = defaultTitleRef.current;
+      document.title = baseTitle;
       setFavicon(null, originalsRef.current);
       ownsRef.current = false;
+    } else if (defaultSidebarData !== undefined) {
+      document.title = baseTitle;
     }
-    // else: never owned the tab → leave it entirely alone.
-  }, [progressInTitle, pct, accent]);
+    // else: never owned the tab and no custom title loaded → leave it entirely alone.
+  }, [progressInTitle, pct, accent, baseTitle, defaultSidebarData]);
 
   // Restore the tab to defaults on unmount, but only if we own it.
   useEffect(() => {

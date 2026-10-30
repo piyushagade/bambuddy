@@ -351,6 +351,10 @@ class SlotSpoolIdentity:
     # ``effect_type`` one of the client's FilamentEffect names.
     extra_colors: str | None = None
     effect_type: str | None = None
+    spool_id: int | None = None
+    allowed_group_ids: tuple[int, ...] = ()
+    allowed_user_ids: tuple[int, ...] = ()
+    is_authorized: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -361,6 +365,10 @@ class SlotSpoolIdentity:
             "rgba": self.rgba,
             "extra_colors": self.extra_colors,
             "effect_type": self.effect_type,
+            "spool_id": self.spool_id,
+            "allowed_group_ids": list(self.allowed_group_ids),
+            "allowed_user_ids": list(self.allowed_user_ids),
+            "is_authorized": self.is_authorized,
         }
 
 
@@ -370,8 +378,12 @@ def _clean(value) -> str | None:
     return text or None
 
 
-def _identity_from_internal(spool) -> SlotSpoolIdentity:
+def _identity_from_internal(spool, current_user=None) -> SlotSpoolIdentity:
     """Display identity from an internal-inventory ``Spool`` row."""
+    from backend.app.models.spool import is_user_authorized_for_spool
+
+    allowed_groups = tuple(int(g) for g in (spool.allowed_group_ids or []) if g is not None)
+    allowed_users = tuple(int(u) for u in (spool.allowed_user_ids or []) if u is not None)
     return SlotSpoolIdentity(
         brand=_clean(spool.brand),
         material=_clean(spool.material),
@@ -380,6 +392,10 @@ def _identity_from_internal(spool) -> SlotSpoolIdentity:
         rgba=_clean(spool.rgba),
         extra_colors=_clean(spool.extra_colors),
         effect_type=_clean(spool.effect_type),
+        spool_id=spool.id,
+        allowed_group_ids=allowed_groups,
+        allowed_user_ids=allowed_users,
+        is_authorized=is_user_authorized_for_spool(spool, current_user),
     )
 
 
@@ -458,7 +474,7 @@ class SlotMaterial:
         }
 
 
-async def build_slot_materials(db: AsyncSession, printer_id: int) -> list[SlotMaterial]:
+async def build_slot_materials(db: AsyncSession, printer_id: int, current_user=None) -> list[SlotMaterial]:
     """Every inventory-bound slot on ``printer_id``, with identity and remaining grams.
 
     Mode-agnostic: internal inventory resolves via ``SpoolAssignment`` joined to
@@ -544,6 +560,15 @@ async def build_slot_materials(db: AsyncSession, printer_id: int) -> list[SlotMa
         .options(selectinload(SpoolAssignment.spool))
         .where(SpoolAssignment.printer_id == printer_id)
     )
+    resolved_user = current_user
+    if current_user is not None and not getattr(current_user, "is_admin", False):
+        from backend.app.models.user import User
+
+        user_res = await db.execute(
+            select(User).options(selectinload(User.groups)).where(User.id == current_user.id)
+        )
+        resolved_user = user_res.scalar_one_or_none() or current_user
+
     for assignment in internal_all.scalars().all():
         spool = assignment.spool
         if spool is None:
@@ -557,9 +582,129 @@ async def build_slot_materials(db: AsyncSession, printer_id: int) -> list[SlotMa
             assignment.tray_id,
             _material_identity_internal(spool),
             max(0.0, label_weight - weight_used),
-            _identity_from_internal(spool),
+            _identity_from_internal(spool, current_user=resolved_user),
         )
     return materials
+
+
+def _format_slot_label(ams_id: int, tray_id: int) -> str:
+    if ams_id >= 255:
+        return "External Spool" if tray_id == 0 else f"External Spool {tray_id + 1}"
+    if ams_id >= 128:
+        return f"AMS-HT {ams_id - 127}"
+    unit_letter = chr(65 + ams_id) if 0 <= ams_id < 26 else str(ams_id)
+    return f"AMS {unit_letter}{tray_id + 1}"
+
+
+def _format_spool_label(spool) -> str:
+    parts = [
+        _clean(spool.brand),
+        _clean(spool.material),
+        _clean(spool.subtype),
+    ]
+    base = " ".join(p for p in parts if p) or f"Spool #{spool.id}"
+    color = _clean(spool.color_name)
+    return f"{base} ({color})" if color else base
+
+
+async def get_unauthorized_global_tray_ids(
+    db: AsyncSession,
+    printer_id: int | None,
+    user_id: int | None,
+) -> set[int]:
+    """Return global_tray_ids on ``printer_id`` whose assigned spool ``user_id`` is not allowed to use."""
+    if printer_id is None or user_id is None:
+        return set()
+    if await _is_spoolman_mode(db):
+        return set()
+    from backend.app.models.spool import is_user_authorized_for_spool
+    from backend.app.models.user import User
+
+    user_res = await db.execute(select(User).options(selectinload(User.groups)).where(User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if user is None or getattr(user, "is_admin", False):
+        return set()
+
+    internal_all = await db.execute(
+        select(SpoolAssignment)
+        .options(selectinload(SpoolAssignment.spool))
+        .where(SpoolAssignment.printer_id == printer_id)
+    )
+    unauthorized: set[int] = set()
+    for assignment in internal_all.scalars().all():
+        if assignment.spool is not None and not is_user_authorized_for_spool(assignment.spool, user):
+            unauthorized.add(_ams_key_to_global(assignment.ams_id, assignment.tray_id))
+    return unauthorized
+
+
+async def validate_spool_authorization_for_mapping(
+    db: AsyncSession,
+    printer_id: int | None,
+    ams_mapping: list[int] | str | None,
+    user,
+) -> None:
+    """Raise 403 HTTPException if ``ams_mapping`` on ``printer_id`` uses a spool ``user`` cannot access."""
+    if printer_id is None or not ams_mapping or user is None:
+        return
+    if getattr(user, "is_admin", False):
+        return
+
+    mapping_list: list[int]
+    if isinstance(ams_mapping, str):
+        try:
+            parsed = json.loads(ams_mapping)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(parsed, list):
+            return
+        mapping_list = [int(x) for x in parsed if isinstance(x, int) and x >= 0]
+    elif isinstance(ams_mapping, list):
+        mapping_list = [int(x) for x in ams_mapping if isinstance(x, int) and x >= 0]
+    else:
+        return
+
+    if not mapping_list:
+        return
+    if await _is_spoolman_mode(db):
+        return
+
+    from fastapi import HTTPException
+    from backend.app.models.spool import is_user_authorized_for_spool
+    from backend.app.models.user import User
+
+    user_id = getattr(user, "id", None)
+    resolved_user = user
+    if user_id is not None:
+        user_res = await db.execute(select(User).options(selectinload(User.groups)).where(User.id == user_id))
+        resolved_user = user_res.scalar_one_or_none() or user
+
+    if getattr(resolved_user, "is_admin", False):
+        return
+
+    internal_all = await db.execute(
+        select(SpoolAssignment)
+        .options(selectinload(SpoolAssignment.spool))
+        .where(SpoolAssignment.printer_id == printer_id)
+    )
+    by_global: dict[int, SpoolAssignment] = {
+        _ams_key_to_global(a.ams_id, a.tray_id): a
+        for a in internal_all.scalars().all()
+        if a.spool is not None
+    }
+
+    for gtid in mapping_list:
+        assignment = by_global.get(gtid)
+        if assignment is not None and assignment.spool is not None:
+            if not is_user_authorized_for_spool(assignment.spool, resolved_user):
+                slot_label = _format_slot_label(assignment.ams_id, assignment.tray_id)
+                spool_label = _format_spool_label(assignment.spool)
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"You are not authorized to print with spool '{spool_label}' in {slot_label}. "
+                        "Please select another spool."
+                    ),
+                )
 
 
 async def compute_deficit_for_queue_item(

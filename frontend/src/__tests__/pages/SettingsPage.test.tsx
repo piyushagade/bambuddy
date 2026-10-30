@@ -502,6 +502,49 @@ describe('SettingsPage', () => {
         hiddenSystemItemIds: ['stats'],
       });
     });
+
+    it('uploads and removes a custom Sidebar logo', async () => {
+      let currentCustomLogo = '';
+      server.use(
+        http.get('/api/v1/settings/default-sidebar-order', () =>
+          HttpResponse.json({
+            default_sidebar_order: '',
+            custom_logo: currentCustomLogo,
+          }),
+        ),
+        http.post('/api/v1/settings/sidebar-logo', () => {
+          currentCustomLogo = 'sidebar_logo_custom123.png';
+          return HttpResponse.json({ custom_logo: currentCustomLogo });
+        }),
+        http.delete('/api/v1/settings/sidebar-logo', () => {
+          currentCustomLogo = '';
+          return HttpResponse.json({ custom_logo: '' });
+        }),
+      );
+
+      const user = userEvent.setup();
+      render(<SettingsPage />);
+
+      await screen.findByRole('heading', { name: 'Sidebar' });
+      expect(await screen.findByText('Sidebar Logo')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /upload logo/i })).toBeInTheDocument();
+
+      const fileInput = screen.getByTestId('sidebar-logo-input') as HTMLInputElement;
+      const file = new File(['fake-png'], 'logo.png', { type: 'image/png' });
+      await user.upload(fileInput, file);
+
+      await waitFor(() => {
+        expect(screen.getByText('Custom logo active')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /change logo/i })).toBeInTheDocument();
+      });
+
+      const removeBtn = screen.getByRole('button', { name: /remove custom icon/i });
+      await user.click(removeBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /upload logo/i })).toBeInTheDocument();
+      });
+    });
   });
 
   describe('update CTA per deployment shape', () => {

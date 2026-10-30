@@ -10,6 +10,8 @@ class GroupBrief(BaseModel):
 
     id: int
     name: str
+    expires_at: str | None = None
+    is_expired: bool = False
 
     class Config:
         from_attributes = True
@@ -21,6 +23,13 @@ class GroupCreate(BaseModel):
     name: str
     description: str | None = None
     permissions: list[str] = []
+    expires_at: datetime | None = None
+    max_print_duration_minutes: int | None = None
+    max_filament_grams_per_job: float | None = None
+    max_active_queue_items: int | None = None
+    requires_approval: bool = False
+    allowed_hours_start: int | None = None
+    allowed_hours_end: int | None = None
 
 
 class GroupUpdate(BaseModel):
@@ -29,6 +38,13 @@ class GroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     permissions: list[str] | None = None
+    expires_at: datetime | None = None
+    max_print_duration_minutes: int | None = None
+    max_filament_grams_per_job: float | None = None
+    max_active_queue_items: int | None = None
+    requires_approval: bool | None = None
+    allowed_hours_start: int | None = None
+    allowed_hours_end: int | None = None
 
 
 class GroupResponse(BaseModel):
@@ -40,6 +56,14 @@ class GroupResponse(BaseModel):
     permissions: list[str]
     is_system: bool
     user_count: int = 0
+    expires_at: datetime | None = None
+    is_expired: bool = False
+    max_print_duration_minutes: int | None = None
+    max_filament_grams_per_job: float | None = None
+    max_active_queue_items: int | None = None
+    requires_approval: bool = False
+    allowed_hours_start: int | None = None
+    allowed_hours_end: int | None = None
     created_at: datetime
     updated_at: datetime
 

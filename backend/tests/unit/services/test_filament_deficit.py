@@ -994,6 +994,10 @@ class TestSlotSpoolIdentity:
             # A plain single-colour spool: nothing extra to draw (#3159).
             "extra_colors": None,
             "effect_type": None,
+            "spool_id": spool.id,
+            "allowed_group_ids": [],
+            "allowed_user_ids": [],
+            "is_authorized": True,
         }
 
     @pytest.mark.asyncio
@@ -1265,3 +1269,98 @@ class TestSlotSpoolIdentity:
         assert slots[0].remaining_grams == 500.0
         assert slots[0].spool is None
         assert slots[0].to_dict()["spool"] is None
+
+
+class TestSpoolAuthorization:
+    """Tests for spool access restrictions (allowed_group_ids / allowed_user_ids)."""
+
+    @pytest.mark.asyncio
+    async def test_unrestricted_spool_allows_everyone(self, db_session, printer_factory):
+        from types import SimpleNamespace
+        from backend.app.models.spool import is_user_authorized_for_spool
+        from backend.app.services.filament_deficit import (
+            build_slot_materials,
+            validate_spool_authorization_for_mapping,
+        )
+
+        printer = await printer_factory(model="X1C")
+        spool = await _spool(db_session, label_weight=1000, weight_used=0.0)
+        await _assign(db_session, printer_id=printer.id, spool_id=spool.id, ams_id=0, tray_id=0)
+
+        student = SimpleNamespace(id=10, role="user", is_admin=False, groups=[SimpleNamespace(id=2)])
+        assert is_user_authorized_for_spool(spool, student) is True
+
+        patches = TestFilamentDeficitBackupAware._patch_status(printer_id=printer.id, backup_on=False, model="X1C")
+        for p in patches:
+            p.start()
+        try:
+            slots = await build_slot_materials(db_session, printer.id, current_user=student)
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert slots[0].spool is not None
+        assert slots[0].spool.is_authorized is True
+        await validate_spool_authorization_for_mapping(db_session, printer.id, [0], student)
+
+    @pytest.mark.asyncio
+    async def test_restricted_spool_blocks_unauthorized_user_and_allows_authorized(self, db_session, printer_factory):
+        from fastapi import HTTPException
+        from types import SimpleNamespace
+        from backend.app.models.spool import is_user_authorized_for_spool
+        from backend.app.services.filament_deficit import (
+            build_slot_materials,
+            validate_spool_authorization_for_mapping,
+        )
+
+        printer = await printer_factory(model="X1C")
+        spool = Spool(
+            brand="Bambu Lab",
+            material="PLA",
+            color_name="Red",
+            rgba="FF0000FF",
+            label_weight=1000,
+            weight_used=0.0,
+            allowed_group_ids=[5],
+            allowed_user_ids=[42],
+        )
+        db_session.add(spool)
+        await db_session.commit()
+        await db_session.refresh(spool)
+        await _assign(db_session, printer_id=printer.id, spool_id=spool.id, ams_id=0, tray_id=0)
+
+        unauthorized_user = SimpleNamespace(id=99, role="user", is_admin=False, groups=[SimpleNamespace(id=3)])
+        group_member = SimpleNamespace(id=88, role="user", is_admin=False, groups=[SimpleNamespace(id=5)])
+        direct_user = SimpleNamespace(id=42, role="user", is_admin=False, groups=[])
+        admin_user = SimpleNamespace(id=1, role="admin", is_admin=True, groups=[])
+
+        assert is_user_authorized_for_spool(spool, unauthorized_user) is False
+        assert is_user_authorized_for_spool(spool, group_member) is True
+        assert is_user_authorized_for_spool(spool, direct_user) is True
+        assert is_user_authorized_for_spool(spool, admin_user) is True
+
+        patches = TestFilamentDeficitBackupAware._patch_status(printer_id=printer.id, backup_on=False, model="X1C")
+        for p in patches:
+            p.start()
+        try:
+            unauth_slots = await build_slot_materials(db_session, printer.id, current_user=unauthorized_user)
+            auth_slots = await build_slot_materials(db_session, printer.id, current_user=group_member)
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert unauth_slots[0].spool is not None
+        assert unauth_slots[0].spool.is_authorized is False
+        assert auth_slots[0].spool is not None
+        assert auth_slots[0].spool.is_authorized is True
+
+        with pytest.raises(HTTPException) as exc_info:
+            await validate_spool_authorization_for_mapping(db_session, printer.id, [0], unauthorized_user)
+        assert exc_info.value.status_code == 403
+        assert "Please select another spool" in str(exc_info.value.detail)
+
+        # Authorized users and admins pass validation without error
+        await validate_spool_authorization_for_mapping(db_session, printer.id, [0], group_member)
+        await validate_spool_authorization_for_mapping(db_session, printer.id, [0], direct_user)
+        await validate_spool_authorization_for_mapping(db_session, printer.id, [0], admin_user)
+

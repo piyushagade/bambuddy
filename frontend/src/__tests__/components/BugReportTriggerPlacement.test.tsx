@@ -103,13 +103,24 @@ describe('bug-report trigger placement', () => {
     expect(floatingDisc()).toBeUndefined();
   });
 
-  it('keeps the floating disc when the sidebar is not compact', async () => {
+  it('puts the trigger in the sidebar 3-dot menu and frees the corner on desktop', async () => {
     stubViewport(1440);
     render(<Layout />);
 
-    await waitFor(() => expect(floatingDisc()).toBeDefined());
-    // No compact header exists at this width, so there is nowhere else for it.
+    await waitFor(() => expect(document.querySelector('aside')).toBeInTheDocument());
+    expect(floatingDisc()).toBeUndefined();
     expect(document.querySelector('header')).toBeNull();
+
+    const sidebar = document.querySelector('aside')!;
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'More options' }));
+
+    const reportBtn = await waitFor(() =>
+      within(sidebar).getByRole('button', { name: /report a bug|bug/i }),
+    );
+    expect(reportBtn).toBeInTheDocument();
+
+    fireEvent.click(reportBtn);
+    await waitFor(() => expect(document.getElementById('bug-report-modal')).toBeInTheDocument());
   });
 
   it('opens the same panel from the header trigger', async () => {

@@ -1008,6 +1008,69 @@ class TestOpenInSlicerOverride:
         get_resp = await async_client.get("/api/v1/settings/")
         assert get_resp.json()["open_in_slicer"] is None
 
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_sidebar_logo_upload_serve_and_delete(self, async_client: AsyncClient, tmp_path, monkeypatch):
+        """Verify uploading, serving, and deleting a custom sidebar logo."""
+        from backend.app.core.config import settings as app_settings
+
+        monkeypatch.setattr(app_settings, "base_dir", tmp_path)
+
+        # Initially no custom logo is set
+        order_resp = await async_client.get("/api/v1/settings/default-sidebar-order")
+        assert order_resp.status_code == 200
+        assert order_resp.json()["custom_logo"] == ""
+
+        missing_resp = await async_client.get("/api/v1/settings/sidebar-logo")
+        assert missing_resp.status_code == 404
+
+        # Upload a PNG logo
+        png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        upload_resp = await async_client.post(
+            "/api/v1/settings/sidebar-logo",
+            files={"file": ("logo.png", png_bytes, "image/png")},
+        )
+        assert upload_resp.status_code == 200
+        custom_logo = upload_resp.json()["custom_logo"]
+        assert custom_logo.startswith("sidebar_logo_")
+        assert custom_logo.endswith(".png")
+
+        # default-sidebar-order now reports the custom logo
+        order_resp = await async_client.get("/api/v1/settings/default-sidebar-order")
+        assert order_resp.json()["custom_logo"] == custom_logo
+
+        # Serving the logo returns the uploaded bytes
+        get_logo_resp = await async_client.get("/api/v1/settings/sidebar-logo")
+        assert get_logo_resp.status_code == 200
+        assert get_logo_resp.content == png_bytes
+
+        # Delete the custom logo
+        del_resp = await async_client.delete("/api/v1/settings/sidebar-logo")
+        assert del_resp.status_code == 200
+        assert del_resp.json()["custom_logo"] == ""
+
+        order_resp = await async_client.get("/api/v1/settings/default-sidebar-order")
+        assert order_resp.json()["custom_logo"] == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_document_title_update_and_public_read(self, async_client: AsyncClient):
+        """Verify updating document_title and reading it from default-sidebar-order."""
+        order_resp = await async_client.get("/api/v1/settings/default-sidebar-order")
+        assert order_resp.status_code == 200
+        assert order_resp.json()["document_title"] == ""
+
+        put_resp = await async_client.put(
+            "/api/v1/settings/",
+            json={"document_title": "My Print Farm"},
+        )
+        assert put_resp.status_code == 200
+        assert put_resp.json()["document_title"] == "My Print Farm"
+
+        order_resp = await async_client.get("/api/v1/settings/default-sidebar-order")
+        assert order_resp.status_code == 200
+        assert order_resp.json()["document_title"] == "My Print Farm"
+
 
 class TestSimplifiedBackupRestore:
     """Integration tests for the simplified backup/restore endpoints (ZIP-based).

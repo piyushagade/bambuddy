@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import type { Permission, PermissionCategory } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
+import { UserExpirationField, datetimeLocalToIso, isoToDatetimeLocal } from '../components/UserExpirationField';
 import { useToast } from '../contexts/ToastContext';
 
 export function GroupEditPage() {
@@ -20,6 +21,13 @@ export function GroupEditPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [expiresAt, setExpiresAt] = useState('');
+  const [maxDurationMin, setMaxDurationMin] = useState('');
+  const [maxFilamentGrams, setMaxFilamentGrams] = useState('');
+  const [maxActiveJobs, setMaxActiveJobs] = useState('');
+  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [allowedHoursStart, setAllowedHoursStart] = useState('');
+  const [allowedHoursEnd, setAllowedHoursEnd] = useState('');
   const [search, setSearch] = useState('');
   const [initialized, setInitialized] = useState(false);
 
@@ -39,11 +47,18 @@ export function GroupEditPage() {
     setName(groupData.name);
     setDescription(groupData.description || '');
     setPermissions(groupData.permissions);
+    setExpiresAt(isoToDatetimeLocal(groupData.expires_at));
+    setMaxDurationMin(groupData.max_print_duration_minutes != null ? String(groupData.max_print_duration_minutes) : '');
+    setMaxFilamentGrams(groupData.max_filament_grams_per_job != null ? String(groupData.max_filament_grams_per_job) : '');
+    setMaxActiveJobs(groupData.max_active_queue_items != null ? String(groupData.max_active_queue_items) : '');
+    setRequiresApproval(Boolean(groupData.requires_approval));
+    setAllowedHoursStart(groupData.allowed_hours_start != null ? String(groupData.allowed_hours_start) : '');
+    setAllowedHoursEnd(groupData.allowed_hours_end != null ? String(groupData.allowed_hours_end) : '');
     setInitialized(true);
   }
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; description?: string; permissions: Permission[] }) =>
+    mutationFn: (data: { name: string; description?: string; permissions: Permission[]; expires_at?: string | null }) =>
       api.createGroup(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
@@ -57,7 +72,7 @@ export function GroupEditPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name?: string; description?: string; permissions: Permission[] }) =>
+    mutationFn: (data: { name?: string; description?: string; permissions: Permission[]; expires_at?: string | null }) =>
       api.updateGroup(Number(id), data),
     onSuccess: (updatedGroup) => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
@@ -87,17 +102,29 @@ export function GroupEditPage() {
       showToast(t('groups.toast.enterGroupName'), 'error');
       return;
     }
+    const quotaPayload = {
+      max_print_duration_minutes: maxDurationMin.trim() ? Number(maxDurationMin) : null,
+      max_filament_grams_per_job: maxFilamentGrams.trim() ? Number(maxFilamentGrams) : null,
+      max_active_queue_items: maxActiveJobs.trim() ? Number(maxActiveJobs) : null,
+      requires_approval: requiresApproval,
+      allowed_hours_start: allowedHoursStart.trim() ? Number(allowedHoursStart) : null,
+      allowed_hours_end: allowedHoursEnd.trim() ? Number(allowedHoursEnd) : null,
+    };
     if (isEditing) {
       updateMutation.mutate({
         name: name !== groupData?.name ? name : undefined,
         description,
-        permissions,
+        permissions: groupData?.is_system ? undefined as unknown as Permission[] : permissions,
+        expires_at: groupData?.is_system ? undefined : datetimeLocalToIso(expiresAt),
+        ...quotaPayload,
       });
     } else {
       createMutation.mutate({
         name,
         description: description || undefined,
         permissions,
+        expires_at: datetimeLocalToIso(expiresAt) ?? undefined,
+        ...quotaPayload,
       });
     }
   };
@@ -206,6 +233,102 @@ export function GroupEditPage() {
           />
         </div>
       </div>
+
+      {/* Cohort / Semester Group Expiration (non-system groups only) */}
+      {!(isEditing && groupData?.is_system) && (
+        <Card className="p-4 space-y-4">
+          <UserExpirationField
+            value={expiresAt}
+            onChange={setExpiresAt}
+          />
+          <div className="border-t border-bambu-dark-tertiary pt-4 space-y-3">
+            <h3 className="text-sm font-medium text-white">
+              Student Print Quotas, Operating Hours & TA Review Gate
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-bambu-gray mb-1">
+                  Max Print Duration (minutes)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={maxDurationMin}
+                  onChange={(e) => setMaxDurationMin(e.target.value)}
+                  placeholder="Unlimited (e.g. 360 = 6h)"
+                  className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-bambu-gray mb-1">
+                  Max Filament per Job (grams)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step="0.1"
+                  value={maxFilamentGrams}
+                  onChange={(e) => setMaxFilamentGrams(e.target.value)}
+                  placeholder="Unlimited (e.g. 250)"
+                  className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-bambu-gray mb-1">
+                  Max Concurrent Active Queue Items
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={maxActiveJobs}
+                  onChange={(e) => setMaxActiveJobs(e.target.value)}
+                  placeholder="Unlimited (e.g. 2)"
+                  className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-bambu-gray mb-1">
+                  Allowed Window Start Hour (0–23 UTC)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={allowedHoursStart}
+                  onChange={(e) => setAllowedHoursStart(e.target.value)}
+                  placeholder="Any (e.g. 8)"
+                  className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-bambu-gray mb-1">
+                  Allowed Window End Hour (0–23 UTC)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={allowedHoursEnd}
+                  onChange={(e) => setAllowedHoursEnd(e.target.value)}
+                  placeholder="Any (e.g. 20)"
+                  className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
+                />
+              </div>
+              <div className="flex items-center pt-5">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-white">
+                  <input
+                    type="checkbox"
+                    checked={requiresApproval}
+                    onChange={(e) => setRequiresApproval(e.target.checked)}
+                    className="w-4 h-4 rounded border-bambu-gray text-bambu-green"
+                  />
+                  Hold jobs for Lab TA Approval
+                </label>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">

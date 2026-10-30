@@ -384,7 +384,7 @@ async def exchange_code(
         raise await fail(400, "invalid_grant", "PKCE verifier mismatch")
 
     user = await get_user_by_username(db, username)
-    if user is None or not user.is_active:
+    if user is None or not user.is_effectively_active:
         raise await fail(400, "invalid_grant", "user gone or disabled")
 
     app.last_used_at = now.replace(tzinfo=None)

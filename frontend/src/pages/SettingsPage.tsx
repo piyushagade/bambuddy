@@ -39,6 +39,8 @@ import { NotificationLogViewer } from '../components/NotificationLogViewer';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ApiKeyQRCodeModal } from '../components/ApiKeyQRCodeModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
+import { RosterImportModal, EnrollmentInvitesModal, RedeemInviteModal } from '../components/CohortOnboardingModals';
+import { UserExpirationBadge, UserExpirationField, datetimeLocalToIso, isoToDatetimeLocal } from '../components/UserExpirationField';
 import { LdapUserPicker } from '../components/LdapUserPicker';
 import { SpoolmanSettings } from '../components/SpoolmanSettings';
 import { SpoolCatalogSettings } from '../components/SpoolCatalogSettings';
@@ -65,6 +67,7 @@ import { registerSettingsSearch, getSettingsSearchEntries } from '../lib/setting
 import type { UsersSubTab } from '../lib/settingsSearch';
 import { availableEngines, hasEngineChoice, resolveEngine, type SliceEngineId } from '../lib/sliceEngines';
 import { NumberInput } from '../components/NumberInput';
+import { PageHeader } from '../components/PageHeader';
 
 const validTabs = ['general', 'plugs', 'sensors', 'notifications', 'queue', 'filament', 'network', 'apikeys', 'virtual-printer', 'spoolbuddy', 'failure-detection', 'users', 'backup'] as const;
 type TabType = typeof validTabs[number];
@@ -73,7 +76,7 @@ type TabType = typeof validTabs[number];
 // Adding a new settings card? Register it here (or, if the card lives in its
 // own component file, call registerSettingsSearch at that file's module scope).
 registerSettingsSearch({ labelKey: 'settings.general', tab: 'general', keywords: 'language date time format printer model printers cards', anchor: 'card-general' });
-registerSettingsSearch({ labelKey: 'settings.appearance', tab: 'general', keywords: 'theme dark light mode colors', anchor: 'card-appearance' });
+registerSettingsSearch({ labelKey: 'settings.appearance', tab: 'general', keywords: 'theme dark light mode colors document title tab name', anchor: 'card-appearance' });
 registerSettingsSearch({ labelKey: 'settings.archiveSettings', tab: 'general', keywords: 'archive auto save thumbnails captures', anchor: 'card-archive' });
 registerSettingsSearch({ labelKey: 'settings.camera', tab: 'general', keywords: 'camera external video stream', anchor: 'card-camera' });
 registerSettingsSearch({ labelKey: 'settings.costTracking', tab: 'general', keywords: 'currency filament cost energy kwh price', anchor: 'card-cost' });
@@ -339,6 +342,7 @@ export function SettingsPage() {
     confirmPassword: string;
     role: string;
     group_ids: number[];
+    expires_at?: string | null;
   }>({
     username: '',
     password: '',
@@ -346,6 +350,7 @@ export function SettingsPage() {
     confirmPassword: '',
     role: 'user',
     group_ids: [],
+    expires_at: null,
   });
 
   // Group management state
@@ -749,6 +754,9 @@ export function SettingsPage() {
   });
 
   // User management queries and mutations
+  const [showRosterImportModal, setShowRosterImportModal] = useState(false);
+  const [showEnrollmentInvitesModal, setShowEnrollmentInvitesModal] = useState(false);
+  const [showRedeemInviteModal, setShowRedeemInviteModal] = useState(false);
   const { data: usersData = [], isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.getUsers(),
@@ -885,6 +893,7 @@ export function SettingsPage() {
       email: userFormData.email || undefined,
       role: userFormData.role,
       group_ids: userFormData.group_ids.length > 0 ? userFormData.group_ids : undefined,
+      expires_at: datetimeLocalToIso(userFormData.expires_at) ?? undefined,
     });
   };
 
@@ -913,6 +922,7 @@ export function SettingsPage() {
       email: userFormData.email || undefined,
       role: userFormData.role,
       group_ids: userFormData.group_ids,
+      expires_at: datetimeLocalToIso(userFormData.expires_at),
     };
     if (!updateData.password) {
       delete updateData.password;
@@ -929,6 +939,7 @@ export function SettingsPage() {
       confirmPassword: '',
       role: userToEdit.role,
       group_ids: userToEdit.groups?.map(g => g.id) || [],
+      expires_at: isoToDatetimeLocal(userToEdit.expires_at),
     });
     setShowEditUserModal(true);
   };
@@ -1097,6 +1108,7 @@ export function SettingsPage() {
       // Switching announcements off (or to all users) changes who sees the
       // sidebar entry and the banner; don't wait for the next poll.
       queryClient.invalidateQueries({ queryKey: ['announcements'] });
+      queryClient.invalidateQueries({ queryKey: ['default-sidebar-order'] });
       showToast(t('settings.toast.settingsSaved'), 'success');
     },
     onError: (error: Error) => {
@@ -1235,7 +1247,8 @@ export function SettingsPage() {
       (baseline.billing_enabled ?? false) !== (localSettings.billing_enabled ?? false) ||
       (baseline.printer_kill_switch_enabled ?? false) !== (localSettings.printer_kill_switch_enabled ?? false) ||
       (baseline.finance_budget_reset_day ?? 1) !== (localSettings.finance_budget_reset_day ?? 1) ||
-      (baseline.finance_budget_reset_timezone ?? 'UTC') !== (localSettings.finance_budget_reset_timezone ?? 'UTC');
+      (baseline.finance_budget_reset_timezone ?? 'UTC') !== (localSettings.finance_budget_reset_timezone ?? 'UTC') ||
+      (baseline.document_title ?? '') !== (localSettings.document_title ?? '');
 
     if (!hasChanges) {
       return;
@@ -1354,6 +1367,7 @@ export function SettingsPage() {
         printer_kill_switch_enabled: localSettings.printer_kill_switch_enabled,
         finance_budget_reset_day: localSettings.finance_budget_reset_day,
         finance_budget_reset_timezone: localSettings.finance_budget_reset_timezone,
+        document_title: localSettings.document_title ?? '',
       };
       updateMutation.mutate(settingsToSave);
     }, 500);
@@ -1541,57 +1555,55 @@ export function SettingsPage() {
   return (
     <CardDensityProvider density="dense">
     <div className="p-4 md:p-8">
-      <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <SettingsIcon className="w-7 h-7 text-bambu-green" />
-            {t('settings.title')}
-          </h1>
-          <p className="text-bambu-gray mt-1">{t('settings.configureBambuddy')}</p>
-        </div>
-        {/* Cross-tab search */}
-        <div className="relative sm:w-72">
-          <Search className="w-4 h-4 text-bambu-gray absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={settingsSearch}
-            onChange={(e) => setSettingsSearch(e.target.value)}
-            placeholder={t('settings.searchPlaceholder', 'Search settings…')}
-            className="w-full pl-9 pr-8 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:outline-none focus:border-bambu-green"
-          />
-          {settingsSearch && (
-            <button
-              onClick={() => setSettingsSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-bambu-gray hover:text-white"
-              aria-label="Clear"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {searchResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-30 overflow-hidden">
-              {searchResults.map((entry) => (
-                <button
-                  key={entry.anchor}
-                  onClick={() => jumpToSetting(entry)}
-                  className="w-full px-3 py-2 text-left hover:bg-bambu-dark-tertiary transition-colors border-b border-bambu-dark-tertiary last:border-b-0"
-                >
-                  <p className="text-sm text-white">{entry.label}</p>
-                  <p className="text-xs text-bambu-gray">
-                    {t(`settings.tabs.${entry.tab === 'virtual-printer' ? 'virtualPrinter' : entry.tab === 'failure-detection' ? 'failureDetection' : entry.tab}`)}
-                    {entry.subTab ? ` › ${t(`settings.tabs.${entry.subTab}`, entry.subTab)}` : ''}
-                  </p>
-                </button>
-              ))}
-            </div>
-          )}
-          {searchQuery && searchResults.length === 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-30 p-3">
-              <p className="text-xs text-bambu-gray italic">{t('settings.noSearchResults', 'No matching settings.')}</p>
-            </div>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        className="mb-4"
+        icon={<SettingsIcon className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('settings.title')}
+        subtitle={t('settings.configureBambuddy')}
+        actions={
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 text-bambu-gray absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={settingsSearch}
+              onChange={(e) => setSettingsSearch(e.target.value)}
+              placeholder={t('settings.searchPlaceholder', 'Search settings…')}
+              className="w-full pl-9 pr-8 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:outline-none focus:border-bambu-green"
+            />
+            {settingsSearch && (
+              <button
+                onClick={() => setSettingsSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-bambu-gray hover:text-white"
+                aria-label="Clear"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-30 overflow-hidden">
+                {searchResults.map((entry) => (
+                  <button
+                    key={entry.anchor}
+                    onClick={() => jumpToSetting(entry)}
+                    className="w-full px-3 py-2 text-left hover:bg-bambu-dark-tertiary transition-colors border-b border-bambu-dark-tertiary last:border-b-0"
+                  >
+                    <p className="text-sm text-white">{entry.label}</p>
+                    <p className="text-xs text-bambu-gray">
+                      {t(`settings.tabs.${entry.tab === 'virtual-printer' ? 'virtualPrinter' : entry.tab === 'failure-detection' ? 'failureDetection' : entry.tab}`)}
+                      {entry.subTab ? ` › ${t(`settings.tabs.${entry.subTab}`, entry.subTab)}` : ''}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {searchQuery && searchResults.length === 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-30 p-3">
+                <p className="text-xs text-bambu-gray italic">{t('settings.noSearchResults', 'No matching settings.')}</p>
+              </div>
+            )}
+          </div>
+        }
+      />
 
       {/* Tab Navigation + content: horizontal tabs on mobile, vertical rail on lg+ */}
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
@@ -2093,6 +2105,26 @@ export function SettingsPage() {
                   <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green"></div>
                 </label>
               </div>
+
+              {(!authEnabled || hasPermission('settings:update')) && (
+                <div className="pt-2 border-t border-bambu-dark-tertiary">
+                  <label htmlFor="settings-document-title" className="block text-sm text-white mb-1">
+                    {t('settings.documentTitle', 'Document Title')}
+                  </label>
+                  <input
+                    id="settings-document-title"
+                    type="text"
+                    maxLength={120}
+                    placeholder="Bambuddy"
+                    value={localSettings.document_title ?? ''}
+                    onChange={(e) => updateSetting('document_title', e.target.value)}
+                    className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:border-bambu-green focus:outline-none placeholder:text-bambu-gray/60"
+                  />
+                  <p className="text-xs text-bambu-gray mt-1">
+                    {t('settings.documentTitleDescription', 'Custom title shown in the browser tab for all users. Leave blank to use "Bambuddy".')}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -6835,17 +6867,23 @@ export function SettingsPage() {
                 {user && (
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <h3 className="text-lg font-semibold text-white flex items-center gap-2" id="card-currentuser">
                           <Users className="w-5 h-5 text-bambu-green" />
                           {t('settings.currentUser')}
                         </h3>
-                        {user.auth_source !== 'ldap' && (
-                        <Button size="sm" variant="ghost" onClick={() => setShowChangePasswordModal(true)}>
-                          <Key className="w-4 h-4" />
-                          {t('settings.changePassword')}
-                        </Button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => setShowRedeemInviteModal(true)}>
+                            <ExternalLink className="w-4 h-4" />
+                            Redeem Course Code
+                          </Button>
+                          {user.auth_source !== 'ldap' && (
+                            <Button size="sm" variant="ghost" onClick={() => setShowChangePasswordModal(true)}>
+                              <Key className="w-4 h-4" />
+                              {t('settings.changePassword')}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -6884,22 +6922,40 @@ export function SettingsPage() {
                 {/* User List */}
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="text-lg font-semibold text-white flex items-center gap-2" id="card-users">
                         <Users className="w-5 h-5 text-bambu-green" />
                         {t('settings.users')}
                       </h3>
                       {hasPermission('users:create') && (
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setShowCreateUserModal(true);
-                            setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                          }}
-                        >
-                          <Plus className="w-4 h-4" />
-                          {t('settings.addUser')}
-                        </Button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setShowRosterImportModal(true)}
+                          >
+                            <UploadCloud className="w-4 h-4" />
+                            Import Roster CSV
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setShowEnrollmentInvitesModal(true)}
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            Enrollment Invites
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setShowCreateUserModal(true);
+                              setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                            }}
+                          >
+                            <Plus className="w-4 h-4" />
+                            {t('settings.addUser')}
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </CardHeader>
@@ -6943,6 +6999,7 @@ export function SettingsPage() {
                                     {group.name}
                                   </span>
                                 ))}
+                                <UserExpirationBadge user={userItem} />
                               </div>
                             </div>
                             <div className="flex items-center gap-1 ml-4">
@@ -7015,6 +7072,7 @@ export function SettingsPage() {
                                     {t('settings.system')}
                                   </span>
                                 )}
+                                <UserExpirationBadge user={group} />
                               </div>
                               <div className="flex items-center gap-1">
                                 {hasPermission('groups:update') && (
@@ -7291,6 +7349,10 @@ export function SettingsPage() {
                     )}
                   </div>
                 </div>
+                <UserExpirationField
+                  value={userFormData.expires_at ?? ''}
+                  onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
+                />
               </div>
               <div className="mt-6 flex justify-end gap-3">
                 <Button
@@ -7506,6 +7568,10 @@ export function SettingsPage() {
                     ))}
                   </div>
                 </div>
+                <UserExpirationField
+                  value={userFormData.expires_at ?? ''}
+                  onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
+                />
               </div>
               <div className="mt-6 flex justify-end gap-3">
                 <Button
@@ -7833,6 +7899,24 @@ export function SettingsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+      {showRosterImportModal && (
+        <RosterImportModal
+          groups={groupsData}
+          onClose={() => setShowRosterImportModal(false)}
+        />
+      )}
+      {showEnrollmentInvitesModal && (
+        <EnrollmentInvitesModal
+          groups={groupsData}
+          onClose={() => setShowEnrollmentInvitesModal(false)}
+        />
+      )}
+      {showRedeemInviteModal && (
+        <RedeemInviteModal
+          isAuthenticated={true}
+          onClose={() => setShowRedeemInviteModal(false)}
+        />
       )}
       </div>
       </div>

@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { api, supportApi, type Printer as PrinterModel } from '../api/client';
 import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { LogViewer } from '../components/LogViewer';
 import { ConnectionDiagnosticModal } from '../components/ConnectionDiagnostic';
 import { SystemHealthPanel } from '../components/SystemHealthPanel';
@@ -205,22 +207,21 @@ export function SystemInfoPage() {
           button rather than five, so it only just overflows at 390px, but the
           overflow is the same. items-start keeps Refresh at its own width
           while stacked instead of stretching it across the page. */}
-      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{t('system.title', 'System Information')}</h1>
-          <p className="text-bambu-gray mt-1">
-            {t('system.subtitle', 'Monitor system resources and database statistics')}
-          </p>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-2 px-4 py-2 bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary rounded-lg transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-          {t('common.refresh', 'Refresh')}
-        </button>
-      </div>
+      <PageHeader
+        title={t('system.title', 'System Information')}
+        subtitle={t('system.subtitle', 'Monitor system resources and database statistics')}
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+            {t('common.refresh', 'Refresh')}
+          </Button>
+        }
+      />
 
       {/* Application Info */}
       <Section title={t('system.application', 'Application')} icon={Server}>

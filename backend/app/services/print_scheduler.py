@@ -3559,6 +3559,22 @@ class PrintScheduler:
             logger.debug("No filaments loaded on printer %s", printer_id)
             return None
 
+        if item.created_by_id is not None:
+            from backend.app.services.filament_deficit import get_unauthorized_global_tray_ids
+
+            unauthorized_trays = await get_unauthorized_global_tray_ids(db, printer_id, item.created_by_id)
+            if unauthorized_trays:
+                loaded_filaments = [
+                    f for f in loaded_filaments if f.get("global_tray_id") not in unauthorized_trays
+                ]
+                if not loaded_filaments:
+                    logger.debug(
+                        "No authorized filaments loaded on printer %s for user %s",
+                        printer_id,
+                        item.created_by_id,
+                    )
+                    return None
+
         # Check if user prefers lowest remaining filament when multiple spools match
         prefer_lowest = await self._get_bool_setting(db, "prefer_lowest_filament")
 
@@ -7241,8 +7257,10 @@ class PrintScheduler:
         self._unconfirmed_budget_reservations.add(item.id)
         try:
             from backend.app.models.user import User
+            from backend.app.services.filament_deficit import validate_spool_authorization_for_mapping
 
             queue_user = await db.get(User, item.created_by_id) if item.created_by_id is not None else None
+            await validate_spool_authorization_for_mapping(db, item.printer_id, item.ams_mapping, queue_user)
             # Recompute at the final authorization boundary as well as enqueue
             # time. This covers rows created before the server-side estimate
             # migration and prevents any alternate write path from weakening

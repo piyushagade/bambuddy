@@ -2,21 +2,30 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { X, Plus, Edit2, Trash2, Save, Loader2, Users as UsersIcon, Shield, ArrowLeft, RotateCcw } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, Save, Loader2, Users as UsersIcon, Shield, ArrowLeft, RotateCcw, Upload, Link2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { UserCreate, UserUpdate, UserResponse } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { Card, CardContent, CardHeader } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
+import { EnrollmentInvitesModal, RosterImportModal } from '../components/CohortOnboardingModals';
 import { LdapUserPicker } from '../components/LdapUserPicker';
+import {
+  UserExpirationField,
+  UserExpirationBadge,
+  isoToDatetimeLocal,
+  datetimeLocalToIso,
+} from '../components/UserExpirationField';
 
 interface FormData extends UserCreate {
   group_ids: number[];
   confirmPassword: string;
   email?: string;
+  expires_at?: string | null;
 }
 
 export function UsersPage() {
@@ -30,6 +39,8 @@ export function UsersPage() {
   // LDAP picker can replace the local form when LDAP is enabled.
   const [basicCreateTab, setBasicCreateTab] = useState<'local' | 'ldap'>('local');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showRosterModal, setShowRosterModal] = useState(false);
+  const [showInvitesModal, setShowInvitesModal] = useState(false);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [deleteUserId, setDeleteUserId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>({
@@ -198,6 +209,7 @@ export function UsersPage() {
       email: formData.email || undefined,
       role: formData.role,
       group_ids: formData.group_ids.length > 0 ? formData.group_ids : undefined,
+      expires_at: datetimeLocalToIso(formData.expires_at) ?? undefined,
     });
   };
 
@@ -219,6 +231,7 @@ export function UsersPage() {
       email: formData.email || undefined,
       role: formData.role,
       group_ids: formData.group_ids,
+      expires_at: datetimeLocalToIso(formData.expires_at),
     };
     // Remove password if empty
     if (!updateData.password) {
@@ -244,6 +257,7 @@ export function UsersPage() {
       confirmPassword: '',
       role: user.role,
       group_ids: user.groups?.map(g => g.id) || [],
+      expires_at: isoToDatetimeLocal(user.expires_at),
     });
     setShowEditModal(true);
   };
@@ -280,35 +294,49 @@ export function UsersPage() {
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/settings?tab=users')}
-            className="p-2 rounded-lg bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
-            title={t('users.backToSettings')}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <UsersIcon className="w-6 h-6 text-bambu-green" />
-              {t('users.title')}
-            </h1>
-            <p className="text-sm text-bambu-gray mt-1">
-              {t('users.subtitle')}
-            </p>
-          </div>
-        </div>
-        <Button
-          onClick={() => {
-            setShowCreateModal(true);
-            setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          {t('users.createUser')}
-        </Button>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={
+          <>
+            <button
+              onClick={() => navigate('/settings?tab=users')}
+              className="p-2 rounded-lg bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
+              title={t('users.backToSettings')}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <UsersIcon className="w-6 h-6 text-bambu-green shrink-0" />
+          </>
+        }
+        title={t('users.title')}
+        subtitle={t('users.subtitle')}
+        actions={
+          <>
+            {hasPermission('users:create') && (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => setShowRosterModal(true)}>
+                  <Upload className="w-4 h-4" />
+                  {t('users.importRoster', { defaultValue: 'Import Roster CSV' })}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setShowInvitesModal(true)}>
+                  <Link2 className="w-4 h-4" />
+                  {t('users.enrollmentInvites', { defaultValue: 'Enrollment Invites' })}
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowCreateModal(true);
+                setFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              {t('users.createUser')}
+            </Button>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -369,13 +397,16 @@ export function UsersPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        user.is_active
-                          ? 'bg-bambu-green/20 text-bambu-green'
-                          : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
-                      }`}>
-                        {user.is_active ? t('users.active') : t('users.inactive')}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          user.is_active
+                            ? 'bg-bambu-green/20 text-bambu-green'
+                            : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                        }`}>
+                          {user.is_active ? t('users.active') : t('users.inactive')}
+                        </span>
+                        <UserExpirationBadge user={user} />
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center gap-2">
@@ -561,6 +592,10 @@ export function UsersPage() {
                     <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('users.toast.passwordsDoNotMatch')}</p>
                   )}
                 </div>
+                <UserExpirationField
+                  value={formData.expires_at || ''}
+                  onChange={(expires_at) => setFormData({ ...formData, expires_at })}
+                />
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
                     {t('users.form.groups')}
@@ -734,6 +769,10 @@ export function UsersPage() {
                     )}
                   </div>
                 )}
+                <UserExpirationField
+                  value={formData.expires_at || ''}
+                  onChange={(expires_at) => setFormData({ ...formData, expires_at })}
+                />
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
                     {t('users.form.groups')}
@@ -804,6 +843,14 @@ export function UsersPage() {
           }}
           onCancel={() => setDeleteUserId(null)}
         />
+      )}
+
+      {showRosterModal && (
+        <RosterImportModal groups={groups} onClose={() => setShowRosterModal(false)} />
+      )}
+
+      {showInvitesModal && (
+        <EnrollmentInvitesModal groups={groups} onClose={() => setShowInvitesModal(false)} />
       )}
     </div>
   );

@@ -111,8 +111,9 @@ _PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/health"),
         # Prometheus metrics — gated by its own bearer token check (constant-time post-I2).
         ("GET", "/api/v1/metrics"),
-        # UI bootstrap — defaults for sidebar order and ui-preferences are public defaults that ship with the app.
+        # UI bootstrap — defaults for sidebar order, sidebar logo, and ui-preferences are public UI assets/defaults.
         ("GET", "/api/v1/settings/default-sidebar-order"),
+        ("GET", "/api/v1/settings/sidebar-logo"),
         ("GET", "/api/v1/settings/ui-preferences"),
         # Appliance locale defaults — read by the i18n bootstrap BEFORE auth might be set up.
         # Contents are user-set hostname/timezone/locale from the firstboot wizard (no secrets);

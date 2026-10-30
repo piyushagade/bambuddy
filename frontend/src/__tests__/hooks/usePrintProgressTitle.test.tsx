@@ -16,11 +16,16 @@ const h = vi.hoisted(() => ({
   },
   getPrinters: vi.fn(),
   getPrinterStatus: vi.fn(),
+  getDefaultSidebarOrder: vi.fn(),
 }));
 
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => h.theme.value }));
 vi.mock('../../api/client', () => ({
-  api: { getPrinters: h.getPrinters, getPrinterStatus: h.getPrinterStatus },
+  api: {
+    getPrinters: h.getPrinters,
+    getPrinterStatus: h.getPrinterStatus,
+    getDefaultSidebarOrder: h.getDefaultSidebarOrder,
+  },
 }));
 
 import { pickActivePrint, usePrintProgressTitle, type ProgressStatus } from '../../hooks/usePrintProgressTitle';
@@ -100,6 +105,8 @@ describe('usePrintProgressTitle effect', () => {
   beforeEach(() => {
     h.getPrinters.mockReset();
     h.getPrinterStatus.mockReset();
+    h.getDefaultSidebarOrder.mockReset();
+    h.getDefaultSidebarOrder.mockResolvedValue({ default_sidebar_order: '', custom_logo: '', document_title: '' });
 
     HTMLCanvasElement.prototype.getContext = (() =>
       fakeCtx) as typeof HTMLCanvasElement.prototype.getContext;
@@ -153,5 +160,24 @@ describe('usePrintProgressTitle effect', () => {
 
     await waitFor(() => expect(document.title).toBe('Bambuddy'));
     expect(faviconHref()).toContain('/favicon.svg');
+  });
+
+  it('applies custom document_title from settings and uses it with print progress', async () => {
+    h.getDefaultSidebarOrder.mockResolvedValue({
+      default_sidebar_order: '',
+      custom_logo: '',
+      document_title: 'Print Lab',
+    });
+    h.theme.value = { progressInTitle: false, resolvedMode: 'dark', darkAccent: 'green', lightAccent: 'green' };
+
+    const { rerender } = renderHook(() => usePrintProgressTitle(), { wrapper: wrapper() });
+    await waitFor(() => expect(document.title).toBe('Print Lab'));
+
+    h.theme.value = { ...h.theme.value, progressInTitle: true };
+    h.getPrinters.mockResolvedValue([{ id: 1 }]);
+    h.getPrinterStatus.mockResolvedValue({ state: 'RUNNING', progress: 75, remaining_time: 300 });
+    rerender();
+
+    await waitFor(() => expect(document.title).toBe('75% · Print Lab'));
   });
 });

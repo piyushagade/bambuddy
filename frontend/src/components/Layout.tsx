@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Printer, Archive, ListOrdered, BarChart3, Cloud, Settings, Sun, Moon, Monitor, ChevronLeft, ChevronRight, Keyboard, Github, ArrowUpCircle, Wrench, FolderKanban, FolderOpen, X, Menu, Info, Plug, Bug, LogOut, Key, Loader2, Disc3, ShieldAlert, Globe, Bell, Receipt, Megaphone, type LucideIcon } from 'lucide-react';
+import { Printer, Archive, ListOrdered, BarChart3, Cloud, Settings, Sun, Moon, Monitor, ChevronLeft, ChevronRight, Keyboard, Github, ArrowUpCircle, Wrench, FolderKanban, FolderOpen, X, Menu, Info, Plug, Bug, LogOut, Key, Loader2, Disc3, ShieldAlert, Globe, Bell, Receipt, Megaphone, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../contexts/ThemeContext';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -116,6 +116,8 @@ export function Layout() {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSwitchbar, setShowSwitchbar] = useState(false);
+  const [showFooterMenu, setShowFooterMenu] = useState(false);
+  const footerMenuRef = useRef<HTMLDivElement>(null);
   const defaultSidebarOrder = useMemo(() => defaultNavItems.map(i => i.id), []);
   const [sidebarOrder, setSidebarOrder] = useState<string[]>(() => getSidebarOrder(defaultNavItems.map(i => i.id)));
   const [hiddenSystemItemIds, setHiddenSystemItemIds] = useState<string[]>(getHiddenSidebarSystemItemIds);
@@ -564,6 +566,7 @@ export function Layout() {
           break;
         case 'Escape':
           setShowShortcuts(false);
+          setShowFooterMenu(false);
           break;
       }
     }
@@ -573,6 +576,185 @@ export function Layout() {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  useEffect(() => {
+    if (!showFooterMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (footerMenuRef.current && !footerMenuRef.current.contains(e.target as Node)) {
+        setShowFooterMenu(false);
+        setShowSwitchbar(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showFooterMenu]);
+
+  const customLogo = defaultSidebarData?.custom_logo;
+  const defaultLogoSrc = resolvedMode === 'dark' ? '/img/bambuddy_logo_dark_transparent.png' : '/img/bambuddy_logo_light.png';
+  const logoSrc = customLogo ? api.getSidebarLogoUrl(customLogo) : defaultLogoSrc;
+
+  const renderFooterMenuTriggerAndPopover = (compactBadge = false) => (
+    <div className="relative" ref={footerMenuRef}>
+      <button
+        onClick={() => setShowFooterMenu((prev) => !prev)}
+        className={`relative p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors ${
+          showFooterMenu ? 'text-bambu-green bg-bambu-dark-tertiary' : 'text-bambu-gray-light hover:text-white'
+        }`}
+        title={t('nav.moreOptions', { defaultValue: 'More options' })}
+        aria-label={t('nav.moreOptions', { defaultValue: 'More options' })}
+        aria-expanded={showFooterMenu}
+      >
+        <MoreHorizontal className="w-5 h-5" />
+        {bugReportLogging ? (
+          <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-bambu-dark-secondary animate-pulse" />
+        ) : (
+          announcementsVisible && unreadAnnouncements.length > 0 && (
+            compactBadge ? (
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-bambu-green ring-2 ring-bambu-dark-secondary" />
+            ) : (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-bambu-green text-white">
+                {unreadAnnouncements.length}
+              </span>
+            )
+          )
+        )}
+      </button>
+
+      {showFooterMenu && (
+        <div
+          role="menu"
+          aria-label={t('nav.moreOptions', { defaultValue: 'More options' })}
+          className="absolute bottom-full left-0 mb-2 w-60 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl shadow-xl z-50 p-1.5 space-y-0.5"
+        >
+          {hasSwitchbarPlugs && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSwitchbar((prev) => !prev)}
+                onMouseEnter={() => setShowSwitchbar(true)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-left ${
+                  showSwitchbar ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
+                }`}
+                title={t('nav.smartSwitches', { defaultValue: 'Smart Switches' })}
+              >
+                <Plug className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">{t('nav.smartSwitches', { defaultValue: 'Smart Switches' })}</span>
+              </button>
+              {showSwitchbar && (
+                <SwitchbarPopover onClose={() => setShowSwitchbar(false)} />
+              )}
+            </div>
+          )}
+          {announcementsVisible && (
+            <button
+              onClick={() => {
+                setShowFooterMenu(false);
+                openAnnouncements();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white text-left"
+              title={t('announcements.title')}
+              aria-label={
+                unreadAnnouncements.length > 0
+                  ? t('announcements.unread', { count: unreadAnnouncements.length })
+                  : t('announcements.title')
+              }
+            >
+              <Megaphone className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1 truncate">{t('announcements.title')}</span>
+              {unreadAnnouncements.length > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1.5 flex items-center justify-center text-[10px] font-bold rounded-full bg-bambu-green text-white">
+                  {unreadAnnouncements.length}
+                </span>
+              )}
+            </button>
+          )}
+          {hasPermission('system:read') ? (
+            <NavLink
+              to="/system"
+              onClick={() => setShowFooterMenu(false)}
+              className={({ isActive }) =>
+                `w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm ${
+                  isActive ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
+                }`
+              }
+              title={t('nav.system')}
+            >
+              <Info className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{t('nav.system')}</span>
+            </NavLink>
+          ) : (
+            <span
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-bambu-gray/50 cursor-not-allowed"
+              title="You do not have permission to view system information"
+            >
+              <Info className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{t('nav.system')}</span>
+            </span>
+          )}
+          <InstallAppButton variant="menuItem" onInstalled={() => setShowFooterMenu(false)} />
+          <button
+            onClick={() => {
+              setShowFooterMenu(false);
+              setMobileDrawerOpen(false);
+              setBugReportOpen(true);
+            }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-left ${
+              bugReportLogging ? 'text-amber-500' : 'text-bambu-gray-light hover:text-white'
+            }`}
+            title={bugReportLogging ? t('bugReport.resumeReport') : t('bugReport.title')}
+            aria-label={bugReportLogging ? t('bugReport.resumeReport') : t('bugReport.title')}
+          >
+            <Bug className={`w-4 h-4 flex-shrink-0 ${bugReportLogging ? 'text-amber-500 animate-pulse' : 'text-red-500'}`} />
+            <span className="truncate">
+              {bugReportLogging ? t('bugReport.resumeReport') : t('bugReport.title')}
+            </span>
+          </button>
+          <a
+            href="https://github.com/maziggy/bambuddy"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setShowFooterMenu(false)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white"
+            title={t('nav.viewOnGithub')}
+          >
+            <Github className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{t('nav.viewOnGithub')}</span>
+          </a>
+          <button
+            onClick={() => {
+              setShowFooterMenu(false);
+              setShowShortcuts(true);
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white text-left"
+            title={t('nav.keyboardShortcuts')}
+          >
+            <Keyboard className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{t('nav.keyboardShortcuts')}</span>
+          </button>
+          <button
+            onClick={toggleMode}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white text-left"
+            title={themeSwitchTitle}
+          >
+            <ThemeIcon className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{themeSwitchTitle}</span>
+          </button>
+          {authEnabled && user && (
+            <button
+              onClick={() => {
+                setShowFooterMenu(false);
+                setShowChangePasswordModal(true);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-sm text-bambu-gray-light hover:text-white text-left"
+              title={t('changePassword.title')}
+            >
+              <Key className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{t('changePassword.title')}</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen">
@@ -587,9 +769,9 @@ export function Layout() {
             <Menu className="w-6 h-6 text-white" />
           </button>
           <img
-            src={resolvedMode === 'dark' ? '/img/bambuddy_logo_dark_transparent.png' : '/img/bambuddy_logo_light.png'}
+            src={logoSrc}
             alt="Bambuddy"
-            className="h-8 ml-3"
+            className="h-8 ml-3 object-contain"
           />
           {/* Bug report — the compact-layout home of the floating bubble. */}
           <button
@@ -624,14 +806,20 @@ export function Layout() {
         {/* Logo */}
         <div className={`border-b border-bambu-dark-tertiary flex items-center justify-center ${isSidebarCompact || sidebarExpanded ? 'p-4' : 'p-2'}`}>
           <img
-            src={resolvedMode === 'dark' ? '/img/bambuddy_logo_dark_transparent.png' : '/img/bambuddy_logo_light.png'}
+            src={logoSrc}
             alt="Bambuddy"
-            className={isSidebarCompact || sidebarExpanded ? 'h-16 w-auto' : 'h-8 w-8 object-cover object-left'}
+            className={
+              isSidebarCompact || sidebarExpanded
+                ? 'h-16 w-auto max-w-full object-contain'
+                : customLogo
+                  ? 'h-8 w-8 object-contain'
+                  : 'h-8 w-8 object-cover object-left'
+            }
           />
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-2 overflow-y-auto">
+        <nav className="flex-1 p-2 overflow-y-auto overflow-x-hidden sidebar-scroll">
           <ul className="space-y-2">
             {orderedSidebarIds.map((id) => {
               const isExternal = isExternalSidebarItemId(id);
@@ -754,116 +942,14 @@ export function Layout() {
         {/* Footer */}
         <div className="flex-shrink-0 p-2 border-t border-bambu-dark-tertiary">
           {isSidebarCompact || sidebarExpanded ? (
-            <div className="flex flex-col gap-2">
-              {/* Top row: icons. 32px each with no gap so seven fit the 239px
-                  of an expanded sidebar -- announcements, System, GitHub,
-                  shortcuts, theme, password, logout -- without wrapping. */}
-              <div className="flex items-center justify-center flex-wrap [&>a]:p-1.5 [&>button]:p-1.5 [&>span]:p-1.5 [&>div>button]:p-1.5">
-                {hasSwitchbarPlugs && (
-                  <div className="relative">
-                    <button
-                      onMouseEnter={() => setShowSwitchbar(true)}
-                      className={`p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors ${
-                        showSwitchbar ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
-                      }`}
-                      title={t('nav.smartSwitches', { defaultValue: 'Smart Switches' })}
-                    >
-                      <Plug className="w-5 h-5" />
-                    </button>
-                    {showSwitchbar && (
-                      <SwitchbarPopover onClose={() => setShowSwitchbar(false)} />
-                    )}
-                  </div>
-                )}
-                {announcementsVisible && (
-                  <button
-                    onClick={() => openAnnouncements()}
-                    className="relative p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                    title={t('announcements.title')}
-                    aria-label={
-                      unreadAnnouncements.length > 0
-                        ? t('announcements.unread', { count: unreadAnnouncements.length })
-                        : t('announcements.title')
-                    }
-                  >
-                    <Megaphone className="w-5 h-5" />
-                    {unreadAnnouncements.length > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold rounded-full bg-bambu-green text-white">
-                        {unreadAnnouncements.length}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {hasPermission('system:read') ? (
-                  <NavLink
-                    to="/system"
-                    className={({ isActive }) =>
-                      `p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors ${
-                        isActive ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
-                      }`
-                    }
-                    title={t('nav.system')}
-                  >
-                    <Info className="w-5 h-5" />
-                  </NavLink>
-                ) : (
-                  <span
-                    className="p-2 rounded-lg text-bambu-gray/50 cursor-not-allowed"
-                    title="You do not have permission to view system information"
-                  >
-                    <Info className="w-5 h-5" />
-                  </span>
-                )}
-                <InstallAppButton />
-                <a
-                  href="https://github.com/maziggy/bambuddy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                  title={t('nav.viewOnGithub')}
-                >
-                  <Github className="w-5 h-5" />
-                </a>
-                <button
-                  onClick={() => setShowShortcuts(true)}
-                  className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                  title={t('nav.keyboardShortcuts')}
-                >
-                  <Keyboard className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={toggleMode}
-                  className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                  title={themeSwitchTitle}
-                >
-                  <ThemeIcon className="w-5 h-5" />
-                </button>
-                {authEnabled && user && (
-                  <>
-                    <button
-                      onClick={() => setShowChangePasswordModal(true)}
-                      className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                      title={t('changePassword.title')}
-                    >
-                      <Key className="w-5 h-5" />
-                    </button>
-                    <button
-                      onClick={logout}
-                      className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                      title={t('nav.logout', { defaultValue: 'Logout' })}
-                    >
-                      <LogOut className="w-5 h-5" />
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* Bottom row: version */}
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-sm text-bambu-gray">v{versionInfo?.version || '...'}</span>
+            <div className="flex items-center justify-between gap-2 px-1">
+              {renderFooterMenuTriggerAndPopover(false)}
+              <div className="flex items-center justify-center gap-2 min-w-0">
+                <span className="text-sm text-bambu-gray truncate">v{versionInfo?.version || '...'}</span>
                 {updateCheck?.update_available && (
                   <button
                     onClick={() => navigate('/settings')}
-                    className="flex items-center gap-1 text-xs text-bambu-green hover:text-bambu-green/80 transition-colors"
+                    className="flex items-center gap-1 text-xs text-bambu-green hover:text-bambu-green/80 transition-colors flex-shrink-0"
                     title={t('nav.updateAvailable', { version: updateCheck.latest_version })}
                   >
                     <ArrowUpCircle className="w-4 h-4" />
@@ -871,9 +957,21 @@ export function Layout() {
                   </button>
                 )}
               </div>
+              {authEnabled && user ? (
+                <button
+                  onClick={logout}
+                  className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
+                  title={t('nav.logout', { defaultValue: 'Logout' })}
+                  aria-label={t('nav.logout', { defaultValue: 'Logout' })}
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              ) : (
+                <div className="w-9" aria-hidden="true" />
+              )}
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-1 overflow-y-auto max-h-[50vh]">
+            <div className="flex flex-col items-center gap-1">
               {updateCheck?.update_available && (
                 <button
                   onClick={() => navigate('/settings')}
@@ -883,100 +981,16 @@ export function Layout() {
                   <ArrowUpCircle className="w-5 h-5" />
                 </button>
               )}
-              {hasSwitchbarPlugs && (
-                <div className="relative">
-                  <button
-                    onMouseEnter={() => setShowSwitchbar(true)}
-                    className={`p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors ${
-                      showSwitchbar ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
-                    }`}
-                    title={t('nav.smartSwitches', { defaultValue: 'Smart Switches' })}
-                  >
-                    <Plug className="w-5 h-5" />
-                  </button>
-                  {showSwitchbar && (
-                    <SwitchbarPopover onClose={() => setShowSwitchbar(false)} />
-                  )}
-                </div>
-              )}
-              {announcementsVisible && (
-                <button
-                  onClick={() => openAnnouncements()}
-                  className="relative p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                  title={t('announcements.title')}
-                  aria-label={
-                    unreadAnnouncements.length > 0
-                      ? t('announcements.unread', { count: unreadAnnouncements.length })
-                      : t('announcements.title')
-                  }
-                >
-                  <Megaphone className="w-5 h-5" />
-                  {unreadAnnouncements.length > 0 && (
-                    <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-bambu-green ring-2 ring-bambu-dark-secondary" />
-                  )}
-                </button>
-              )}
-              {hasPermission('system:read') ? (
-                <NavLink
-                  to="/system"
-                  className={({ isActive }) =>
-                    `p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors ${
-                      isActive ? 'text-bambu-green' : 'text-bambu-gray-light hover:text-white'
-                    }`
-                  }
-                  title={t('nav.system')}
-                >
-                  <Info className="w-5 h-5" />
-                </NavLink>
-              ) : (
-                <span
-                  className="p-2 rounded-lg text-bambu-gray/50 cursor-not-allowed"
-                  title="You do not have permission to view system information"
-                >
-                  <Info className="w-5 h-5" />
-                </span>
-              )}
-              <InstallAppButton />
-              <a
-                href="https://github.com/maziggy/bambuddy"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                title={t('nav.viewOnGithub')}
-              >
-                <Github className="w-5 h-5" />
-              </a>
-              <button
-                onClick={() => setShowShortcuts(true)}
-                className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                title={t('nav.keyboardShortcuts')}
-              >
-                <Keyboard className="w-5 h-5" />
-              </button>
-              <button
-                onClick={toggleMode}
-                className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                title={themeSwitchTitle}
-              >
-                <ThemeIcon className="w-5 h-5" />
-              </button>
+              {renderFooterMenuTriggerAndPopover(true)}
               {authEnabled && user && (
-                <>
-                  <button
-                    onClick={() => setShowChangePasswordModal(true)}
-                    className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                    title={t('changePassword.title')}
-                  >
-                    <Key className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={logout}
-                    className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
-                    title={t('nav.logout', { defaultValue: 'Logout' })}
-                  >
-                    <LogOut className="w-5 h-5" />
-                  </button>
-                </>
+                <button
+                  onClick={logout}
+                  className="p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors text-bambu-gray-light hover:text-white"
+                  title={t('nav.logout', { defaultValue: 'Logout' })}
+                  aria-label={t('nav.logout', { defaultValue: 'Logout' })}
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
               )}
             </div>
           )}
@@ -1294,7 +1308,7 @@ export function Layout() {
           z-50 panel at the header's level and bury it under every ordinary
           modal in the app. */}
       <BugReportBubble
-        showTrigger={!isSidebarCompact}
+        showTrigger={false}
         open={bugReportOpen}
         onOpenChange={setBugReportOpen}
         onLoggingChange={setBugReportLogging}

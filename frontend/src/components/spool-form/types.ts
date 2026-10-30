@@ -45,6 +45,8 @@ export interface SpoolFormData {
   // shared by all spools of the same product. Free text.
   material_number: string;
   location_id: number | null;
+  allowed_group_ids: number[];
+  allowed_user_ids: number[];
   // When set the spool is linked to a specific Spoolman filament catalog entry;
   // the backend skips find_or_create_filament() and uses this ID directly.
   spoolman_filament_id: number | null;
@@ -69,6 +71,8 @@ export const defaultFormData: SpoolFormData = {
   low_stock_threshold_pct: null,
   material_number: '',
   location_id: null,
+  allowed_group_ids: [],
+  allowed_user_ids: [],
   spoolman_filament_id: null,
 };
 
@@ -187,6 +191,9 @@ export interface FilamentSectionProps extends SectionProps {
   quantity: number;
   onQuantityChange: (value: number) => void;
   errors?: Partial<Record<keyof SpoolFormData, string>>;
+  accessGroups?: { id: number; name: string }[];
+  accessUsers?: { id: number; username: string }[];
+  spoolmanMode?: boolean;
 }
 
 // Color section props

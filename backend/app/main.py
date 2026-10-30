@@ -150,6 +150,7 @@ from backend.app.services.spoolman_tracking import (
 )
 from backend.app.services.tasmota import tasmota_service
 from backend.app.services.telegram_reactions import telegram_reaction_poller
+from backend.app.services.user_expiration import user_expiration_service
 from backend.app.utils.ams_drying import is_drying_active, temperature_alarm_suppressed
 from backend.app.utils.ams_humidity import ams_humidity_percent
 from backend.app.utils.filament_types import printer_filament_type
@@ -9998,6 +9999,9 @@ async def lifespan(app: FastAPI):
     # Start the archive auto-purge sweeper (#1008 follow-up)
     await archive_purge_service.start_scheduler()
 
+    # Start the user account expiration sweeper
+    await user_expiration_service.start_scheduler()
+
     # Start AMS history recording
     start_ams_history_recording()
 
@@ -10074,6 +10078,7 @@ async def lifespan(app: FastAPI):
     local_backup_service.stop_scheduler()
     library_trash_service.stop_scheduler()
     archive_purge_service.stop_scheduler()
+    user_expiration_service.stop_scheduler()
     obico_detection_service.stop()
     stop_ams_history_recording()
     stop_printer_sensor_history_recording()
@@ -10181,6 +10186,10 @@ PUBLIC_API_ROUTES = {
     # rejects an absent, expired, revoked, or wrong-scoped token. In particular a
     # plain ``camera_stream`` token does NOT open this door.
     "/api/v1/camwall/printers",
+    "/api/v1/users/invites/redeem",
+    # Custom sidebar logo image loaded via <img> tag (no Authorization header);
+    # POST/DELETE on the same path still enforce SETTINGS_UPDATE in the route handler.
+    "/api/v1/settings/sidebar-logo",
 }
 
 # Route prefixes that are public (for routes with dynamic segments)
@@ -10543,10 +10552,11 @@ async def auth_middleware(request, call_next):
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             user = await get_user_by_username(db, username)
-            if not user or not user.is_active:
+            if not user or not user.is_effectively_active:
+                detail_msg = "User account has expired" if (user and user.is_expired) else "User not found or inactive"
                 return JSONResponse(
                     status_code=401,
-                    content={"detail": "User not found or inactive"},
+                    content={"detail": detail_msg},
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             if not _is_token_fresh(iat, user):

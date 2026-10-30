@@ -29,6 +29,7 @@ import {
 import { api } from '../api/client';
 import type { ProjectListItem, ProjectCreate, ProjectUpdate, ProjectImport, Permission } from '../api/client';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -1250,46 +1251,44 @@ export function ProjectsPage() {
       />
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <FolderKanban className="w-7 h-7 text-bambu-green" />
-            {t('projects.title')}
-          </h1>
-          <p className="text-bambu-gray mt-1">
-            {t('projects.subtitle')}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={handleImportClick}
-            disabled={!hasPermission('projects:create')}
-            title={!hasPermission('projects:create') ? t('projects.noImportPermission') : t('projects.importProject')}
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            {t('projects.import')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={handleExportAll}
-            disabled={!hasPermission('projects:read')}
-            title={!hasPermission('projects:read') ? t('projects.noExportPermission') : t('projects.exportAll')}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            {t('projects.export')}
-          </Button>
-          <Button
-            onClick={() => setShowModal(true)}
-            className="sm:w-auto w-full"
-            disabled={!hasPermission('projects:create')}
-            title={!hasPermission('projects:create') ? t('projects.noCreatePermission') : undefined}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            {t('projects.newProject')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<FolderKanban className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('projects.title')}
+        subtitle={t('projects.subtitle')}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleImportClick}
+              disabled={!hasPermission('projects:create')}
+              title={!hasPermission('projects:create') ? t('projects.noImportPermission') : t('projects.importProject')}
+            >
+              <Upload className="w-4 h-4" />
+              {t('projects.import')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportAll}
+              disabled={!hasPermission('projects:read')}
+              title={!hasPermission('projects:read') ? t('projects.noExportPermission') : t('projects.exportAll')}
+            >
+              <Download className="w-4 h-4" />
+              {t('projects.export')}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setShowModal(true)}
+              disabled={!hasPermission('projects:create')}
+              title={!hasPermission('projects:create') ? t('projects.noCreatePermission') : undefined}
+            >
+              <Plus className="w-4 h-4" />
+              {t('projects.newProject')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Filter tabs */}
       <div className="flex flex-wrap items-center gap-3">

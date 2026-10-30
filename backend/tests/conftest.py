@@ -251,8 +251,10 @@ async def test_engine():
         archive,
         auth_ephemeral,
         color_catalog,
+        enrollment_invite,  # noqa: F401
         external_link,
         filament,
+        finance,  # noqa: F401
         group,
         kprofile_note,
         maintenance,

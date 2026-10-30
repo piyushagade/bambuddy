@@ -340,19 +340,24 @@ describe('Layout', () => {
   });
 
   describe('theme toggle', () => {
-    it('has theme toggle button', async () => {
+    it('has theme toggle button inside the 3-dot menu', async () => {
       render(<Layout />);
 
+      const moreBtn = await screen.findByRole('button', { name: 'More options' });
+      moreBtn.click();
+
       await waitFor(() => {
-        // Theme toggle should be present
-        const buttons = document.querySelectorAll('button');
-        expect(buttons.length).toBeGreaterThan(0);
+        const btn = document.querySelector('button[title="Switch to light mode"]');
+        expect(btn).toBeInTheDocument();
       });
     });
 
     it('cycles through dark → light → system → dark', async () => {
       localStorage.setItem('theme-mode', 'dark');
       render(<Layout />);
+
+      const moreBtn = await screen.findByRole('button', { name: 'More options' });
+      moreBtn.click();
 
       await waitFor(() => {
         // In dark mode, title should say "Switch to light mode"
@@ -389,6 +394,67 @@ describe('Layout', () => {
         const btn = document.querySelector('button[title="Switch to light mode"]');
         expect(btn).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('custom sidebar logo and 3-dot footer menu', () => {
+    it('renders custom sidebar logo when configured in default-sidebar-order', async () => {
+      server.use(
+        http.get('/api/v1/settings/default-sidebar-order', () =>
+          HttpResponse.json({
+            default_sidebar_order: '',
+            custom_logo: 'sidebar_logo_abc123.png',
+          }),
+        ),
+      );
+
+      render(<Layout />);
+
+      await waitFor(() => {
+        const logoImg = document.querySelector('aside img[alt="Bambuddy"]');
+        expect(logoImg).toBeInTheDocument();
+        expect(logoImg?.getAttribute('src')).toContain('/api/v1/settings/sidebar-logo?v=sidebar_logo_abc123.png');
+      });
+    });
+
+    it('renders Logout button alongside 3-dot menu when authenticated', async () => {
+      const priorToken = getAuthToken();
+      server.use(
+        http.get('/api/v1/auth/status', () =>
+          HttpResponse.json({ auth_enabled: true, requires_setup: false }),
+        ),
+        http.get('/api/v1/auth/me', () =>
+          HttpResponse.json({
+            id: 1,
+            username: 'admin',
+            role: 'admin',
+            is_active: true,
+            is_admin: true,
+            groups: [],
+            permissions: ['system:read'],
+            created_at: '2026-01-01T00:00:00Z',
+          }),
+        ),
+      );
+      setAuthToken('test-token', 'session');
+
+      try {
+        render(<Layout />);
+
+        expect(await screen.findByRole('button', { name: 'More options' })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'Logout' })).toBeInTheDocument();
+        // Change password is inside the 3-dot menu, not directly in the footer
+        expect(screen.queryByTitle('Change Password')).toBeNull();
+
+        const moreBtn = screen.getByRole('button', { name: 'More options' });
+        moreBtn.click();
+
+        await waitFor(() => {
+          expect(screen.getByTitle('Change Password')).toBeInTheDocument();
+        });
+      } finally {
+        setAuthToken(priorToken, 'session');
+      }
     });
   });
 

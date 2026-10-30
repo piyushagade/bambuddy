@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, String, func
@@ -32,6 +32,11 @@ class User(Base):
     )  # "admin" or "user" (legacy, kept for backward compat)
     auth_source: Mapped[str] = mapped_column(String(20), default="local")  # "local", "ldap", or "oidc"
     is_active: Mapped[bool] = mapped_column(default=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    expiry_warned_7d_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    expiry_warned_1d_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    certified_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    require_safety_certification: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -85,6 +90,33 @@ class User(Base):
     )
 
     @property
+    def is_expired(self) -> bool:
+        """Return True if the user has a termination datetime in the past (UTC)."""
+        if self.expires_at is None:
+            return False
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return exp <= datetime.now(timezone.utc)
+
+    @property
+    def is_effectively_active(self) -> bool:
+        """Return True if the user is active and has not passed their termination datetime."""
+        return bool(self.is_active) and not self.is_expired
+
+    @property
+    def is_certification_expired(self) -> bool:
+        """Return True if the user requires safety certification and their certification is missing or expired."""
+        if not self.require_safety_certification and self.certified_until is None:
+            return False
+        if self.certified_until is None:
+            return True
+        cert = self.certified_until
+        if cert.tzinfo is None:
+            cert = cert.replace(tzinfo=timezone.utc)
+        return cert <= datetime.now(timezone.utc)
+
+    @property
     def is_admin(self) -> bool:
         """Check if user is an admin.
 
@@ -94,7 +126,7 @@ class User(Base):
         """
         if self.role == "admin":
             return True
-        return any(g.name == "Administrators" for g in self.groups)
+        return any(g.name == "Administrators" and not getattr(g, "is_expired", False) for g in self.groups)
 
     def get_permissions(self) -> set[str]:
         """Get all permissions from all groups the user belongs to.
@@ -103,6 +135,8 @@ class User(Base):
         """
         permissions: set[str] = set()
         for group in self.groups:
+            if getattr(group, "is_expired", False):
+                continue
             if group.permissions:
                 permissions.update(group.permissions)
         return permissions

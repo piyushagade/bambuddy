@@ -1545,6 +1545,25 @@ async def get_spool_by_tag(
     raise HTTPException(404, "Spool not found")
 
 
+@router.get("/access-options")
+async def get_spool_access_options(
+    db: AsyncSession = Depends(get_db),
+    _: User | None = RequireAnyPermissionIfAuthEnabled(
+        Permission.INVENTORY_READ,
+        Permission.INVENTORY_UPDATE,
+    ),
+):
+    """Return slim lists of groups and users for configuring spool access restrictions."""
+    from backend.app.models.group import Group
+
+    groups_res = await db.execute(select(Group.id, Group.name).order_by(Group.name))
+    users_res = await db.execute(select(User.id, User.username).order_by(User.username))
+    return {
+        "groups": [{"id": row.id, "name": row.name} for row in groups_res.all()],
+        "users": [{"id": row.id, "username": row.username} for row in users_res.all()],
+    }
+
+
 @router.get("/spools/{spool_id}", response_model=SpoolResponse)
 async def get_spool(
     spool_id: int,

@@ -78,6 +78,7 @@ import { usePageFileDrop } from '../hooks/usePageFileDrop';
 import type { Archive, PrintLogEntry, ProjectListItem } from '../api/client';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
+import { PageHeader, HeaderMoreMenu } from '../components/PageHeader';
 import { PrintModal } from '../components/PrintModal';
 import { ConfirmOutcomeDialog } from '../components/ConfirmOutcomeDialog';
 import { UploadModal } from '../components/UploadModal';
@@ -3898,177 +3899,177 @@ export function ArchivesPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-        <div>
-          <div className="flex items-start gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-                <ArchiveIcon className="w-7 h-7 text-bambu-green" />
-                Archives
-              </h1>
-              <p className="text-bambu-gray mt-1">
-                {filteredArchives?.length || 0} of {archives?.length || 0} prints
-              </p>
-            </div>
-            <select
-              className="mt-0.5 px-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-bambu-gray-light text-sm focus:border-bambu-green focus:outline-none"
-              value={collection}
-              onChange={(e) => setCollection(e.target.value as Collection)}
-            >
-              {collections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          {/* Export dropdown */}
-          <div className="relative">
-            <Button
-              variant="secondary"
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={isExporting}
-            >
-              {isExporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4" />
-              )}
-              Export
-            </Button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20">
-                <button
-                  className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-t-lg"
-                  onClick={async () => {
-                    setShowExportMenu(false);
-                    setIsExporting(true);
-                    try {
-                      const { blob, filename } = await api.exportArchives({
-                        format: 'csv',
-                        printerId: filterPrinter || undefined,
-                        status: collection === 'failed' ? 'failed' : undefined,
-                        search: search || undefined,
-                      });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = filename;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      showToast(t('archives.toast.exportDownloaded'));
-                    } catch {
-                      showToast(t('archives.toast.exportFailed'), 'error');
-                    } finally {
-                      setIsExporting(false);
-                    }
-                  }}
-                >
-                  <FileText className="w-4 h-4" />
-                  Export as CSV
-                </button>
-                <button
-                  className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-b-lg"
-                  onClick={async () => {
-                    setShowExportMenu(false);
-                    setIsExporting(true);
-                    try {
-                      const { blob, filename } = await api.exportArchives({
-                        format: 'xlsx',
-                        printerId: filterPrinter || undefined,
-                        status: collection === 'failed' ? 'failed' : undefined,
-                        search: search || undefined,
-                      });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = filename;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      showToast(t('archives.toast.exportDownloaded'));
-                    } catch {
-                      showToast(t('archives.toast.exportFailed'), 'error');
-                    } finally {
-                      setIsExporting(false);
-                    }
-                  }}
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  Export as Excel
-                </button>
-              </div>
-            )}
-          </div>
-          {/* Compare button (only when 2-5 items selected) */}
-          {selectedIds.size >= 2 && selectedIds.size <= 5 && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowCompareModal(true)}
-            >
-              <GitCompare className="w-4 h-4" />
-              Compare ({selectedIds.size})
-            </Button>
-          )}
-          {!selectionMode && (
-            <Button variant="secondary" onClick={() => setIsSelectionMode(true)}>
-              <CheckSquare className="w-4 h-4" />
-              Select
-            </Button>
-          )}
-          <Button
-            onClick={() => setShowUpload(true)}
-            disabled={!hasPermission('archives:create')}
-            title={!hasPermission('archives:create') ? t('archives.permission.noCreate') : undefined}
+      <PageHeader
+        className="mb-6"
+        icon={<ArchiveIcon className="w-7 h-7 text-bambu-green shrink-0" />}
+        title="Archives"
+        titleExtra={
+          <select
+            className="px-3 py-1 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-bambu-gray-light text-sm font-normal focus:border-bambu-green focus:outline-none"
+            value={collection}
+            onChange={(e) => setCollection(e.target.value as Collection)}
           >
-            <Upload className="w-4 h-4" />
-            Upload 3MF
-          </Button>
-          {hasPermission('archives:purge') && (
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        }
+        subtitle={`${filteredArchives?.length || 0} of ${archives?.length || 0} prints`}
+        actions={
+          <>
+            {/* View mode toggle */}
+            <div className="flex items-center bg-bambu-dark border border-bambu-dark-tertiary rounded-lg p-1 flex-shrink-0">
+              <button
+                className={`p-1.5 rounded transition-colors ${viewMode === 'grid' ? 'bg-bambu-green text-white' : 'text-bambu-gray hover:text-white'}`}
+                onClick={() => setViewMode('grid')}
+                title={t('archives.gridView')}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                className={`p-1.5 rounded transition-colors ${viewMode === 'list' ? 'bg-bambu-green text-white' : 'text-bambu-gray hover:text-white'}`}
+                onClick={() => setViewMode('list')}
+                title={t('archives.listView')}
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                className={`p-1.5 rounded transition-colors ${viewMode === 'calendar' ? 'bg-bambu-green text-white' : 'text-bambu-gray hover:text-white'}`}
+                onClick={() => setViewMode('calendar')}
+                title={t('archives.calendarView')}
+              >
+                <CalendarDays className="w-4 h-4" />
+              </button>
+              <button
+                className={`p-1.5 rounded transition-colors ${viewMode === 'log' ? 'bg-bambu-green text-white' : 'text-bambu-gray hover:text-white'}`}
+                onClick={() => setViewMode('log')}
+                title={t('archives.logView')}
+              >
+                <ClipboardList className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Export dropdown */}
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                disabled={isExporting}
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-4 h-4" />
+                )}
+                Export
+              </Button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20">
+                  <button
+                    className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-t-lg"
+                    onClick={async () => {
+                      setShowExportMenu(false);
+                      setIsExporting(true);
+                      try {
+                        const { blob, filename } = await api.exportArchives({
+                          format: 'csv',
+                          printerId: filterPrinter || undefined,
+                          status: collection === 'failed' ? 'failed' : undefined,
+                          search: search || undefined,
+                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        showToast(t('archives.toast.exportDownloaded'));
+                      } catch {
+                        showToast(t('archives.toast.exportFailed'), 'error');
+                      } finally {
+                        setIsExporting(false);
+                      }
+                    }}
+                  >
+                    <FileText className="w-4 h-4" />
+                    Export as CSV
+                  </button>
+                  <button
+                    className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-b-lg"
+                    onClick={async () => {
+                      setShowExportMenu(false);
+                      setIsExporting(true);
+                      try {
+                        const { blob, filename } = await api.exportArchives({
+                          format: 'xlsx',
+                          printerId: filterPrinter || undefined,
+                          status: collection === 'failed' ? 'failed' : undefined,
+                          search: search || undefined,
+                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        showToast(t('archives.toast.exportDownloaded'));
+                      } catch {
+                        showToast(t('archives.toast.exportFailed'), 'error');
+                      } finally {
+                        setIsExporting(false);
+                      }
+                    }}
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Export as Excel
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Compare button (only when 2-5 items selected) */}
+            {selectedIds.size >= 2 && selectedIds.size <= 5 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowCompareModal(true)}
+              >
+                <GitCompare className="w-4 h-4" />
+                Compare ({selectedIds.size})
+              </Button>
+            )}
+            {!selectionMode && (
+              <Button variant="secondary" size="sm" onClick={() => setIsSelectionMode(true)}>
+                <CheckSquare className="w-4 h-4" />
+                Select
+              </Button>
+            )}
+            {hasPermission('archives:purge') && (
+              <HeaderMoreMenu label={t('common.actions', 'More actions')}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPurgeModal(true)}
+                  title={t('archivePurge.headerTooltip')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t('archivePurge.headerButton')}
+                </Button>
+              </HeaderMoreMenu>
+            )}
             <Button
-              variant="secondary"
-              onClick={() => setShowPurgeModal(true)}
-              title={t('archivePurge.headerTooltip')}
+              size="sm"
+              onClick={() => setShowUpload(true)}
+              disabled={!hasPermission('archives:create')}
+              title={!hasPermission('archives:create') ? t('archives.permission.noCreate') : undefined}
             >
-              <Trash2 className="w-4 h-4 mr-2" />
-              {t('archivePurge.headerButton')}
+              <Upload className="w-4 h-4" />
+              Upload 3MF
             </Button>
-          )}
-        </div>
-      </div>
-
-      {/* View mode toggle — always visible */}
-      <div className="flex items-center border border-bambu-dark-tertiary rounded-lg overflow-hidden flex-shrink-0 w-fit mb-4">
-        <button
-          className={`p-2 ${viewMode === 'grid' ? 'bg-bambu-green text-white' : 'bg-bambu-dark text-bambu-gray hover:text-white'}`}
-          onClick={() => setViewMode('grid')}
-          title={t('archives.gridView')}
-        >
-          <LayoutGrid className="w-4 h-4" />
-        </button>
-        <button
-          className={`p-2 ${viewMode === 'list' ? 'bg-bambu-green text-white' : 'bg-bambu-dark text-bambu-gray hover:text-white'}`}
-          onClick={() => setViewMode('list')}
-          title={t('archives.listView')}
-        >
-          <List className="w-4 h-4" />
-        </button>
-        <button
-          className={`p-2 ${viewMode === 'calendar' ? 'bg-bambu-green text-white' : 'bg-bambu-dark text-bambu-gray hover:text-white'}`}
-          onClick={() => setViewMode('calendar')}
-          title={t('archives.calendarView')}
-        >
-          <CalendarDays className="w-4 h-4" />
-        </button>
-        <button
-          className={`p-2 ${viewMode === 'log' ? 'bg-bambu-green text-white' : 'bg-bambu-dark text-bambu-gray hover:text-white'}`}
-          onClick={() => setViewMode('log')}
-          title={t('archives.logView')}
-        >
-          <ClipboardList className="w-4 h-4" />
-        </button>
-      </div>
+          </>
+        }
+      />
 
       {/* Filters (hidden in log view which has its own filters) */}
       {viewMode !== 'log' && <Card className="mb-6">

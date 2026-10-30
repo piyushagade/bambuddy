@@ -33,6 +33,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Button } from '../components/Button';
+import { PageHeader, HeaderMoreMenu } from '../components/PageHeader';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { api, type ArchiveSlim } from '../api/client';
@@ -1227,159 +1228,163 @@ export function StatsPage() {
 
   return (
     <div className="p-4 md:p-8">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-              <BarChart3 className="w-7 h-7 text-bambu-green" />
-              {t('stats.title')}
-            </h1>
-            {isRefetching && <Loader2 className="w-5 h-5 text-bambu-green animate-spin" />}
-          </div>
-          <p className="text-bambu-gray mt-1">{t('stats.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Hidden widgets button - toggles panel in Dashboard */}
-          {hiddenCount > 0 && (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                // Toggle the hidden panel in Dashboard by triggering a custom event
-                window.dispatchEvent(new CustomEvent('toggle-hidden-panel'));
-              }}
-            >
-              <Eye className="w-4 h-4" />
-              {t('stats.hiddenCount', { count: hiddenCount })}
-            </Button>
-          )}
-          {/* Reset Layout */}
-          <Button
-            variant="secondary"
-            onClick={() => {
-              localStorage.removeItem('bambusy-dashboard-layout-v2');
-              setDashboardKey(prev => prev + 1);
-              showToast(t('stats.layoutReset'));
-            }}
-            disabled={!hasPermission('settings:update')}
-            title={!hasPermission('settings:update') ? t('stats.noPermissionResetLayout') : undefined}
-          >
-            <RotateCcw className="w-4 h-4" />
-            {t('stats.resetLayout')}
-          </Button>
-          {/* Recalculate Costs */}
-          <Button
-            variant="secondary"
-            onClick={handleRecalculateCosts}
-            disabled={isRecalculating || !hasPermission('archives:update_all')}
-            title={!hasPermission('archives:update_all') ? t('stats.noPermissionRecalculate') : t('stats.recalculateCostsHint')}
-          >
-            {isRecalculating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Calculator className="w-4 h-4" />
+      <PageHeader
+        className="mb-6"
+        icon={<BarChart3 className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('stats.title')}
+        titleExtra={isRefetching ? <Loader2 className="w-5 h-5 text-bambu-green animate-spin" /> : undefined}
+        subtitle={t('stats.subtitle')}
+        actions={
+          <>
+            {/* Hidden widgets button - toggles panel in Dashboard */}
+            {hiddenCount > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  // Toggle the hidden panel in Dashboard by triggering a custom event
+                  window.dispatchEvent(new CustomEvent('toggle-hidden-panel'));
+                }}
+              >
+                <Eye className="w-4 h-4" />
+                {t('stats.hiddenCount', { count: hiddenCount })}
+              </Button>
             )}
-            {t('stats.recalculateCosts')}
-          </Button>
-          {/* Export dropdown */}
-          <div className="relative">
-            <Button
-              variant="secondary"
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={isExporting}
-            >
-              {isExporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="w-4 h-4" />
-              )}
-              {t('stats.exportStats')}
-            </Button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20">
-                <button
-                  className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-t-lg"
-                  onClick={() => handleExport('csv')}
-                >
-                  <FileText className="w-4 h-4" />
-                  {t('stats.exportAsCsv')}
-                </button>
-                <button
-                  className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-b-lg"
-                  onClick={() => handleExport('xlsx')}
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  {t('stats.exportAsExcel')}
-                </button>
-              </div>
-            )}
-          </div>
-          {/* User Filter */}
-          {canFilterByUser && users && users.length > 0 && (
+            <HeaderMoreMenu label={t('common.actions', 'More actions')}>
+              {/* Reset Layout */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  localStorage.removeItem('bambusy-dashboard-layout-v2');
+                  setDashboardKey(prev => prev + 1);
+                  showToast(t('stats.layoutReset'));
+                }}
+                disabled={!hasPermission('settings:update')}
+                title={!hasPermission('settings:update') ? t('stats.noPermissionResetLayout') : undefined}
+              >
+                <RotateCcw className="w-4 h-4" />
+                {t('stats.resetLayout')}
+              </Button>
+              {/* Recalculate Costs */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRecalculateCosts}
+                disabled={isRecalculating || !hasPermission('archives:update_all')}
+                title={!hasPermission('archives:update_all') ? t('stats.noPermissionRecalculate') : t('stats.recalculateCostsHint')}
+              >
+                {isRecalculating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Calculator className="w-4 h-4" />
+                )}
+                {t('stats.recalculateCosts')}
+              </Button>
+            </HeaderMoreMenu>
+            {/* Export dropdown */}
             <div className="relative">
               <Button
                 variant="secondary"
-                onClick={() => setShowUserPicker(!showUserPicker)}
+                size="sm"
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                disabled={isExporting}
               >
-                <Users className="w-4 h-4" />
-                {selectedUserLabel}
-                <ChevronDown className="w-3 h-3" />
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-4 h-4" />
+                )}
+                {t('stats.exportStats')}
               </Button>
-              {showUserPicker && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowUserPicker(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20 p-2 max-h-64 overflow-y-auto">
-                    <button
-                      className={`w-full px-3 py-2 text-left text-sm rounded-md transition-colors ${
-                        selectedUserId === null
-                          ? 'bg-bambu-green text-white'
-                          : 'text-white hover:bg-bambu-dark-tertiary'
-                      }`}
-                      onClick={() => { setSelectedUserId(null); setShowUserPicker(false); }}
-                    >
-                      {t('stats.allUsers', 'All Users')}
-                    </button>
-                    <button
-                      className={`w-full px-3 py-2 text-left text-sm rounded-md transition-colors ${
-                        selectedUserId === -1
-                          ? 'bg-bambu-green text-white'
-                          : 'text-white hover:bg-bambu-dark-tertiary'
-                      }`}
-                      onClick={() => { setSelectedUserId(-1); setShowUserPicker(false); }}
-                    >
-                      {t('stats.noUser', 'No User (System)')}
-                    </button>
-                    <div className="border-t border-bambu-dark-tertiary my-1" />
-                    {users.map(u => (
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20">
+                  <button
+                    className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-t-lg"
+                    onClick={() => handleExport('csv')}
+                  >
+                    <FileText className="w-4 h-4" />
+                    {t('stats.exportAsCsv')}
+                  </button>
+                  <button
+                    className="w-full px-4 py-2 text-left text-white hover:bg-bambu-dark-tertiary transition-colors flex items-center gap-2 rounded-b-lg"
+                    onClick={() => handleExport('xlsx')}
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    {t('stats.exportAsExcel')}
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* User Filter */}
+            {canFilterByUser && users && users.length > 0 && (
+              <div className="relative">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowUserPicker(!showUserPicker)}
+                >
+                  <Users className="w-4 h-4" />
+                  {selectedUserLabel}
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+                {showUserPicker && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowUserPicker(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl z-20 p-2 max-h-64 overflow-y-auto">
                       <button
-                        key={u.id}
                         className={`w-full px-3 py-2 text-left text-sm rounded-md transition-colors ${
-                          selectedUserId === u.id
+                          selectedUserId === null
                             ? 'bg-bambu-green text-white'
                             : 'text-white hover:bg-bambu-dark-tertiary'
                         }`}
-                        onClick={() => { setSelectedUserId(u.id); setShowUserPicker(false); }}
+                        onClick={() => { setSelectedUserId(null); setShowUserPicker(false); }}
                       >
-                        {u.username}
+                        {t('stats.allUsers', 'All Users')}
                       </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {/* Timeframe Selector */}
-          <div className="relative">
-            <Button
-              variant="secondary"
-              onClick={() => setShowTimeframePicker(!showTimeframePicker)}
-            >
-              <Calendar className="w-4 h-4" />
-              {t(`stats.timeframe.${timeframe.preset}`)}
-              <ChevronDown className="w-3 h-3" />
-            </Button>
+                      <button
+                        className={`w-full px-3 py-2 text-left text-sm rounded-md transition-colors ${
+                          selectedUserId === -1
+                            ? 'bg-bambu-green text-white'
+                            : 'text-white hover:bg-bambu-dark-tertiary'
+                        }`}
+                        onClick={() => { setSelectedUserId(-1); setShowUserPicker(false); }}
+                      >
+                        {t('stats.noUser', 'No User (System)')}
+                      </button>
+                      <div className="border-t border-bambu-dark-tertiary my-1" />
+                      {users.map(u => (
+                        <button
+                          key={u.id}
+                          className={`w-full px-3 py-2 text-left text-sm rounded-md transition-colors ${
+                            selectedUserId === u.id
+                              ? 'bg-bambu-green text-white'
+                              : 'text-white hover:bg-bambu-dark-tertiary'
+                          }`}
+                          onClick={() => { setSelectedUserId(u.id); setShowUserPicker(false); }}
+                        >
+                          {u.username}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {/* Timeframe Selector */}
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowTimeframePicker(!showTimeframePicker)}
+              >
+                <Calendar className="w-4 h-4" />
+                {t(`stats.timeframe.${timeframe.preset}`)}
+                <ChevronDown className="w-3 h-3" />
+              </Button>
 
             {showTimeframePicker && (
               <>
@@ -1453,9 +1458,10 @@ export function StatsPage() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-      </div>
+            </div>
+          </>
+        }
+      />
 
       <Dashboard
         key={dashboardKey}

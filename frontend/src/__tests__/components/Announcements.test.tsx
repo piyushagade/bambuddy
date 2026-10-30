@@ -188,6 +188,7 @@ describe('Layout with announcements', () => {
     // The entry is where announcements live, not a notice that one arrived: it
     // stays for whoever may see them, with no count and no banner.
     render(<Layout />);
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
     const entry = await screen.findByRole('button', { name: /announcements/i });
     expect(within(entry).queryByText(/\d/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -202,6 +203,7 @@ describe('Layout with announcements', () => {
       http.get('/api/v1/announcements', () => HttpResponse.json({ visible: false, announcements: [] }))
     );
     render(<Layout />);
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
     await waitFor(() => expect(screen.getAllByTitle(/System/).length).toBeGreaterThan(0));
     expect(screen.queryByRole('button', { name: /announcements/i })).not.toBeInTheDocument();
   });
@@ -216,6 +218,7 @@ describe('Layout with announcements', () => {
       )
     );
     render(<Layout />);
+    fireEvent.click(await screen.findByRole('button', { name: 'More options' }));
     const entry = await screen.findByRole('button', { name: /announcements/i });
     expect(within(entry).queryByText('1')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -239,6 +242,10 @@ describe('Layout with announcements', () => {
       })
     );
     render(<Layout />);
+
+    const moreBtn = await screen.findByRole('button', { name: 'More options' });
+    await waitFor(() => expect(within(moreBtn).getByText('2')).toBeInTheDocument());
+    fireEvent.click(moreBtn);
 
     const entry = await screen.findByRole('button', { name: /announcements/i });
     expect(within(entry).getByText('2')).toBeInTheDocument();

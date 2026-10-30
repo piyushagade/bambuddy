@@ -13,6 +13,7 @@ import { ForecastPanel } from '../components/ForecastPanel';
 import { api, spoolbuddyApi, ApiError } from '../api/client';
 import type { InventorySpool, SpoolCatalogEntry, LocationHASensorReading } from '../api/client';
 import { Button } from '../components/Button';
+import { PageHeader } from '../components/PageHeader';
 import { FilamentSwatch } from '../components/FilamentSwatch';
 import { describeHASensorReading, iconForHASensor } from '../utils/haSensorDisplay';
 import { buildFilamentBackground } from '../components/filamentSwatchHelpers';
@@ -1579,74 +1580,75 @@ function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spo
           with it -- <main> is the scroll container, so everything inside it
           panned sideways. Same pattern the Statistics, Settings and Archives
           headers use, and the filter bar further down this page. */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Package className="w-7 h-7 text-bambu-green" />
-            {t('inventory.title')}
-          </h1>
-          <p className="text-bambu-gray mt-1">{t('inventory.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* CSV import/export (#1576). Operates on Bambuddy's local inventory.
-              In Spoolman mode the buttons stay visible (feature parity) but are
-              disabled with a hint pointing at Spoolman's own CSV export, since
-              Spoolman owns the data store in that mode. */}
-          <Button
-            variant="secondary"
-            disabled={spoolmanMode}
-            onClick={() => setCsvImportOpen(true)}
-            title={spoolmanCsvHint}
-          >
-            <Upload className="w-4 h-4" />
-            {t('inventory.csv.importButton', 'Import CSV')}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={spoolmanMode || exportingCsv}
-            onClick={handleExportCsv}
-            title={spoolmanCsvHint}
-          >
-            {exportingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {t('inventory.csv.exportButton', 'Export CSV')}
-          </Button>
-          <Button variant="secondary" onClick={() => setLocationsModalOpen(true)}>
-            <MapPin className="w-4 h-4" />
-            {t('locations.manage')}
-          </Button>
-          {/* Suppliers (#2988): inventory master data like Locations, so the
-              modal opens from the same toolbar — in both inventory modes. */}
-          <Button variant="secondary" onClick={() => setSuppliersModalOpen(true)}>
-            <Store className="w-4 h-4" />
-            {t('inventory.suppliers.title')}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={filteredSpools.length === 0}
-            // Pre-select the spools ticked in the list; with none ticked,
-            // every visible spool, so the user refines downward in the modal
-            // (#2980). Per-card icon pre-selects only that spool — all flows
-            // share the same picker.
-            onClick={() =>
-              setLabelPickerSpoolIds(selectedIds.size > 0 ? [...selectedIds] : filteredSpools.map((s) => s.id))
-            }
-            title={
-              filteredSpools.length === 0
-                ? t('inventory.labels.noSpoolsTitle', 'No spools to label')
-                : selectedIds.size > 0
-                  ? t('inventory.labels.selectedTitle', 'Print labels for the {{count}} selected spools', { count: selectedIds.size })
-                  : t('inventory.labels.bulkTitle', 'Pick spools to print labels for from the {{count}} currently shown', { count: filteredSpools.length })
-            }
-          >
-            <Printer className="w-4 h-4" />
-            {t('inventory.labels.printLabels', 'Print labels…')}
-          </Button>
-          <Button onClick={() => setFormModal({ spool: null, mode: 'create' })}>
-            <Plus className="w-4 h-4" />
-            {t('inventory.addSpool')}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Package className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('inventory.title')}
+        subtitle={t('inventory.subtitle')}
+        actions={
+          <>
+            {/* CSV import/export (#1576). Operates on Bambuddy's local inventory.
+                In Spoolman mode the buttons stay visible (feature parity) but are
+                disabled with a hint pointing at Spoolman's own CSV export, since
+                Spoolman owns the data store in that mode. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={spoolmanMode}
+              onClick={() => setCsvImportOpen(true)}
+              title={spoolmanCsvHint}
+            >
+              <Upload className="w-4 h-4" />
+              {t('inventory.csv.importButton', 'Import CSV')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={spoolmanMode || exportingCsv}
+              onClick={handleExportCsv}
+              title={spoolmanCsvHint}
+            >
+              {exportingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {t('inventory.csv.exportButton', 'Export CSV')}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setLocationsModalOpen(true)}>
+              <MapPin className="w-4 h-4" />
+              {t('locations.manage')}
+            </Button>
+            {/* Suppliers (#2988): inventory master data like Locations, so the
+                modal opens from the same toolbar — in both inventory modes. */}
+            <Button variant="secondary" size="sm" onClick={() => setSuppliersModalOpen(true)}>
+              <Store className="w-4 h-4" />
+              {t('inventory.suppliers.title')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={filteredSpools.length === 0}
+              // Pre-select the spools ticked in the list; with none ticked,
+              // every visible spool, so the user refines downward in the modal
+              // (#2980). Per-card icon pre-selects only that spool — all flows
+              // share the same picker.
+              onClick={() =>
+                setLabelPickerSpoolIds(selectedIds.size > 0 ? [...selectedIds] : filteredSpools.map((s) => s.id))
+              }
+              title={
+                filteredSpools.length === 0
+                  ? t('inventory.labels.noSpoolsTitle', 'No spools to label')
+                  : selectedIds.size > 0
+                    ? t('inventory.labels.selectedTitle', 'Print labels for the {{count}} selected spools', { count: selectedIds.size })
+                    : t('inventory.labels.bulkTitle', 'Pick spools to print labels for from the {{count}} currently shown', { count: filteredSpools.length })
+              }
+            >
+              <Printer className="w-4 h-4" />
+              {t('inventory.labels.printLabels', 'Print labels…')}
+            </Button>
+            <Button size="sm" onClick={() => setFormModal({ spool: null, mode: 'create' })}>
+              <Plus className="w-4 h-4" />
+              {t('inventory.addSpool')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Bar */}
       {stats && !isLoading && (

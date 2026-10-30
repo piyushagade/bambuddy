@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON
 
 from backend.app.core.database import Base
 
@@ -46,6 +47,10 @@ class Printer(Base):
     # Queue: True after a print finishes/fails, until user acknowledges the plate is cleared.
     # Persisted so the gate survives crashes and power cycles (issue #961).
     awaiting_plate_clear: Mapped[bool] = mapped_column(Boolean, default=False)
+    plate_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    pickup_sla_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Printer-to-group access control (empty list = all groups with printer permissions)
+    allowed_group_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

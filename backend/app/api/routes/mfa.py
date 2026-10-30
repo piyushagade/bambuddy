@@ -199,11 +199,13 @@ def _user_to_response(user: User) -> UserResponse:
         username=user.username,
         email=user.email,
         role=user.role,
-        is_active=user.is_active,
+        is_active=user.is_effectively_active,
         is_admin=user.is_admin,
         groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
         permissions=sorted(user.get_permissions()),
         created_at=user.created_at.isoformat(),
+        expires_at=user.expires_at.isoformat() if user.expires_at else None,
+        is_expired=user.is_expired,
     )
 
 
@@ -1062,7 +1064,7 @@ async def send_email_otp(
     await check_email_otp_send_rate(db, username)
 
     user = await get_user_by_username(db, username)
-    if not user or not user.is_active:
+    if not user or not user.is_effectively_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     if not user.email:
@@ -1154,7 +1156,7 @@ async def verify_2fa(
     await check_rate_limit(db, username)
 
     user = await get_user_by_username(db, username)
-    if not user or not user.is_active:
+    if not user or not user.is_effectively_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     method = body.method
@@ -2103,7 +2105,7 @@ async def oidc_callback(
                 else:
                     return RedirectResponse(url=f"{frontend_error_url}no_linked_account", status_code=302)
 
-            if not user or not user.is_active:
+            if not user or not user.is_effectively_active:
                 return RedirectResponse(url=f"{frontend_error_url}account_inactive", status_code=302)
 
             # #3107 — apply the provider's group mapping on every login, not
@@ -2208,7 +2210,7 @@ async def oidc_exchange(
     await db.commit()
 
     user = await get_user_by_username(db, username)
-    if not user or not user.is_active:
+    if not user or not user.is_effectively_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     # Reload with groups

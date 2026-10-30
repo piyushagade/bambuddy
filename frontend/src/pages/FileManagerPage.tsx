@@ -68,6 +68,7 @@ import type {
   Permission,
 } from '../api/client';
 import { Button } from '../components/Button';
+import { PageHeader, HeaderMoreMenu } from '../components/PageHeader';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu';
 import { PrintModal } from '../components/PrintModal';
@@ -2659,121 +2660,122 @@ export function FileManagerPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <FolderOpen className="w-7 h-7 text-bambu-green" />
-            {t('fileManager.title')}
-          </h1>
-          <p className="text-bambu-gray mt-1">
-            {t('fileManager.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="flex items-center bg-bambu-dark rounded-lg p-1">
-            <button
-              onClick={() => handleViewModeChange('grid')}
-              className={`p-1.5 rounded transition-colors ${
-                viewMode === 'grid' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
-              }`}
-              title={t('fileManager.gridView')}
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleViewModeChange('list')}
-              className={`p-1.5 rounded transition-colors ${
-                viewMode === 'list' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
-              }`}
-              title={t('fileManager.listView')}
-            >
-              <List className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleViewModeChange('columns')}
-              className={`p-1.5 rounded transition-colors ${
-                viewMode === 'columns' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
-              }`}
-              title={t('fileManager.columnsView')}
-            >
-              <Columns className="w-4 h-4" />
-            </button>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => batchThumbnailMutation.mutate()}
-            disabled={batchThumbnailMutation.isPending || !hasAnyPermission('library:update_own', 'library:update_all')}
-            title={!hasAnyPermission('library:update_own', 'library:update_all') ? t('fileManager.noPermissionGenerateThumbnail') : t('fileManager.generateThumbnailsForMissing')}
-          >
-            {batchThumbnailMutation.isPending ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Image className="w-4 h-4 mr-2" />
+      <PageHeader
+        className="mb-6"
+        icon={<FolderOpen className="w-7 h-7 text-bambu-green shrink-0" />}
+        title={t('fileManager.title')}
+        subtitle={t('fileManager.subtitle')}
+        actions={
+          <>
+            <HeaderMoreMenu label={t('common.actions', 'More actions')}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => batchThumbnailMutation.mutate()}
+                disabled={batchThumbnailMutation.isPending || !hasAnyPermission('library:update_own', 'library:update_all')}
+                title={!hasAnyPermission('library:update_own', 'library:update_all') ? t('fileManager.noPermissionGenerateThumbnail') : t('fileManager.generateThumbnailsForMissing')}
+              >
+                {batchThumbnailMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Image className="w-4 h-4" />
+                )}
+                {t('fileManager.generateThumbnails')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowExternalFolderModal(true)}
+                disabled={!hasPermission('library:upload')}
+                title={!hasPermission('library:upload') ? t('fileManager.noPermissionCreateFolder') : t('fileManager.linkExternalFolder')}
+              >
+                <FolderSymlink className="w-4 h-4" />
+                {t('fileManager.linkExternal')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTagsModal(true)}
+                title={t('fileManager.tags.manageTitle')}
+              >
+                <TagIcon className="w-4 h-4" />
+                {t('fileManager.tags.manage')}
+              </Button>
+              {hasPermission('library:purge') && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPurgeModal(true)}
+                  title={t('libraryPurge.headerTooltip')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t('libraryPurge.headerButton')}
+                </Button>
+              )}
+            </HeaderMoreMenu>
+            {(hasAnyPermission('library:delete_own', 'library:delete_all')) && (
+              <Link
+                to="/files/trash"
+                className="inline-flex items-center justify-center font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors bg-bambu-dark-tertiary hover:bg-bambu-gray-dark text-white px-3 py-1.5 text-sm gap-1.5 min-h-[44px] md:min-h-0"
+                title={t('libraryTrash.headerTooltip')}
+              >
+                <Trash2 className="w-4 h-4" />
+                {t('libraryTrash.headerButton')}
+                {typeof trashCount === 'number' && trashCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 text-xs rounded-full bg-bambu-green/20 text-bambu-green">
+                    {trashCount}
+                  </span>
+                )}
+              </Link>
             )}
-            {t('fileManager.generateThumbnails')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShowExternalFolderModal(true)}
-            disabled={!hasPermission('library:upload')}
-            title={!hasPermission('library:upload') ? t('fileManager.noPermissionCreateFolder') : t('fileManager.linkExternalFolder')}
-          >
-            <FolderSymlink className="w-4 h-4 mr-2" />
-            {t('fileManager.linkExternal')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShowNewFolderModal(true)}
-            disabled={!hasPermission('library:upload')}
-            title={!hasPermission('library:upload') ? t('fileManager.noPermissionCreateFolder') : undefined}
-          >
-            <FolderPlus className="w-4 h-4 mr-2" />
-            {t('fileManager.newFolder')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShowTagsModal(true)}
-            title={t('fileManager.tags.manageTitle')}
-          >
-            <TagIcon className="w-4 h-4 mr-2" />
-            {t('fileManager.tags.manage')}
-          </Button>
-          {hasPermission('library:purge') && (
             <Button
               variant="secondary"
-              onClick={() => setShowPurgeModal(true)}
-              title={t('libraryPurge.headerTooltip')}
+              size="sm"
+              onClick={() => setShowNewFolderModal(true)}
+              disabled={!hasPermission('library:upload')}
+              title={!hasPermission('library:upload') ? t('fileManager.noPermissionCreateFolder') : undefined}
             >
-              <Trash2 className="w-4 h-4 mr-2" />
-              {t('libraryPurge.headerButton')}
+              <FolderPlus className="w-4 h-4" />
+              {t('fileManager.newFolder')}
             </Button>
-          )}
-          {(hasAnyPermission('library:delete_own', 'library:delete_all')) && (
-            <Link
-              to="/files/trash"
-              className="inline-flex items-center px-3 py-1.5 text-sm rounded bg-bambu-dark-secondary text-bambu-gray hover:text-white hover:bg-bambu-dark transition-colors"
-              title={t('libraryTrash.headerTooltip')}
+            <Button
+              size="sm"
+              onClick={() => setShowUploadModal(true)}
+              disabled={!hasPermission('library:upload')}
+              title={!hasPermission('library:upload') ? t('fileManager.noPermissionUpload') : undefined}
             >
-              <Trash2 className="w-4 h-4 mr-2" />
-              {t('libraryTrash.headerButton')}
-              {typeof trashCount === 'number' && trashCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-bambu-green/20 text-bambu-green">
-                  {trashCount}
-                </span>
-              )}
-            </Link>
-          )}
-          <Button
-            onClick={() => setShowUploadModal(true)}
-            disabled={!hasPermission('library:upload')}
-            title={!hasPermission('library:upload') ? t('fileManager.noPermissionUpload') : undefined}
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            {t('common.upload')}
-          </Button>
-        </div>
-      </div>
+              <Upload className="w-4 h-4" />
+              {t('common.upload')}
+            </Button>
+          </>
+        }
+      >
+        {stats && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs sm:text-sm">
+            <div className="flex items-center gap-1.5">
+              <File className="w-3.5 h-3.5 text-bambu-green shrink-0" />
+              <span className="text-bambu-gray">{t('fileManager.files')}:</span>
+              <span className="text-white font-medium">{stats.total_files}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <FolderOpen className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="text-bambu-gray">{t('fileManager.folders')}:</span>
+              <span className="text-white font-medium">{stats.total_folders}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-bambu-gray">{t('fileManager.size')}:</span>
+              <span className="text-white font-medium">{formatFileSize(stats.total_size_bytes)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-bambu-gray">{t('fileManager.free')}:</span>
+              <span className={`font-medium ${isDiskSpaceLow ? 'text-amber-500' : 'text-white'}`}>
+                {formatFileSize(stats.disk_free_bytes)}
+              </span>
+            </div>
+          </div>
+        )}
+      </PageHeader>
 
       {/* Disk space warning */}
       {isDiskSpaceLow && stats && settings && (
@@ -2784,33 +2786,6 @@ export function FileManagerPage() {
             <p className="text-xs text-amber-500/80">
               {t('fileManager.lowDiskSpaceDetails', { free: formatFileSize(stats.disk_free_bytes), total: formatFileSize(stats.disk_total_bytes), threshold: settings.library_disk_warning_gb })}
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Stats bar */}
-      {stats && (
-        <div className="flex flex-wrap items-center gap-3 sm:gap-6 mb-6 p-3 bg-bambu-dark-secondary rounded-lg border border-bambu-dark-tertiary">
-          <div className="flex items-center gap-2 text-sm">
-            <File className="w-4 h-4 text-bambu-green" />
-            <span className="text-bambu-gray">{t('fileManager.files')}:</span>
-            <span className="text-white font-medium">{stats.total_files}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <FolderOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="text-bambu-gray">{t('fileManager.folders')}:</span>
-            <span className="text-white font-medium">{stats.total_folders}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <HardDrive className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span className="text-bambu-gray">{t('fileManager.size')}:</span>
-            <span className="text-white font-medium">{formatFileSize(stats.total_size_bytes)}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm sm:ml-auto">
-            <span className="text-bambu-gray">{t('fileManager.free')}:</span>
-            <span className={`font-medium ${isDiskSpaceLow ? 'text-amber-500' : 'text-white'}`}>
-              {formatFileSize(stats.disk_free_bytes)}
-            </span>
           </div>
         </div>
       )}
@@ -3093,130 +3068,163 @@ export function FileManagerPage() {
               </Button>
             </div>
           )}
-          {/* Search, Filter, Sort toolbar - sticky on mobile for easier access */}
-          {files && files.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4 p-2 sm:p-3 bg-bambu-dark-secondary rounded-lg border border-bambu-dark-tertiary sticky top-0 z-10 lg:static">
-              {/* Search */}
-              <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray" />
-                <input
-                  type="text"
-                  placeholder={t('fileManager.searchFiles')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-sm text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green"
-                />
-                {searchExpandsSubfolders && (
-                  <span
-                    className="absolute -bottom-4 left-0 text-[10px] text-bambu-gray whitespace-nowrap"
-                    title={t('fileManager.searchSubfoldersHint')}
-                  >
-                    {t('fileManager.searchSubfoldersHint')}
-                  </span>
-                )}
-              </div>
-
-              {/* Type filter */}
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-bambu-gray hidden sm:block" />
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="bg-bambu-dark border border-bambu-dark-tertiary rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
-                >
-                  <option value="all">{t('fileManager.allTypes')}</option>
-                  {fileTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Username filter with autocomplete - only show when auth is enabled */}
-              {authEnabled && (
-                <div className="relative">
+          {/* Search, Filter, Sort, and View mode toolbar - sticky on mobile for easier access */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4 p-2 sm:p-3 bg-bambu-dark-secondary rounded-lg border border-bambu-dark-tertiary sticky top-0 z-10 lg:static">
+            {files && files.length > 0 && (
+              <>
+                {/* Search */}
+                <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray" />
                   <input
                     type="text"
-                    placeholder={t('fileManager.filterByUser', { defaultValue: 'Filter by user' })}
-                    value={filterUsername}
-                    onChange={(e) => setFilterUsername(e.target.value)}
-                    list="usernames-list"
-                    className={`w-32 sm:w-40 px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-sm text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green ${filterUsername ? 'pr-7' : ''}`}
-                    style={filterUsername ? { WebkitAppearance: 'none', MozAppearance: 'textfield' } : undefined}
+                    placeholder={t('fileManager.searchFiles')}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-sm text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green"
                   />
-                  {filterUsername && (
-                    <button
-                      onClick={() => setFilterUsername('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-bambu-gray hover:text-white z-10"
+                  {searchExpandsSubfolders && (
+                    <span
+                      className="absolute -bottom-4 left-0 text-[10px] text-bambu-gray whitespace-nowrap"
+                      title={t('fileManager.searchSubfoldersHint')}
                     >
-                      <X className="w-3 h-3" />
-                    </button>
+                      {t('fileManager.searchSubfoldersHint')}
+                    </span>
                   )}
-                  <datalist id="usernames-list">
-                    {users?.map((user) => (
-                      <option key={user.id} value={user.username} />
-                    ))}
-                  </datalist>
                 </div>
-              )}
 
-              {/* Sort */}
-              <div className="flex items-center gap-2">
-                <select
-                  value={sortField}
-                  onChange={(e) => {
-                    const newField = e.target.value as SortField;
-                    setSortField(newField);
-                    localStorage.setItem('library-sort-field', newField);
-                  }}
-                  className="bg-bambu-dark border border-bambu-dark-tertiary rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
-                >
-                  <option value="name">{t('common.name')}</option>
-                  <option value="date">{t('common.date')}</option>
-                  <option value="size">{t('fileManager.size')}</option>
-                  <option value="type">{t('common.type')}</option>
-                  <option value="prints">{t('fileManager.prints')}</option>
-                </select>
-                <button
-                  onClick={() => setSortDirection((d) => {
-                    const newDir = d === 'asc' ? 'desc' : 'asc';
-                    localStorage.setItem('library-sort-direction', newDir);
-                    return newDir;
-                  })}
-                  className="p-1.5 rounded bg-bambu-dark border border-bambu-dark-tertiary hover:border-bambu-green transition-colors"
-                  title={sortDirection === 'asc' ? t('fileManager.ascending') : t('fileManager.descending')}
-                >
-                  {sortDirection === 'asc' ? (
-                    <SortAsc className="w-4 h-4 text-white" />
-                  ) : (
-                    <SortDesc className="w-4 h-4 text-white" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowModified((v) => {
-                    const next = !v;
-                    localStorage.setItem('library-show-modified', String(next));
-                    return next;
-                  })}
-                  className={`p-1.5 rounded bg-bambu-dark border transition-colors ${
-                    showModified ? 'border-bambu-green text-bambu-green' : 'border-bambu-dark-tertiary text-white hover:border-bambu-green'
-                  }`}
-                  title={showModified ? t('fileManager.hideModified') : t('fileManager.showModified')}
-                  aria-pressed={showModified}
-                >
-                  <CalendarClock className="w-4 h-4" />
-                </button>
-              </div>
+                {/* Type filter */}
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-bambu-gray hidden sm:block" />
+                  <select
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                    className="bg-bambu-dark border border-bambu-dark-tertiary rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
+                  >
+                    <option value="all">{t('fileManager.allTypes')}</option>
+                    {fileTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {type.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Results count */}
-              {(searchQuery || filterType !== 'all' || filterUsername) && (
-                <span className="text-sm text-bambu-gray hidden sm:inline">
-                  {t('fileManager.resultsCount', { showing: filteredAndSortedFiles.length, total: files.length })}
-                </span>
-              )}
+                {/* Username filter with autocomplete - only show when auth is enabled */}
+                {authEnabled && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={t('fileManager.filterByUser', { defaultValue: 'Filter by user' })}
+                      value={filterUsername}
+                      onChange={(e) => setFilterUsername(e.target.value)}
+                      list="usernames-list"
+                      className={`w-32 sm:w-40 px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-sm text-white placeholder-bambu-gray focus:outline-none focus:border-bambu-green ${filterUsername ? 'pr-7' : ''}`}
+                      style={filterUsername ? { WebkitAppearance: 'none', MozAppearance: 'textfield' } : undefined}
+                    />
+                    {filterUsername && (
+                      <button
+                        onClick={() => setFilterUsername('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-bambu-gray hover:text-white z-10"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    <datalist id="usernames-list">
+                      {users?.map((user) => (
+                        <option key={user.id} value={user.username} />
+                      ))}
+                    </datalist>
+                  </div>
+                )}
+
+                {/* Sort */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={sortField}
+                    onChange={(e) => {
+                      const newField = e.target.value as SortField;
+                      setSortField(newField);
+                      localStorage.setItem('library-sort-field', newField);
+                    }}
+                    className="bg-bambu-dark border border-bambu-dark-tertiary rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-bambu-green"
+                  >
+                    <option value="name">{t('common.name')}</option>
+                    <option value="date">{t('common.date')}</option>
+                    <option value="size">{t('fileManager.size')}</option>
+                    <option value="type">{t('common.type')}</option>
+                    <option value="prints">{t('fileManager.prints')}</option>
+                  </select>
+                  <button
+                    onClick={() => setSortDirection((d) => {
+                      const newDir = d === 'asc' ? 'desc' : 'asc';
+                      localStorage.setItem('library-sort-direction', newDir);
+                      return newDir;
+                    })}
+                    className="p-1.5 rounded bg-bambu-dark border border-bambu-dark-tertiary hover:border-bambu-green transition-colors"
+                    title={sortDirection === 'asc' ? t('fileManager.ascending') : t('fileManager.descending')}
+                  >
+                    {sortDirection === 'asc' ? (
+                      <SortAsc className="w-4 h-4 text-white" />
+                    ) : (
+                      <SortDesc className="w-4 h-4 text-white" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setShowModified((v) => {
+                      const next = !v;
+                      localStorage.setItem('library-show-modified', String(next));
+                      return next;
+                    })}
+                    className={`p-1.5 rounded bg-bambu-dark border transition-colors ${
+                      showModified ? 'border-bambu-green text-bambu-green' : 'border-bambu-dark-tertiary text-white hover:border-bambu-green'
+                    }`}
+                    title={showModified ? t('fileManager.hideModified') : t('fileManager.showModified')}
+                    aria-pressed={showModified}
+                  >
+                    <CalendarClock className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Results count */}
+                {(searchQuery || filterType !== 'all' || filterUsername) && (
+                  <span className="text-sm text-bambu-gray hidden sm:inline">
+                    {t('fileManager.resultsCount', { showing: filteredAndSortedFiles.length, total: files.length })}
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* View mode toggle */}
+            <div className="ml-auto flex items-center bg-bambu-dark rounded-lg p-1 border border-bambu-dark-tertiary">
+              <button
+                onClick={() => handleViewModeChange('grid')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'grid' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
+                }`}
+                title={t('fileManager.gridView')}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleViewModeChange('list')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'list' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
+                }`}
+                title={t('fileManager.listView')}
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleViewModeChange('columns')}
+                className={`p-1.5 rounded transition-colors ${
+                  viewMode === 'columns' ? 'bg-bambu-dark-secondary text-white' : 'text-bambu-gray hover:text-white'
+                }`}
+                title={t('fileManager.columnsView')}
+              >
+                <Columns className="w-4 h-4" />
+              </button>
             </div>
-          )}
+          </div>
 
           {/* Selection toolbar - sticky on mobile below search bar. It stays
               while anything is selected, even with the selected folder's own

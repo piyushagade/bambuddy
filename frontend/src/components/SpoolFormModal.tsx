@@ -108,6 +108,8 @@ export function SpoolFormModal({
   // Spool catalog
   const [spoolCatalog, setSpoolCatalog] = useState<SpoolCatalogEntry[]>([]);
   const [storageLocations, setStorageLocations] = useState<{ id: number; name: string }[]>([]);
+  const [accessGroups, setAccessGroups] = useState<{ id: number; name: string }[]>([]);
+  const [accessUsers, setAccessUsers] = useState<{ id: number; username: string }[]>([]);
 
   // Local presets (OrcaSlicer imports)
   const [localPresets, setLocalPresets] = useState<LocalPreset[]>([]);
@@ -232,6 +234,12 @@ export function SpoolFormModal({
       api.getLocalPresets().then(r => setLocalPresets(r.filament)).catch(console.error);
       api.getBuiltinFilaments().then(setBuiltinFilaments).catch(console.error);
       api.getLocations().then((locs) => setStorageLocations(locs.map((l) => ({ id: l.id, name: l.name })))).catch(console.error);
+      api.getSpoolAccessOptions().then((opts) => {
+        if (!cancelled) {
+          setAccessGroups(opts.groups || []);
+          setAccessUsers(opts.users || []);
+        }
+      }).catch(console.error);
 
       // Fetch printer calibrations if not provided via props
       if (printersWithCalibrations.length === 0) {
@@ -430,6 +438,8 @@ export function SpoolFormModal({
           low_stock_threshold_pct: spool.low_stock_threshold_pct ?? null,
           material_number: spool.material_number || '',
           location_id: spool.location_id ?? null,
+          allowed_group_ids: spool.allowed_group_ids ?? [],
+          allowed_user_ids: spool.allowed_user_ids ?? [],
           spoolman_filament_id: null,
         });
         setPresetInputValue(spool.slicer_filament_name || spool.slicer_filament || '');
@@ -980,7 +990,12 @@ export function SpoolFormModal({
       category: formData.category.trim() || null,
       low_stock_threshold_pct: formData.low_stock_threshold_pct,
       material_number: formData.material_number.trim() || null,
-      ...(spoolmanMode ? { spoolman_filament_id: formData.spoolman_filament_id } : {}),
+      ...(spoolmanMode
+        ? { spoolman_filament_id: formData.spoolman_filament_id }
+        : {
+            allowed_group_ids: formData.allowed_group_ids,
+            allowed_user_ids: formData.allowed_user_ids,
+          }),
     };
 
     // Only send weight_used when creating or when explicitly changed by the user.
@@ -1155,6 +1170,9 @@ export function SpoolFormModal({
                   quantity={quantity}
                   onQuantityChange={setQuantity}
                   errors={errors}
+                  accessGroups={accessGroups}
+                  accessUsers={accessUsers}
+                  spoolmanMode={spoolmanMode}
                 />
               </div>
 

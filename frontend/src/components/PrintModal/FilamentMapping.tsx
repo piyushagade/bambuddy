@@ -152,7 +152,7 @@ export function FilamentMapping({
     printerStatus?.ams_filament_backup,
   );
 
-  const { loadedFilaments, filamentComparison, hasTypeMismatch, hasColorMismatch } =
+  const { loadedFilaments, filamentComparison, hasTypeMismatch, hasColorMismatch, hasUnauthorizedSpool } =
     useFilamentMapping(
       filamentReqs,
       printerStatus,
@@ -311,7 +311,9 @@ export function FilamentMapping({
   }
 
   // Determine status indicator color
-  const statusColor = hasTypeMismatch
+  const statusColor = hasUnauthorizedSpool
+    ? '#ef4444' // red
+    : hasTypeMismatch
     ? '#f97316' // orange
     : hasColorMismatch
     ? '#facc15' // yellow
@@ -355,7 +357,11 @@ export function FilamentMapping({
       >
         <Circle className="w-4 h-4" fill={statusColor} stroke="none" />
         <span>{plateLabel ? `${t('printModal.filamentMapping')} — ${plateLabel}` : t('printModal.filamentMapping')}</span>
-        {hasTypeMismatch ? (
+        {hasUnauthorizedSpool ? (
+          <span className="text-xs text-red-600 dark:text-red-400">
+            ({t('printModal.statusUnauthorizedSpool', 'Unauthorized spool — select another')})
+          </span>
+        ) : hasTypeMismatch ? (
           <span className="text-xs text-orange-700 dark:text-orange-400">({t('printModal.statusTypeNotFound')})</span>
         ) : hasColorMismatch ? (
           <span className="text-xs text-yellow-700 dark:text-yellow-400">({t('printModal.statusColorMismatch')})</span>
@@ -522,6 +528,8 @@ export function FilamentMapping({
                       ? 'border-bambu-green/50 text-bambu-green'
                       : item.status === 'type_only'
                       ? 'border-yellow-500 dark:border-yellow-400/50 text-yellow-700 dark:text-yellow-400'
+                      : item.status === 'unauthorized'
+                      ? 'border-red-500 dark:border-red-400/50 text-red-700 dark:text-red-400'
                       : 'border-orange-500 dark:border-orange-400/50 text-orange-700 dark:text-orange-400'
                   } ${item.isManual ? 'ring-1 ring-blue-400/50' : ''}`}
                   title={item.isManual ? t('printModal.manuallySelected') : t('printModal.autoMatched')}
@@ -542,10 +550,14 @@ export function FilamentMapping({
                       // two views agree. Not translated: L and R are the letters on
                       // the machine.
                       const ftsBadge = ftsInlet == null ? '' : ` [${FTS_INLET_SIDE[ftsInlet]}]`;
+                      const restrictedBadge =
+                        f.isAuthorized === false
+                          ? ` (${t('printModal.restrictedSpoolBadge', 'Restricted')})`
+                          : '';
                       return {
                         value: String(f.globalTrayId),
                         label: `${f.label}: ${f.spoolName || f.traySubBrands || f.type} (${f.colorName})`,
-                        meta: `${remainingLabel}${ftsBadge}`,
+                        meta: `${remainingLabel}${ftsBadge}${restrictedBadge}`,
                         rgba: f.color,
                         extraColors: f.extraColors,
                         effectType: f.effectType,
@@ -575,6 +587,15 @@ export function FilamentMapping({
                     }
                   >
                     <AlertTriangle className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />
+                  </span>
+                ) : item.status === 'unauthorized' ? (
+                  <span
+                    title={t(
+                      'printModal.unauthorizedSpoolPrompt',
+                      'You are not authorized to use this spool. Please select another spool.',
+                    )}
+                  >
+                    <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />
                   </span>
                 ) : (
                   <span title={t('printModal.filamentTypeNotLoaded')}>
@@ -614,6 +635,14 @@ export function FilamentMapping({
           {isBudgetInsufficient && (
             <p className="text-xs text-red-400 mt-2">
               {t('printModal.insufficientBudget', 'Insufficient budget for this cost center.')}
+            </p>
+          )}
+          {hasUnauthorizedSpool && (
+            <p className="text-xs text-red-500 dark:text-red-400 mt-2">
+              {t(
+                'printModal.unauthorizedSpoolPrompt',
+                'You are not authorized to use this spool. Please select another spool.',
+              )}
             </p>
           )}
           {hasTypeMismatch && (

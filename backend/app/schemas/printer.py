@@ -39,6 +39,7 @@ class PrinterBase(BaseModel):
     external_camera_enabled: bool = False
     external_camera_snapshot_url: str | None = None  # Optional single-frame override; #1177
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
+    allowed_group_ids: list[int] = Field(default_factory=list)
 
 
 class PrinterCreate(PrinterBase):
@@ -77,6 +78,7 @@ class PrinterUpdate(BaseModel):
     camera_rotation: int | None = None  # 0, 90, 180, 270 degrees
     plate_detection_enabled: bool | None = None
     plate_detection_roi: PlateDetectionROI | None = None
+    allowed_group_ids: list[int] | None = None
 
 
 class PrinterResponse(PrinterBase):

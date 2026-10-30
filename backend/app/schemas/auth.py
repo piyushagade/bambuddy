@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -52,6 +53,9 @@ class UserCreate(BaseModel):
     email: str | None = Field(default=None, max_length=254)  # L-NEW-5: RFC 5321 max
     role: str = "user"
     group_ids: list[int] | None = None
+    expires_at: datetime | None = None
+    certified_until: datetime | None = None
+    require_safety_certification: bool = False
 
     @field_validator("password")
     @classmethod
@@ -68,6 +72,9 @@ class UserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     group_ids: list[int] | None = None
+    expires_at: datetime | None = None
+    certified_until: datetime | None = None
+    require_safety_certification: bool | None = None
 
     @field_validator("password")
     @classmethod
@@ -88,6 +95,11 @@ class UserResponse(BaseModel):
     groups: list[GroupBrief] = []
     permissions: list[str] = []  # All permissions from groups
     created_at: str
+    expires_at: str | None = None
+    is_expired: bool = False
+    certified_until: str | None = None
+    require_safety_certification: bool = False
+    is_certification_expired: bool = False
 
     class Config:
         from_attributes = True
@@ -107,6 +119,73 @@ class UserSlim(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RosterImportRequest(BaseModel):
+    """CSV roster import request for Canvas / UF Registrar rosters."""
+
+    csv_content: str = Field(..., min_length=1)
+    default_group_id: int | None = None
+    default_cost_center_id: int | None = None
+    default_expires_at: datetime | None = None
+
+
+class RosterImportResponse(BaseModel):
+    """Summary returned after importing a student roster CSV."""
+
+    created_count: int = 0
+    updated_count: int = 0
+    skipped_count: int = 0
+    errors: list[str] = []
+    users: list[UserResponse] = []
+
+
+class EnrollmentInviteCreate(BaseModel):
+    """Schema for creating a self-service enrollment invite code."""
+
+    name: str = Field(..., max_length=150)
+    code: str | None = Field(default=None, max_length=64)
+    group_id: int | None = None
+    cost_center_id: int | None = None
+    user_expires_at: datetime | None = None
+    invite_expires_at: datetime | None = None
+    max_uses: int | None = Field(default=None, ge=1)
+
+
+class EnrollmentInviteResponse(BaseModel):
+    """Schema for enrollment invite response."""
+
+    id: int
+    code: str
+    name: str
+    group_id: int | None = None
+    group_name: str | None = None
+    cost_center_id: int | None = None
+    cost_center_name: str | None = None
+    user_expires_at: str | None = None
+    invite_expires_at: str | None = None
+    max_uses: int | None = None
+    uses_count: int = 0
+    is_active: bool = True
+    is_redeemable: bool = True
+    created_at: str
+
+
+class EnrollmentRedeemRequest(BaseModel):
+    """Redeem an enrollment invite code (for logged-in SSO users or self-registering students)."""
+
+    code: str = Field(..., max_length=64)
+    username: str | None = Field(default=None, max_length=150)
+    password: str | None = Field(default=None, max_length=256)
+    email: str | None = Field(default=None, max_length=254)
+
+
+class EnrollmentRedeemResponse(BaseModel):
+    """Result of redeeming an enrollment invite code."""
+
+    user: UserResponse
+    invite_name: str
+    access_token: str | None = None
 
 
 class LDAPSearchResultResponse(BaseModel):

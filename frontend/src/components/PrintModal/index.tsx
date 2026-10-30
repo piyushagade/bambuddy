@@ -2,7 +2,13 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { AlertCircle, AlertTriangle, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CostCenterSummary, PrintQueueItemCreate, PrintQueueItemUpdate, SlotMaterial } from '../../api/client';
+import type {
+  CostCenterSummary,
+  PrintQueueItemCreate,
+  PrintQueueItemUpdate,
+  SlotMaterial,
+  SlotSpoolIdentity,
+} from '../../api/client';
 import { api } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent } from '../Card';
@@ -427,6 +433,18 @@ export function PrintModal({
     return result;
   }, [selectedPrinters, inventoryRemainQueries]);
 
+  const slotSpoolsPerPrinter = useMemo(() => {
+    const result = new Map<number, Map<number, SlotSpoolIdentity>>();
+    slotMaterialsPerPrinter.forEach((slotMap, printerId) => {
+      const spoolMap = new Map<number, SlotSpoolIdentity>();
+      slotMap.forEach((slot, gtid) => {
+        if (slot.spool) spoolMap.set(gtid, slot.spool);
+      });
+      if (spoolMap.size > 0) result.set(printerId, spoolMap);
+    });
+    return result;
+  }, [slotMaterialsPerPrinter]);
+
   // Fetch archive details to get sliced_for_model
   const { data: archiveDetails } = useQuery({
     queryKey: ['archive', archiveId],
@@ -591,6 +609,7 @@ export function PrintModal({
     manualMappings,
     singlePrinterPreferLowest,
     effectivePrinterId ? inventoryByTrayIdPerPrinter.get(effectivePrinterId) : undefined,
+    effectivePrinterId ? slotSpoolsPerPrinter.get(effectivePrinterId) : undefined,
   );
 
   // --- Per-plate filament mapping (multi-plate submissions) ---------------
@@ -680,7 +699,10 @@ export function PrintModal({
     const byPlate = new Map<number, number[] | undefined>();
     if (!isMultiPlateSelection || !effectivePrinterId || selectedPrinters.length !== 1) return byPlate;
 
-    const loaded = buildLoadedFilaments(printerStatus);
+    const loaded = buildLoadedFilaments(
+      printerStatus,
+      slotSpoolsPerPrinter.get(effectivePrinterId),
+    );
     const ftsActive = printerStatus?.fila_switch?.installed === true;
     const inventoryByTrayId = inventoryByTrayIdPerPrinter.get(effectivePrinterId);
 
@@ -702,6 +724,7 @@ export function PrintModal({
     isMultiPlateSelection,
     effectivePrinterId,
     printerStatus,
+    slotSpoolsPerPrinter,
     inventoryByTrayIdPerPrinter,
     selectedPlateIds,
     mappingPerPlateReqs,
@@ -720,6 +743,7 @@ export function PrintModal({
     setPerPrinterConfigs,
     settings?.prefer_lowest_filament,
     inventoryByTrayIdPerPrinter,
+    slotSpoolsPerPrinter,
   );
 
   // Auto-select first plate when plates load (single or multi-plate)
@@ -925,6 +949,85 @@ export function PrintModal({
     if (billingEnabled && selectedCostCenter == null) {
       showToast(t('printModal.noPrintableCostCenters'), 'error');
       return;
+    }
+
+    // Spool authorization check: prevent printing with restricted spools and ask user to select another spool.
+    if (assignmentMode === 'printer') {
+      const plateJobsForAuth = isMultiPlateSelection
+        ? selectedPlateIds.map((plateId) => ({
+            plateId,
+            reqs: mappingPerPlateReqs.get(plateId)?.filaments ?? [],
+          }))
+        : [{ plateId: selectedPlate, reqs: mappingFilamentReqs?.filaments ?? [] }];
+
+      for (const printerId of selectedPrinters) {
+        const slotMaterials = slotMaterialsPerPrinter.get(printerId);
+        if (!slotMaterials || slotMaterials.size === 0) continue;
+
+        const printerStatusForAuth =
+          selectedPrinters.length > 1
+            ? multiPrinterMapping.printerResults.find((r) => r.printerId === printerId)?.status
+            : printerStatus;
+        const loadedFilaments = buildLoadedFilaments(
+          printerStatusForAuth,
+          slotSpoolsPerPrinter.get(printerId),
+        );
+        const slotLabelByTray = new Map(loadedFilaments.map((f) => [f.globalTrayId, f.label]));
+
+        for (const job of plateJobsForAuth) {
+          const printerMapping = getMappingForPrinter(printerId, job.plateId);
+          for (const req of job.reqs) {
+            if (!req.slot_id || req.slot_id <= 0) continue;
+            const globalTrayId = printerMapping?.[req.slot_id - 1];
+            if (globalTrayId != null && Number.isFinite(globalTrayId) && globalTrayId >= 0) {
+              const slot = slotMaterials.get(globalTrayId);
+              if (slot?.spool && slot.spool.is_authorized === false) {
+                const spoolName =
+                  [slot.spool.brand, slot.spool.material, slot.spool.color_name]
+                    .filter(Boolean)
+                    .join(' ') || `Spool #${slot.spool.spool_id ?? ''}`;
+                const slotLabel = slotLabelByTray.get(globalTrayId) ?? `Tray ${globalTrayId}`;
+                showToast(
+                  t(
+                    'printModal.unauthorizedSpoolError',
+                    'You are not authorized to use spool "{{spool}}" in {{slot}}. Please select another spool.',
+                    { spool: spoolName, slot: slotLabel },
+                  ),
+                  'error',
+                );
+                return;
+              }
+            } else {
+              // Unmapped slot: check if a matching filament type is loaded on the printer
+              // whose bound spool is restricted for this user.
+              const restrictedMatch = loadedFilaments.find(
+                (f) =>
+                  f.isAuthorized === false &&
+                  f.type.toUpperCase() === (req.type || '').toUpperCase(),
+              );
+              if (restrictedMatch) {
+                const slot = slotMaterials.get(restrictedMatch.globalTrayId);
+                const spoolName =
+                  (slot?.spool &&
+                    [slot.spool.brand, slot.spool.material, slot.spool.color_name]
+                      .filter(Boolean)
+                      .join(' ')) ||
+                  restrictedMatch.spoolName ||
+                  restrictedMatch.type;
+                showToast(
+                  t(
+                    'printModal.unauthorizedSpoolError',
+                    'You are not authorized to use spool "{{spool}}" in {{slot}}. Please select another spool.',
+                    { spool: spoolName, slot: restrictedMatch.label },
+                  ),
+                  'error',
+                );
+                return;
+              }
+            }
+          }
+        }
+      }
     }
 
     if (

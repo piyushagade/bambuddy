@@ -1920,6 +1920,24 @@ async def run_migrations(conn):
     timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMP"
     await _safe_execute(conn, f"ALTER TABLE cost_centers ADD COLUMN created_at {timestamp_type}")
     await _safe_execute(conn, f"ALTER TABLE cost_centers ADD COLUMN updated_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN expires_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN expiry_warned_7d_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN expiry_warned_1d_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expires_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expiry_warned_7d_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expiry_warned_1d_at {timestamp_type}")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_print_duration_minutes INTEGER")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_filament_grams_per_job REAL")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_active_queue_items INTEGER")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN requires_approval BOOLEAN DEFAULT 0")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN allowed_hours_start INTEGER")
+    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN allowed_hours_end INTEGER")
+    await _safe_execute(conn, f"ALTER TABLE user_groups ADD COLUMN expires_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN certified_until {timestamp_type}")
+    await _safe_execute(conn, "ALTER TABLE users ADD COLUMN require_safety_certification BOOLEAN DEFAULT 0")
+    await _safe_execute(conn, f"ALTER TABLE printers ADD COLUMN plate_finished_at {timestamp_type}")
+    await _safe_execute(conn, f"ALTER TABLE printers ADD COLUMN pickup_sla_notified_at {timestamp_type}")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN allowed_group_ids TEXT DEFAULT '[]'")
 
     # Backfill empty cost center codes on upgraded databases.
     if is_sqlite():
@@ -5203,6 +5221,14 @@ async def run_migrations(conn):
     # card can tell when something else re-configured the slot (#3216).
     # Nullable: existing rows have none and keep being shown as before.
     await _safe_execute(conn, "ALTER TABLE slot_preset_mappings ADD COLUMN tray_info_idx VARCHAR(32)")
+
+    # Migration: per-spool access control (allowed groups and allowed users).
+    # Empty list means unrestricted.
+    await _safe_execute(conn, "ALTER TABLE spool ADD COLUMN allowed_group_ids JSON DEFAULT '[]'")
+    await _safe_execute(conn, "ALTER TABLE spool ADD COLUMN allowed_user_ids JSON DEFAULT '[]'")
+    async with conn.begin_nested():
+        await conn.execute(text("UPDATE spool SET allowed_group_ids = '[]' WHERE allowed_group_ids IS NULL"))
+        await conn.execute(text("UPDATE spool SET allowed_user_ids = '[]' WHERE allowed_user_ids IS NULL"))
 
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:

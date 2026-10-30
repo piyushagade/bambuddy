@@ -152,6 +152,15 @@ class SpoolBase(BaseModel):
     # but was missing from this schema, so writes were silently dropped (#1291).
     storage_location: str | None = Field(default=None, max_length=255)
     location_id: int | None = Field(default=None, gt=0)
+    allowed_group_ids: list[int] = Field(default_factory=list)
+    allowed_user_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("allowed_group_ids", "allowed_user_ids", mode="before")
+    @classmethod
+    def _normalize_id_lists(cls, v):
+        if v is None:
+            return []
+        return v
 
 
 class SpoolCreate(SpoolBase):
@@ -212,6 +221,8 @@ class SpoolUpdate(BaseModel):
 
     storage_location: str | None = Field(default=None, max_length=255)
     location_id: int | None = Field(default=None, gt=0)
+    allowed_group_ids: list[int] | None = None
+    allowed_user_ids: list[int] | None = None
 
 
 class SpoolKProfileBase(BaseModel):

@@ -7,7 +7,7 @@ import path from 'path'
 
 // Backend port for dev server proxy (default: 8000)
 const backendPort = process.env.BACKEND_PORT || '8000'
-const backendUrl = `http://localhost:${backendPort}`
+const backendUrl = process.env.BACKEND_URL || `http://127.0.0.1:${backendPort}`
 
 // pdf.js keeps these out of its bundle and fetches them at runtime (#2976):
 // CJK text needs the CMaps, non-embedded fonts the standard font files, and

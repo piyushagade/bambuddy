@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON
 
 from backend.app.core.database import Base
 
@@ -72,6 +73,11 @@ class Spool(Base):
     storage_location: Mapped[str | None] = mapped_column(String(255))  # User-editable storage location
     location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), index=True)
 
+    # Access control: which groups (courses/cohorts) and/or individual users are
+    # authorized to print with this spool. Empty lists = unrestricted (all users).
+    allowed_group_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    allowed_user_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+
     last_used: Mapped[datetime | None] = mapped_column(DateTime)  # Last time this spool was used in a print
     encode_time: Mapped[datetime | None] = mapped_column(DateTime)  # When spool was encoded/written to tag
     tag_uid: Mapped[str | None] = mapped_column(String(32))  # RFID tag UID (up to 32 hex chars)
@@ -97,6 +103,33 @@ class Spool(Base):
     # Default loader like every other relationship here — the handful of
     # routes that embed them ask for selectinload() at the query site.
     supplier_links: Mapped[list["SpoolSupplier"]] = relationship(back_populates="spool", cascade="all, delete-orphan")
+
+
+def is_user_authorized_for_spool(spool: "Spool | None", user) -> bool:
+    """Return True if ``user`` is permitted to print with ``spool``.
+
+    Empty ``allowed_group_ids`` and ``allowed_user_ids`` means unrestricted.
+    When either list is non-empty, ``user`` must be an admin, listed in
+    ``allowed_user_ids``, or a member of at least one non-expired group in
+    ``allowed_group_ids``. When auth is disabled (``user is None``), access
+    is unrestricted.
+    """
+    if spool is None or user is None:
+        return True
+    if getattr(user, "is_admin", False):
+        return True
+    allowed_groups = [int(gid) for gid in (spool.allowed_group_ids or []) if gid is not None]
+    allowed_users = [int(uid) for uid in (spool.allowed_user_ids or []) if uid is not None]
+    if not allowed_groups and not allowed_users:
+        return True
+    if getattr(user, "id", None) in allowed_users:
+        return True
+    if allowed_groups:
+        user_groups = getattr(user, "groups", None) or []
+        active_group_ids = {g.id for g in user_groups if not getattr(g, "is_expired", False)}
+        if active_group_ids & set(allowed_groups):
+            return True
+    return False
 
 
 from backend.app.models.location import Location  # noqa: E402

@@ -272,4 +272,14 @@ DEFAULT_TEMPLATES = [
         "title_template": "Your Print Has Been Stopped",
         "body_template": "Hello {username},\n\nYour print job was stopped on {printer}.\n\nFile: {filename}",
     },
+    {
+        "event_type": "user_expiration_warning",
+        "name": "Account Expiration Reminder Email",
+        "title_template": "{app_name} - Access Expires in {time_remaining}",
+        "body_template": (
+            "Hello {username},\n\n"
+            "Your {target_label} access on {app_name} is scheduled to expire on {expires_at}.\n\n"
+            "Please make sure any queued prints are completed and download any 3MF files or logs you need before then."
+        ),
+    },
 ]

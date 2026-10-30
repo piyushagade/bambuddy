@@ -678,6 +678,14 @@ class AppSettings(BaseModel):
         default="",
         description="JSON object with 'order' key containing array of sidebar item IDs (empty = no default)",
     )
+    custom_logo: str = Field(
+        default="",
+        description="Custom sidebar logo filename (empty = default Bambuddy logo)",
+    )
+    document_title: str = Field(
+        default="",
+        description="Custom browser tab / document title (empty = 'Bambuddy')",
+    )
 
 
 class AppSettingsUpdate(BaseModel):
@@ -821,6 +829,7 @@ class AppSettingsUpdate(BaseModel):
     obico_poll_interval: int | None = Field(default=None, ge=5, le=120)
     obico_enabled_printers: str | None = None
     default_sidebar_order: str | None = None
+    document_title: str | None = Field(default=None, max_length=120)
     forecast_global_lead_time_days: int | None = Field(default=None, ge=0)
     location_sensor_poll_interval: int | None = Field(default=None, ge=60, le=3600)
     # Three categories × three short fields is well under 300 characters of

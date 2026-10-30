@@ -50,6 +50,7 @@ class Permission(StrEnum):
     QUEUE_DELETE_OWN = "queue:delete_own"
     QUEUE_DELETE_ALL = "queue:delete_all"
     QUEUE_REORDER = "queue:reorder"
+    QUEUE_APPROVE = "queue:approve"  # Approve/reject jobs held in TA approval queue
 
     # Library
     LIBRARY_READ = "library:read"
@@ -233,6 +234,7 @@ PERMISSION_CATEGORIES = {
         Permission.QUEUE_DELETE_OWN,
         Permission.QUEUE_DELETE_ALL,
         Permission.QUEUE_REORDER,
+        Permission.QUEUE_APPROVE,
     ],
     "Library": [
         Permission.LIBRARY_READ,  # legacy — kept for back-compat with custom roles

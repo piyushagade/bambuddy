@@ -389,7 +389,7 @@ async def resolve_apikey_owner(db: AsyncSession, api_key: APIKey) -> User | None
         return None
     result = await db.execute(select(User).where(User.id == api_key.user_id).options(selectinload(User.groups)))
     owner = result.scalar_one_or_none()
-    if owner is None or not owner.is_active:
+    if owner is None or not owner.is_effectively_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API key owner is deactivated or no longer exists",
@@ -575,7 +575,7 @@ def require_api_key_scope(
                 raise credentials_exception
 
             user = await get_user_by_username(db, username)
-            if user is None or not user.is_active:
+            if user is None or not user.is_effectively_active:
                 raise credentials_exception
             if not _is_token_fresh(iat, user):
                 raise credentials_exception
@@ -1176,7 +1176,7 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
         return None  # LDAP/OIDC users must authenticate via their provider
     if not user.password_hash or not verify_password(password, user.password_hash):
         return None
-    if not user.is_active:
+    if not user.is_effectively_active:
         return None
     return user
 
@@ -1194,7 +1194,7 @@ async def authenticate_user_by_email(db: AsyncSession, email: str, password: str
         return None  # LDAP/OIDC users must authenticate via their provider
     if not user.password_hash or not verify_password(password, user.password_hash):
         return None
-    if not user.is_active:
+    if not user.is_effectively_active:
         return None
     return user
 
@@ -1276,7 +1276,7 @@ async def _user_from_api_key(db: AsyncSession, api_key: APIKey) -> User | None:
         return None
     result = await db.execute(select(User).where(User.id == api_key.user_id))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None or not user.is_effectively_active:
         # CASCADE on user delete should prevent a dangling user_id, but if
         # someone manually deactivates the owner the key shouldn't suddenly
         # gain an "anonymous" identity — drop the request to None so cloud
@@ -1371,7 +1371,7 @@ async def get_current_user_optional(
         if await is_jti_revoked(jti, db):
             raise _unauthorized  # I6: revoked token → 401, not anonymous
         user = await get_user_by_username(db, username)
-        if user is None or not user.is_active:
+        if user is None or not user.is_effectively_active:
             raise _unauthorized
         if not _is_token_fresh(iat, user):
             raise _unauthorized
@@ -1409,10 +1409,10 @@ async def get_current_user(
         user = await get_user_by_username(db, username)
         if user is None:
             raise credentials_exception
-        if not user.is_active:
+        if not user.is_active or user.is_expired:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is disabled",
+                detail="User account has expired" if user.is_expired else "User account is disabled",
             )
         if not _is_token_fresh(iat, user):
             raise credentials_exception
@@ -1495,7 +1495,7 @@ async def require_auth_if_enabled(
                 )
 
             user = await get_user_by_username(db, username)
-            if user is None or not user.is_active:
+            if user is None or not user.is_effectively_active:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Could not validate credentials",
@@ -1604,7 +1604,7 @@ def require_admin_if_auth_enabled():
                 )
 
             user = await get_user_by_username(db, username)
-            if user is None or not user.is_active:
+            if user is None or not user.is_effectively_active:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Could not validate credentials",
@@ -1926,7 +1926,7 @@ def require_permission(*permissions: str | Permission):
                 raise credentials_exception
 
             user = await get_user_by_username(db, username)
-            if user is None or not user.is_active:
+            if user is None or not user.is_effectively_active:
                 raise credentials_exception
             if not _is_token_fresh(iat, user):
                 raise credentials_exception
@@ -2021,7 +2021,7 @@ def require_permission_if_auth_enabled(*permissions: str | Permission):
                     )
 
                 user = await get_user_by_username(db, username)
-                if user is None or not user.is_active:
+                if user is None or not user.is_effectively_active:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Could not validate credentials",
@@ -2152,7 +2152,7 @@ def require_any_permission_if_auth_enabled(*permissions: str | Permission):
                     )
 
                 user = await get_user_by_username(db, username)
-                if user is None or not user.is_active:
+                if user is None or not user.is_effectively_active:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Could not validate credentials",
@@ -2360,7 +2360,7 @@ def require_ownership_permission(
                     )
 
                 user = await get_user_by_username(db, username)
-                if user is None or not user.is_active:
+                if user is None or not user.is_effectively_active:
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Could not validate credentials",
@@ -2412,7 +2412,7 @@ async def _user_from_media_token(token: str) -> User:
         raise unauthorized
     async with async_session() as db:
         user = await get_user_by_username(db, username)
-    if user is None or not user.is_active:
+    if user is None or not user.is_effectively_active:
         raise unauthorized
     return user
 

@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.routes.library_variants import normalize_model_name, resolve_variant_model
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, require_ownership_permission
+from backend.app.core.auth import (
+    RequireAnyPermissionIfAuthEnabled,
+    RequirePermissionIfAuthEnabled,
+    require_ownership_permission,
+)
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
@@ -42,7 +46,10 @@ from backend.app.schemas.print_queue import (
     QueueVariantCreate,
     QueueVariantSummary,
 )
-from backend.app.services.filament_deficit import compute_deficit_for_queue_item
+from backend.app.services.filament_deficit import (
+    compute_deficit_for_queue_item,
+    validate_spool_authorization_for_mapping,
+)
 from backend.app.services.filament_requirements import overrides_for_plate
 from backend.app.services.finance_budget import release_budget_reservation, validate_print_budget
 from backend.app.services.notification_service import notification_service
@@ -853,10 +860,29 @@ async def add_to_queue(
         raise HTTPException(400, "Cannot specify both printer_id and target_model")
 
     # Validate printer exists (if assigned)
+    target_printer: Printer | None = None
     if data.printer_id is not None:
         result = await db.execute(select(Printer).where(Printer.id == data.printer_id))
-        if not result.scalar_one_or_none():
+        target_printer = result.scalar_one_or_none()
+        if not target_printer:
             raise HTTPException(400, "Printer not found")
+
+    # Phase 4: Safety Certification & Printer-to-Group Gatekeeping
+    if current_user is not None and not current_user.is_admin:
+        if current_user.is_certification_expired:
+            raise HTTPException(
+                403,
+                "Safety certification is required or has expired. Please renew your lab safety certification before queueing prints.",
+            )
+        user_active_group_ids = {
+            g.id for g in current_user.groups if not getattr(g, "is_expired", False)
+        }
+        if target_printer is not None and target_printer.allowed_group_ids:
+            if not (user_active_group_ids & set(target_printer.allowed_group_ids)):
+                raise HTTPException(
+                    403,
+                    f"Printer '{target_printer.name}' is restricted to authorized course/research groups.",
+                )
 
     # Validate target_model has active printers. Skipped for cross-model items:
     # target_model there is just the first candidate, and _resolve_queue_variants
@@ -1090,6 +1116,96 @@ async def add_to_queue(
         quantity=quantity,
     )
 
+    # Phase 5: Per-Group Quotas, Operating Hours & TA Approval Queue
+    initial_status = "pending"
+    if current_user is not None and not current_user.is_admin:
+        active_groups = [g for g in current_user.groups if not getattr(g, "is_expired", False)]
+
+        # 1. Print duration quota (most permissive limit across the user's active groups)
+        duration_limits = [
+            g.max_print_duration_minutes for g in active_groups if g.max_print_duration_minutes is not None
+        ]
+        if duration_limits and cached_print_time:
+            max_allowed_minutes = max(duration_limits)
+            job_minutes = cached_print_time / 60.0
+            if job_minutes > max_allowed_minutes:
+                raise HTTPException(
+                    400,
+                    f"Print duration ({int(job_minutes)} min) exceeds your group limit of {max_allowed_minutes} min.",
+                )
+
+        # 2. Filament grams per job quota
+        filament_limits = [
+            g.max_filament_grams_per_job for g in active_groups if g.max_filament_grams_per_job is not None
+        ]
+        if filament_limits:
+            job_grams = None
+            if archive and archive.filament_used_grams is not None:
+                job_grams = float(archive.filament_used_grams)
+            elif library_file and library_file.file_metadata:
+                raw_g = library_file.file_metadata.get("filament_used_grams")
+                if raw_g is not None:
+                    try:
+                        job_grams = float(raw_g)
+                    except (TypeError, ValueError):
+                        job_grams = None
+            max_allowed_grams = max(filament_limits)
+            if job_grams is not None and job_grams > max_allowed_grams:
+                raise HTTPException(
+                    400,
+                    f"Job filament usage ({job_grams:.1f}g) exceeds your group limit of {max_allowed_grams:.1f}g.",
+                )
+
+        # 3. Active queue concurrency quota
+        concurrency_limits = [
+            g.max_active_queue_items for g in active_groups if g.max_active_queue_items is not None
+        ]
+        if concurrency_limits:
+            max_allowed_active = max(concurrency_limits)
+            active_count_res = await db.execute(
+                select(func.count(PrintQueueItem.id)).where(
+                    PrintQueueItem.created_by_id == current_user.id,
+                    PrintQueueItem.status.in_(("pending", "pending_approval", "printing")),
+                )
+            )
+            current_active = int(active_count_res.scalar() or 0)
+            if current_active + quantity > max_allowed_active:
+                raise HTTPException(
+                    400,
+                    f"Queue limit exceeded: you have {current_active} active job(s) and your group allows at most {max_allowed_active}.",
+                )
+
+        # 4. Operating hours window check
+        hour_windows = [
+            (g.allowed_hours_start, g.allowed_hours_end)
+            for g in active_groups
+            if g.allowed_hours_start is not None and g.allowed_hours_end is not None
+        ]
+        if hour_windows:
+            now_hour = datetime.now(timezone.utc).hour
+            in_any_window = False
+            for start_h, end_h in hour_windows:
+                if start_h <= end_h:
+                    if start_h <= now_hour < end_h:
+                        in_any_window = True
+                else:
+                    # Overnight window (e.g. 20:00 -> 08:00)
+                    if now_hour >= start_h or now_hour < end_h:
+                        in_any_window = True
+            if not in_any_window:
+                start_h, end_h = hour_windows[0]
+                raise HTTPException(
+                    400,
+                    f"Your group is only permitted to queue prints between {start_h:02d}:00 and {end_h:02d}:00 UTC.",
+                )
+
+        # 5. TA Approval Gate ("Hold for Review")
+        if (
+            any(bool(g.requires_approval) for g in active_groups)
+            and not current_user.has_permission(Permission.QUEUE_APPROVE.value)
+        ):
+            initial_status = "pending_approval"
+
     ams_mapping_json = json.dumps(data.ams_mapping) if data.ams_mapping else None
     # Same Text-as-JSON convention for the rack-position pick (#1784).
     nozzle_rack_choice_json = json.dumps(data.nozzle_rack_choice) if data.nozzle_rack_choice else None
@@ -1138,6 +1254,9 @@ async def add_to_queue(
             and saved["mapping"]
         ):
             ams_mapping_json = json.dumps(saved["mapping"])
+
+    await validate_spool_authorization_for_mapping(db, data.printer_id, ams_mapping_json, current_user)
+
     items = []
     for i in range(quantity):
         item = PrintQueueItem(
@@ -1172,7 +1291,7 @@ async def add_to_queue(
             cleanup_library_after_dispatch=data.cleanup_library_after_dispatch,
             project_id=data.project_id,
             position=start_position + i,
-            status="pending",
+            status=initial_status,
             created_by_id=current_user.id if current_user else None,
             batch_id=batch_id,
             print_time_seconds=cached_print_time,
@@ -1303,6 +1422,12 @@ async def bulk_update_queue_items(
             continue
 
         item_update_data = update_data.copy()
+        await validate_spool_authorization_for_mapping(
+            db,
+            item_update_data.get("printer_id", item.printer_id),
+            item.ams_mapping,
+            user,
+        )
         if validates_billing_fields:
             trusted_estimated_cost = await _trusted_item_estimated_cost(
                 db,
@@ -2025,6 +2150,13 @@ async def update_queue_item(
             json.dumps(update_data["nozzle_rack_choice"]) if update_data["nozzle_rack_choice"] else None
         )
 
+    await validate_spool_authorization_for_mapping(
+        db,
+        update_data.get("printer_id", item.printer_id),
+        update_data.get("ams_mapping", item.ams_mapping),
+        user,
+    )
+
     trusted_estimated_cost = await _trusted_item_estimated_cost(
         db,
         item,
@@ -2413,6 +2545,8 @@ async def start_queue_item(
     if item.status != "pending":
         raise HTTPException(400, f"Can only start pending items, current status: '{item.status}'")
 
+    await validate_spool_authorization_for_mapping(db, item.printer_id, item.ams_mapping, user)
+
     item.estimated_cost = await _trusted_item_estimated_cost(
         db,
         item,
@@ -2468,4 +2602,86 @@ async def start_queue_item(
         item_id,
         skip_filament_check,
     )
+    return _enrich_response(item)
+
+
+@router.post("/{item_id}/approve", response_model=PrintQueueItemResponse)
+async def approve_queue_item(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = RequireAnyPermissionIfAuthEnabled(
+        Permission.QUEUE_APPROVE, Permission.QUEUE_UPDATE_ALL
+    ),
+):
+    """Approve a queue item held in `pending_approval` status so the scheduler can dispatch it."""
+    result = await db.execute(
+        select(PrintQueueItem)
+        .options(
+            selectinload(PrintQueueItem.archive),
+            selectinload(PrintQueueItem.printer),
+            selectinload(PrintQueueItem.library_file),
+            selectinload(PrintQueueItem.created_by),
+            selectinload(PrintQueueItem.batch),
+            selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
+        )
+        .where(PrintQueueItem.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Queue item not found")
+    if item.status != "pending_approval":
+        raise HTTPException(400, f"Queue item is not awaiting approval (status='{item.status}')")
+
+    item.status = "pending"
+    item.error_message = None
+    await db.commit()
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    logger.info(
+        "TA/Admin %s approved queue item %d",
+        current_user.username if current_user else "anonymous",
+        item.id,
+    )
+    return _enrich_response(item)
+
+
+@router.post("/{item_id}/reject", response_model=PrintQueueItemResponse)
+async def reject_queue_item(
+    item_id: int,
+    reason: str = Query(default="Rejected during TA review", max_length=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = RequireAnyPermissionIfAuthEnabled(
+        Permission.QUEUE_APPROVE, Permission.QUEUE_UPDATE_ALL
+    ),
+):
+    """Reject a queue item held in `pending_approval` status and release its budget reservation."""
+    result = await db.execute(
+        select(PrintQueueItem)
+        .options(
+            selectinload(PrintQueueItem.archive),
+            selectinload(PrintQueueItem.printer),
+            selectinload(PrintQueueItem.library_file),
+            selectinload(PrintQueueItem.created_by),
+            selectinload(PrintQueueItem.batch),
+            selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
+        )
+        .where(PrintQueueItem.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Queue item not found")
+    if item.status != "pending_approval":
+        raise HTTPException(400, f"Queue item is not awaiting approval (status='{item.status}')")
+
+    item.status = "cancelled"
+    item.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    reviewer = current_user.username if current_user else "TA"
+    item.error_message = f"Rejected by {reviewer}: {reason}"
+    await release_budget_reservation(
+        db,
+        source_type="queue_item",
+        source_id=item.id,
+    )
+    await db.commit()
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    logger.info("TA/Admin %s rejected queue item %d: %s", reviewer, item.id, reason)
     return _enrich_response(item)
