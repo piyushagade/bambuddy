@@ -102,86 +102,98 @@ export function PrintOptionsPanel({
         )}
       </button>
       {isExpanded && (
-        <div className="mt-2 bg-bambu-dark rounded-lg p-3 space-y-2">
-          {visibleOptions.map(({ key, label, desc, tristate }) =>
-            tristate ? (
-              <div key={key} className="flex items-center justify-between gap-3">
-                <div>
-                  <span className="text-sm text-white">{label}</span>
-                  <p className="text-xs text-bambu-gray">{desc}</p>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  {CALIBRATION_MODES.map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => handleCalibrationMode(key, mode)}
-                      className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                        options[key as 'bed_levelling'] === mode
-                          ? CALIBRATION_MODE_ACTIVE[mode]
-                          : CALIBRATION_MODE_INACTIVE
-                      }`}
-                    >
-                      {t(`settings.calibrationMode_${mode}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div key={key} className="flex items-center justify-between gap-3">
-                <div>
-                  <span className="text-sm text-white">{label}</span>
-                  <p className="text-xs text-bambu-gray">{desc}</p>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  {BOOLEAN_MODES.map((mode) => {
-                    const active = (options[key as 'vibration_cali'] ? 'on' : 'off') === mode;
-                    return (
+        <div className="mt-2 bg-bambu-dark rounded-lg p-3 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            {visibleOptions.map(({ key, label, desc, tristate }) =>
+              tristate ? (
+                <div
+                  key={key}
+                  className="flex flex-col justify-between gap-2 rounded-md border border-bambu-dark-tertiary/60 bg-bambu-dark-secondary/40 p-2.5"
+                >
+                  <div>
+                    <span className="text-sm font-medium text-white block">{label}</span>
+                    <p className="text-xs text-bambu-gray leading-snug">{desc}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {CALIBRATION_MODES.map((mode) => (
                       <button
                         key={mode}
                         type="button"
-                        onClick={() => handleToggle(key, mode === 'on')}
+                        onClick={() => handleCalibrationMode(key, mode)}
                         className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                          active ? CALIBRATION_MODE_ACTIVE[mode] : CALIBRATION_MODE_INACTIVE
+                          options[key as 'bed_levelling'] === mode
+                            ? CALIBRATION_MODE_ACTIVE[mode]
+                            : CALIBRATION_MODE_INACTIVE
                         }`}
                       >
                         {t(`settings.calibrationMode_${mode}`)}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ),
-          )}
+              ) : (
+                <div
+                  key={key}
+                  className="flex flex-col justify-between gap-2 rounded-md border border-bambu-dark-tertiary/60 bg-bambu-dark-secondary/40 p-2.5"
+                >
+                  <div>
+                    <span className="text-sm font-medium text-white block">{label}</span>
+                    <p className="text-xs text-bambu-gray leading-snug">{desc}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {BOOLEAN_MODES.map((mode) => {
+                      const active = (options[key as 'vibration_cali'] ? 'on' : 'off') === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => handleToggle(key, mode === 'on')}
+                          className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                            active ? CALIBRATION_MODE_ACTIVE[mode] : CALIBRATION_MODE_INACTIVE
+                          }`}
+                        >
+                          {t(`settings.calibrationMode_${mode}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
 
           {/* Preheat / heat-soak per-item override (#1468). Defaults to
               'inherit' which means the global Settings → Workflow toggle
               decides. Forcing 'on' or 'off' overrides per-print; the chamber
               target override (optional °C input, visible when not 'off')
               bypasses the per-filament-type derivation. */}
-          <div className="pt-2 mt-1 border-t border-bambu-dark-tertiary/60">
-            <div className="flex items-center gap-2 mb-1.5">
-              <Flame className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span className="text-sm text-white">{t('settings.preheatTitle', 'Preheat & Heat Soak')}</span>
-            </div>
-            <p className="text-xs text-bambu-gray mb-2">
-              {t('settings.preheatPerItemDesc', 'Heat the bed and chamber before this print starts. Defaults to the global Settings → Workflow toggle.')}
-            </p>
-            <div className="flex gap-1.5 mb-2">
-              {(['inherit', 'on', 'off'] as PreheatOverride[]).map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => handlePreheatOverride(opt)}
-                  className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
-                    options.preheat_override === opt
-                      ? 'bg-bambu-green text-white'
-                      : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white'
-                  }`}
-                >
-                  {t(`settings.preheatOverride_${opt}`, opt === 'inherit' ? 'Inherit' : opt === 'on' ? 'On' : 'Off')}
-                </button>
-              ))}
+          <div className="pt-2.5 border-t border-bambu-dark-tertiary/60 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <Flame className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-sm font-medium text-white">{t('settings.preheatTitle', 'Preheat & Heat Soak')}</span>
+                </div>
+                <p className="text-xs text-bambu-gray">
+                  {t('settings.preheatPerItemDesc', 'Heat the bed and chamber before this print starts. Defaults to the global Settings → Workflow toggle.')}
+                </p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                {(['inherit', 'on', 'off'] as PreheatOverride[]).map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => handlePreheatOverride(opt)}
+                    className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                      options.preheat_override === opt
+                        ? 'bg-bambu-green text-white'
+                        : 'bg-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                    }`}
+                  >
+                    {t(`settings.preheatOverride_${opt}`, opt === 'inherit' ? 'Inherit' : opt === 'on' ? 'On' : 'Off')}
+                  </button>
+                ))}
+              </div>
             </div>
             {options.preheat_override !== 'off' && (
               <div className="flex items-center gap-2">
@@ -206,7 +218,7 @@ export function PrintOptionsPanel({
                 skips the stage. Nothing in the field said so, and a user
                 reaching for 0 to switch preheat off got the delay instead. */}
             {options.preheat_override !== 'off' && (
-              <p className="text-[11px] text-bambu-gray mt-1">
+              <p className="text-[11px] text-bambu-gray">
                 {t('settings.preheatTargetOverrideHelp', '0 heats the bed and runs the soak without the chamber. Leave blank and a print with no chamber requirement skips preheat entirely.')}
               </p>
             )}
