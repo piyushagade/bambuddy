@@ -463,7 +463,7 @@ export function UsersPage() {
             className="w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader className="flex-shrink-0">
+            <CardHeader className="p-4 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <UsersIcon className="w-5 h-5 text-bambu-green" />
@@ -482,7 +482,7 @@ export function UsersPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="overflow-y-auto flex-1">
+            <CardContent className="p-4 overflow-y-auto flex-1">
               {ldapStatus?.ldap_enabled && (
                 <div
                   className="mb-4 flex items-center gap-1 p-1 bg-bambu-dark-secondary rounded-lg"
@@ -611,7 +611,7 @@ export function UsersPage() {
               </div>
               )}
             </CardContent>
-            <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+            <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -677,7 +677,7 @@ export function UsersPage() {
             className="w-full max-w-md max-h-[90vh] flex flex-col"
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <CardHeader className="flex-shrink-0">
+            <CardHeader className="p-4 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Edit2 className="w-5 h-5 text-bambu-green" />
@@ -692,7 +692,7 @@ export function UsersPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="overflow-y-auto flex-1">
+            <CardContent className="p-4 overflow-y-auto flex-1">
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
@@ -789,7 +789,7 @@ export function UsersPage() {
                 </div>
               </div>
             </CardContent>
-            <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+            <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
               <Button
                 variant="secondary"
                 onClick={closeEditModal}

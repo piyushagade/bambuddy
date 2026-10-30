@@ -73,7 +73,7 @@ export function CreateUserAdvancedAuthModal({
         className="w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader className="flex-shrink-0">
+        <CardHeader className="p-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export function CreateUserAdvancedAuthModal({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="overflow-y-auto flex-1">
+        <CardContent className="p-4 overflow-y-auto flex-1">
           {ldapEnabled && (
             <div
               className="mb-4 flex items-center gap-1 p-1 bg-bambu-dark-secondary rounded-lg"
@@ -214,7 +214,7 @@ export function CreateUserAdvancedAuthModal({
 
         {/* Action Buttons — Cancel always shown; Create only on local tab
             (LDAP picker has its own submit). */}
-        <div className="px-6 py-4 border-t border-bambu-dark-tertiary flex justify-end gap-3 flex-shrink-0">
+        <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
           <Button
             variant="secondary"
             onClick={onClose}

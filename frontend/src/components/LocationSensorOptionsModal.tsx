@@ -294,20 +294,20 @@ export function LocationSensorOptionsModal({ onClose }: Props) {
         className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-bambu-green/20 text-bambu-green">
               <Settings2 className="w-5 h-5" />
             </div>
             <h2 className="text-lg font-semibold text-white">{t('locationHaSensors.options.title')}</h2>
           </div>
-          <button onClick={onClose} className="text-bambu-gray hover:text-white transition-colors">
+          <button onClick={onClose} className="p-1 text-bambu-gray hover:text-white rounded transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
-          <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">{t('locationHaSensors.options.description')}</p>
 
           <div className="space-y-3">
@@ -419,7 +419,7 @@ export function LocationSensorOptionsModal({ onClose }: Props) {
 
           </div>
 
-          <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <div className="flex items-center justify-between gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             <Button type="button" variant="secondary" onClick={() => setShowResetConfirm(true)}>
               <RotateCcw className="w-4 h-4" />
               {t('locationHaSensors.options.reset')}

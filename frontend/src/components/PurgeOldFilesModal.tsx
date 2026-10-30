@@ -62,9 +62,9 @@ export function PurgeOldFilesModal({ onClose }: PurgeOldFilesModalProps) {
   const canConfirm = count > 0 && !purgeMutation.isPending;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Trash2 className="w-5 h-5" />
             {t('libraryPurge.title')}
@@ -160,7 +160,7 @@ export function PurgeOldFilesModal({ onClose }: PurgeOldFilesModalProps) {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
           <Button variant="secondary" onClick={onClose} disabled={purgeMutation.isPending}>
             {t('common.cancel')}
           </Button>

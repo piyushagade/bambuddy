@@ -1730,7 +1730,7 @@ export function PrintModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={isSubmitting ? undefined : onClose}
     >
       {/* 4xl rather than the 2xl this was: the filament rows carry the most
@@ -1740,7 +1740,7 @@ export function PrintModal({
           "Bamb..." (#1784). 4xl is 896px, so it still fits a 1024-wide laptop
           with the surrounding padding, and `w-full` keeps it fluid below that. */}
       <Card
-        className="w-full max-w-4xl max-h-[90vh] flex flex-col"
+        className="w-full max-w-4xl shadow-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <CardContent className="p-0 flex flex-col flex-1 min-h-0">
@@ -1750,9 +1750,14 @@ export function PrintModal({
               <TitleIcon className="w-5 h-5 text-bambu-green" />
               <h2 className="text-lg font-semibold text-white">{modalConfig.title}</h2>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose} disabled={isSubmitting}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="p-1 text-bambu-gray hover:text-white rounded transition-colors disabled:opacity-50"
+            >
               <X className="w-5 h-5" />
-            </Button>
+            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">

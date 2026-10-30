@@ -38,9 +38,10 @@ export function Card({ children, className = '', onClick, onContextMenu, ...rest
 export function CardHeader({ children, className = '', dense }: CardSectionProps) {
   const ctxDense = useContext(CardDensityContext) === 'dense';
   const isDense = dense ?? ctxDense;
-  const padding = isDense ? 'px-4 py-2.5' : 'px-6 py-4';
+  const hasCustomPadding = /\bp[xytrbl]?-\d+\b/.test(className);
+  const padding = hasCustomPadding ? '' : isDense ? 'px-4 py-2.5' : 'px-6 py-4';
   return (
-    <div className={`${padding} border-b border-bambu-dark-tertiary ${className}`}>
+    <div className={`${padding} border-b border-bambu-dark-tertiary ${className}`.trim()}>
       {children}
     </div>
   );
@@ -49,6 +50,7 @@ export function CardHeader({ children, className = '', dense }: CardSectionProps
 export function CardContent({ children, className = '', dense }: CardSectionProps) {
   const ctxDense = useContext(CardDensityContext) === 'dense';
   const isDense = dense ?? ctxDense;
-  const padding = isDense ? 'p-4' : 'p-6';
-  return <div className={`${padding} ${className}`}>{children}</div>;
+  const hasCustomPadding = /\bp-\d+\b/.test(className);
+  const padding = hasCustomPadding ? '' : isDense ? 'p-4' : 'p-6';
+  return <div className={`${padding} ${className}`.trim()}>{children}</div>;
 }

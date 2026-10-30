@@ -346,7 +346,7 @@ export function LocationHASensorModal({ sensor, locations, onClose }: Props) {
         className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-full bg-bambu-green/20 text-bambu-green">
               <Gauge className="w-5 h-5" />
@@ -358,14 +358,14 @@ export function LocationHASensorModal({ sensor, locations, onClose }: Props) {
           <button
             onClick={onClose}
             disabled={isPending}
-            className="text-bambu-gray hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-1 text-bambu-gray hover:text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
@@ -571,7 +571,7 @@ export function LocationHASensorModal({ sensor, locations, onClose }: Props) {
 
           </div>
 
-          <div className="flex items-center justify-between px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <div className="flex items-center justify-between p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             {isEditing ? (
               <Button type="button" variant="danger" onClick={() => deleteMutation.mutate()} disabled={isPending}>
                 {t('common.delete')}

@@ -366,13 +366,13 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">
             {isEditing ? t('notifications.editTitle') : t('notifications.addTitle')}
           </h2>
           <button
             onClick={onClose}
-            className="text-bambu-gray hover:text-white transition-colors"
+            className="p-1 text-bambu-gray hover:text-white rounded transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -380,7 +380,7 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/50 rounded-lg text-sm text-red-700 dark:text-red-400">
               {error}
@@ -834,7 +834,7 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+          <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
             <Button
               type="button"
               variant="secondary"

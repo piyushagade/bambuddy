@@ -63,7 +63,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
         className="w-full max-w-xl max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader className="flex-shrink-0">
+        <CardHeader className="p-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-bambu-green" />
@@ -76,7 +76,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 overflow-y-auto flex-1">
+        <CardContent className="p-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">
             Upload a <strong className="text-white">UF Class Roll CSV</strong> (
             <code className="text-white">UFID,Last Name,First Name,Email,Subject,Catalog Number,Term,...</code>
@@ -158,7 +158,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
           )}
 
         </CardContent>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
@@ -268,7 +268,7 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
         className="w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader className="flex-shrink-0">
+        <CardHeader className="p-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Link2 className="w-5 h-5 text-bambu-green" />
@@ -281,7 +281,7 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 overflow-y-auto flex-1">
+        <CardContent className="p-4 space-y-4 overflow-y-auto flex-1">
           <div className="p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary space-y-3">
             <h3 className="text-sm font-medium text-white">Create Course / Cohort Invite Code</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -476,7 +476,7 @@ export function EnrollmentInvitesModal({ groups, onClose }: EnrollmentInvitesMod
             )}
           </div>
         </CardContent>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
@@ -550,7 +550,7 @@ export function RedeemInviteModal({
         className="w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <CardHeader className="flex-shrink-0">
+        <CardHeader className="p-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Link2 className="w-5 h-5 text-bambu-green" />
@@ -563,7 +563,7 @@ export function RedeemInviteModal({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 overflow-y-auto flex-1">
+        <CardContent className="p-4 space-y-4 overflow-y-auto flex-1">
           <p className="text-xs text-bambu-gray">
             {isAuthenticated
               ? 'Enter the course invite code provided by your instructor or TA to join the course group and extend your semester access.'
@@ -627,7 +627,7 @@ export function RedeemInviteModal({
             </>
           )}
         </CardContent>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-bambu-dark-tertiary flex-shrink-0">
+        <div className="flex justify-end gap-2 p-4 border-t border-bambu-dark-tertiary flex-shrink-0">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
