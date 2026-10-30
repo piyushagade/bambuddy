@@ -971,26 +971,6 @@ function FolderTreeItem({ folder, selectedFolderId, onSelect, onDelete, onLink, 
         {folder.file_count > 0 && (
           <span className="flex-shrink-0 text-xs text-bambu-gray">{folder.file_count}</span>
         )}
-        {/* Quick permissions button for owners & admins */}
-        {folder.can_manage && onPermissions && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onPermissions(folder); }}
-            className="flex-shrink-0 p-1 rounded hover:bg-bambu-dark-tertiary"
-            title="Manage folder access & permissions"
-          >
-            <Shield className="w-3.5 h-3.5 text-bambu-gray hover:text-bambu-green" />
-          </button>
-        )}
-        {/* Quick link button - visible for unlinked folders that user can manage */}
-        {!isLinked && !isExternal && (folder.can_manage || hasPermission('library:update_all')) && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onLink(folder); }}
-            className="flex-shrink-0 p-1 rounded hover:bg-bambu-dark-tertiary"
-            title={t('fileManager.linkToProjectOrArchive')}
-          >
-            <Link2 className="w-3.5 h-3.5 text-bambu-gray hover:text-bambu-green" />
-          </button>
-        )}
         <FolderActionsMenu
           folder={folder}
           onDelete={onDelete}
