@@ -366,10 +366,10 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
     usernames = {u["username"] for u in body["users"]}
     assert usernames == {"davidarceozamora", "sareasmayorga"}
 
-    # Verify group ABE4042C-Fall2026 was auto-created and assigned
+    # Verify group 'F26 - ABE4042C' was auto-created and assigned
     first_user = next(u for u in body["users"] if u["username"] == "davidarceozamora")
     group_names = [g["name"] for g in first_user["groups"]]
-    assert "ABE4042C-Fall2026" in group_names
+    assert "F26 - ABE4042C" in group_names
     assert first_user["expires_at"].startswith("2026-12-15T23:59:00")
 
     # Verify student can log in with email prefix as username and UFID as password

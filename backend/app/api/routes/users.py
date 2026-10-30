@@ -343,6 +343,8 @@ async def import_roster_csv(
                 header_map["catalog_number"] = idx
             elif col == "term":
                 header_map["term"] = idx
+            elif col in ("session", "subterm", "summer term"):
+                header_map["session"] = idx
             elif col in ("class number", "class_number"):
                 header_map["class_number"] = idx
             elif col == "status":
@@ -351,18 +353,45 @@ async def import_roster_csv(
     else:
         data_rows = rows
 
-    def _decode_uf_term(term_code: str) -> tuple[str | None, datetime | None]:
-        """Decode UF 4-digit Peoplesoft term code (e.g. '2268' -> ('Fall2026', 2026-12-15 23:59:00))."""
-        t = term_code.strip()
-        if len(t) == 4 and t.isdigit() and t.startswith("2"):
-            year = 2000 + int(t[1:3])
+    def _decode_uf_term(term_code: str, session_code: str = "") -> tuple[str | None, datetime | None]:
+        """Decode UF term code into ('SYY', expiry_dt) where S is F, S, SA, SB, or SC.
+
+        Examples:
+        - '2268' -> ('F26', 2026-12-15 23:59:00)
+        - '2271' -> ('S27', 2027-05-05 23:59:00)
+        - '2265' / '2265C' -> ('SC26', 2026-08-10 23:59:00)
+        - '2265A' or ('2265', 'A') -> ('SA26', 2026-06-25 23:59:00)
+        - '2265B' or ('2265', 'B') -> ('SB26', 2026-08-10 23:59:00)
+        """
+        t = term_code.strip().upper()
+        sess = session_code.strip().upper()
+        if len(t) >= 4 and t[:4].isdigit() and t.startswith("2"):
+            yy = t[1:3]
+            year = 2000 + int(yy)
             sem = t[3]
-            if sem == "1":
-                return f"Spring{year}", datetime(year, 5, 5, 23, 59, 0)
-            if sem in ("5", "6"):
-                return f"Summer{year}", datetime(year, 8, 10, 23, 59, 0)
+            suffix = t[4:] or sess
             if sem == "8":
-                return f"Fall{year}", datetime(year, 12, 15, 23, 59, 0)
+                return f"F{yy}", datetime(year, 12, 15, 23, 59, 0)
+            if sem == "1":
+                return f"S{yy}", datetime(year, 5, 5, 23, 59, 0)
+            if sem in ("5", "6", "7"):
+                if "A" in suffix or sem == "6":
+                    return f"SA{yy}", datetime(year, 6, 25, 23, 59, 0)
+                if "B" in suffix or sem == "7":
+                    return f"SB{yy}", datetime(year, 8, 10, 23, 59, 0)
+                return f"SC{yy}", datetime(year, 8, 10, 23, 59, 0)
+        # Also support direct shorthand ('F26', 'S27', 'SA26', 'SB26', 'SC26')
+        for prefix in ("SA", "SB", "SC", "F", "S"):
+            if t.startswith(prefix) and len(t) == len(prefix) + 2 and t[len(prefix):].isdigit():
+                yy = t[len(prefix):]
+                year = 2000 + int(yy)
+                if prefix == "F":
+                    return f"F{yy}", datetime(year, 12, 15, 23, 59, 0)
+                if prefix == "S":
+                    return f"S{yy}", datetime(year, 5, 5, 23, 59, 0)
+                if prefix == "SA":
+                    return f"SA{yy}", datetime(year, 6, 25, 23, 59, 0)
+                return f"{prefix}{yy}", datetime(year, 8, 10, 23, 59, 0)
         return None, None
 
     created_count = 0
@@ -386,6 +415,7 @@ async def import_roster_csv(
             subject_str = cells[header_map["subject"]] if "subject" in header_map and header_map["subject"] < len(cells) else ""
             catalog_str = cells[header_map["catalog_number"]] if "catalog_number" in header_map and header_map["catalog_number"] < len(cells) else ""
             term_str = cells[header_map["term"]] if "term" in header_map and header_map["term"] < len(cells) else ""
+            session_str = cells[header_map["session"]] if "session" in header_map and header_map["session"] < len(cells) else ""
             status_str = cells[header_map["status"]] if "status" in header_map and header_map["status"] < len(cells) else ""
 
             # Skip dropped/withdrawn students in UF Class Roll exports
@@ -393,11 +423,11 @@ async def import_roster_csv(
                 skipped_count += 1
                 continue
 
-            # Synthesize course group, cost center, and semester expiration from UF Class Roll columns
-            term_label, term_exp_dt = _decode_uf_term(term_str) if term_str else (None, None)
+            # Synthesize course group ('SYY - Course'), cost center, and semester expiration from UF Class Roll columns
+            term_label, term_exp_dt = _decode_uf_term(term_str, session_str) if term_str else (None, None)
             course_code = f"{subject_str}{catalog_str}".replace(" ", "") if (subject_str or catalog_str) else ""
             if not group_str and payload.default_group_id is None and course_code:
-                group_str = f"{course_code}-{term_label}" if term_label else course_code
+                group_str = f"{term_label} - {course_code}" if term_label else course_code
             if not cc_str and payload.default_cost_center_id is None and course_code:
                 cc_str = course_code
         else:
@@ -436,6 +466,23 @@ async def import_roster_csv(
         target_group: Group | None = None
         if group_str:
             target_group = groups_by_name.get(group_str.lower())
+            # Upgrade legacy '<Course>-<Semester><YYYY>' group name in-place if present
+            if target_group is None and " - " in group_str:
+                syy_part, course_part = [p.strip() for p in group_str.split(" - ", 1)]
+                legacy_candidates = []
+                if syy_part.startswith("F") and len(syy_part) == 3:
+                    legacy_candidates.append(f"{course_part}-Fall20{syy_part[1:]}")
+                elif syy_part.startswith("S") and len(syy_part) == 3:
+                    legacy_candidates.append(f"{course_part}-Spring20{syy_part[1:]}")
+                elif syy_part.startswith(("SA", "SB", "SC")) and len(syy_part) == 4:
+                    legacy_candidates.append(f"{course_part}-Summer20{syy_part[2:]}")
+                for leg in legacy_candidates:
+                    found_leg = groups_by_name.pop(leg.lower(), None)
+                    if found_leg is not None:
+                        found_leg.name = group_str
+                        groups_by_name[group_str.lower()] = found_leg
+                        target_group = found_leg
+                        break
             if target_group is None:
                 # Auto-create cohort group with standard Operators permissions
                 default_perms = list(operators_group.permissions) if operators_group and operators_group.permissions else []

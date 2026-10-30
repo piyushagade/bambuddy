@@ -112,7 +112,7 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
               onChange={(e) => setCsvContent(e.target.value)}
               placeholder={
                 'username,email,group,cost_center,expires_at\n' +
-                'albert.gator,albert@ufl.edu,EML2322L-Fall2026,EML2322L,2026-12-15T23:59:00Z'
+                'albert.gator,albert@ufl.edu,F26 - EML2322L,EML2322L,2026-12-15T23:59:00Z'
               }
               className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-xs font-mono text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50"
             />
