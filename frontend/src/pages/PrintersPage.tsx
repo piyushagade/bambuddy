@@ -3990,45 +3990,22 @@ function PrinterCard({
                   <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                   {t('printers.maintenance.pillLabel')}
                 </span>
-              ) : (
+              ) : !status?.connected ? (
                 <span
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${
-                    status?.connected
-                      ? 'bg-status-ok/20 text-status-ok'
-                      : 'bg-status-error/20 text-status-error'
-                  }`}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-status-error/20 text-status-error"
                 >
-                  {status?.connected ? (
-                    <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  ) : (
-                    <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  )}
-                  {status?.connected ? t('printers.connection.connected') : t('printers.connection.offline')}
+                  <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                  {t('printers.connection.offline')}
                 </span>
-              )}
-              {/* Run connection diagnostic — offered when the printer is offline, NOT in maintenance */}
-              {printer.is_active !== false && !status?.connected && (
-                <button
-                  onClick={() => setShowDiagnostic(true)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
-                  title={t('diagnostic.runButton')}
-                >
-                  <Stethoscope className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('diagnostic.runButton')}
-                </button>
-              )}
-              {/* Network connection indicator */}
-              {status?.connected && status?.wired_network && (
+              ) : status?.wired_network ? (
                 <span
                   className="flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-status-ok/20 text-status-ok"
-                  title={t('printers.connection.ethernet', 'Ethernet')}
+                  title={`${t('printers.connection.connected')} - ${t('printers.connection.ethernet', 'Ethernet')}`}
                 >
                   <Cable className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                   {t('printers.connection.ethernet', 'Ethernet')}
                 </span>
-              )}
-              {/* WiFi signal indicator */}
-              {status?.connected && !status?.wired_network && wifiSignal != null && (
+              ) : wifiSignal != null ? (
                 <span
                   className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
                     wifiSignal >= -50
@@ -4041,11 +4018,29 @@ function PrinterCard({
                       ? 'bg-orange-500/20 text-orange-600'
                       : 'bg-status-error/20 text-status-error'
                   }`}
-                  title={`WiFi: ${wifiSignal} dBm - ${t(getWifiStrength(wifiSignal).labelKey)}`}
+                  title={`${t('printers.connection.connected')} - WiFi: ${wifiSignal} dBm (${t(getWifiStrength(wifiSignal).labelKey)})`}
                 >
                   <Signal className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                   {wifiSignal}dBm
                 </span>
+              ) : (
+                <span
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-status-ok/20 text-status-ok"
+                >
+                  <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                  {t('printers.connection.connected')}
+                </span>
+              )}
+              {/* Run connection diagnostic — offered when the printer is offline, NOT in maintenance */}
+              {printer.is_active !== false && !status?.connected && (
+                <button
+                  onClick={() => setShowDiagnostic(true)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
+                  title={t('diagnostic.runButton')}
+                >
+                  <Stethoscope className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                  {t('diagnostic.runButton')}
+                </button>
               )}
               {/* HMS Status Indicator */}
               {status?.connected && (() => {
@@ -4063,7 +4058,7 @@ function PrinterCard({
                     title={t('printers.clickToViewHmsErrors')}
                   >
                     <AlertTriangle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    {knownErrors.length > 0 ? knownErrors.length : 'OK'}
+                    {knownErrors.length > 0 && knownErrors.length}
                   </button>
                 );
               })()}
@@ -4128,9 +4123,8 @@ function PrinterCard({
                   }
                 >
                   <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0
-                    ? maintenanceInfo.due_count + maintenanceInfo.warning_count
-                    : 'OK'}
+                  {(maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0) &&
+                    (maintenanceInfo.due_count + maintenanceInfo.warning_count)}
                 </button>
               )}
               {/* Queue Count Badge */}
