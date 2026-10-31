@@ -1558,7 +1558,7 @@ export function DashboardPage() {
           isOpen={!!assigningSpool}
           onClose={() => setAssigningSpool(null)}
           spool={assigningSpool}
-          printerId={printers[0]?.id ?? null}
+          printerId={null}
           variant="dialog"
         />
       )}
