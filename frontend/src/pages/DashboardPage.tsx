@@ -709,7 +709,7 @@ export function DashboardPage() {
         <div className="space-y-4">
           {/* Quick Admin Tools Bar */}
           <Card className="border-amber-500/30 bg-gradient-to-r from-bambu-dark-secondary via-bambu-dark-secondary to-amber-500/5">
-            <CardContent className="p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <CardContent className="p-4 flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400">
                   <Shield className="w-5 h-5" />
