@@ -3970,6 +3970,227 @@ function PrinterCard({
                 </p>
               </div>
             </div>
+            {viewMode === 'expanded' && (
+              <div className="grid grid-cols-3 gap-1.5 flex-shrink-0">
+                {/* Connection status badge (or Maintenance pill when out of service).
+                    Defensive: only swap when is_active is EXPLICITLY false. An
+                    undefined / missing field defaults to "active" so the regular
+                    pill renders — matches the backend default and prevents test
+                    fixtures (or stale clients) from accidentally tripping the
+                    maintenance UI. */}
+                {printer.is_active === false ? (
+                  <span
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                    title={`${t('printers.maintenance.pillLabel')} - ${t('printers.maintenance.subtitle')}`}
+                  >
+                    <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{t('printers.maintenance.pillLabel')}</span>
+                  </span>
+                ) : !status?.connected ? (
+                  <span
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-error/20 text-status-error"
+                    title={t('printers.connection.offline')}
+                  >
+                    <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{t('printers.connection.offline')}</span>
+                  </span>
+                ) : status?.wired_network ? (
+                  <span
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-ok/20 text-status-ok"
+                    title={`${t('printers.connection.connected')} - ${t('printers.connection.ethernet', 'Ethernet')}`}
+                  >
+                    <Cable className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{t('printers.connection.ethernet', 'Ethernet')}</span>
+                  </span>
+                ) : wifiSignal != null ? (
+                  <span
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs ${
+                      wifiSignal >= -50
+                        ? 'bg-status-ok/20 text-status-ok'
+                        : wifiSignal >= -60
+                        ? 'bg-status-ok/20 text-status-ok'
+                        : wifiSignal >= -70
+                        ? 'bg-status-warning/20 text-status-warning'
+                        : wifiSignal >= -80
+                        ? 'bg-orange-500/20 text-orange-600'
+                        : 'bg-status-error/20 text-status-error'
+                    }`}
+                    title={`${t('printers.connection.connected')} - WiFi: ${wifiSignal} dBm (${t(getWifiStrength(wifiSignal).labelKey)})`}
+                  >
+                    <Signal className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{wifiSignal}dBm</span>
+                  </span>
+                ) : (
+                  <span
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-ok/20 text-status-ok"
+                    title={t('printers.connection.connected')}
+                  >
+                    <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{t('printers.connection.connected')}</span>
+                  </span>
+                )}
+                {/* Run connection diagnostic — offered when the printer is offline, NOT in maintenance */}
+                {printer.is_active !== false && !status?.connected && (
+                  <button
+                    onClick={() => setShowDiagnostic(true)}
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
+                    title={t('diagnostic.runButton')}
+                  >
+                    <Stethoscope className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="sr-only">{t('diagnostic.runButton')}</span>
+                  </button>
+                )}
+                {/* HMS Status Indicator */}
+                {status?.connected && (() => {
+                  const knownErrors = status.hms_errors ? filterKnownHMSErrors(status.hms_errors) : [];
+                  return (
+                    <button
+                      onClick={() => setShowHMSModal(true)}
+                      className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer hover:opacity-80 transition-opacity ${
+                        knownErrors.length > 0
+                          ? knownErrors.some(isSevereHMSError)
+                            ? 'bg-status-error/20 text-status-error'
+                            : 'bg-status-warning/20 text-status-warning'
+                          : 'bg-status-ok/20 text-status-ok'
+                      }`}
+                      title={t('printers.clickToViewHmsErrors')}
+                    >
+                      <AlertTriangle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                      {knownErrors.length > 0 && (
+                        <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
+                          knownErrors.some(isSevereHMSError) ? 'bg-status-error' : 'bg-status-warning'
+                        }`}>
+                          {knownErrors.length}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })()}
+                {/* AI failure detection badge (#1546) — always shown while detection
+                    is enabled for this printer, like the other health badges. Gray
+                    "Idle" outside a monitored print, class-colored during one. */}
+                {aiDetectionEnabled && (() => {
+                  const cls = aiDetectionClass(aiDetection);
+                  const colorClass =
+                    cls === 'failure'
+                      ? 'bg-status-error/20 text-status-error'
+                      : cls === 'warning'
+                        ? 'bg-status-warning/20 text-status-warning'
+                        : cls === 'safe'
+                          ? 'bg-status-ok/20 text-status-ok'
+                          : cls === 'error'
+                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                            : 'bg-bambu-dark-tertiary text-bambu-gray';
+                  // 'error' and 'unknown' have no score to quote — saying
+                  // "Safe (0.000)" for a print nothing is looking at is the
+                  // whole of #2952.
+                  const title =
+                    cls === 'error'
+                      ? t('printers.aiDetection.tooltipError', {
+                          reason: aiDetection?.error ?? t('printers.aiDetection.error'),
+                        })
+                      : cls === 'unknown'
+                        ? t('printers.aiDetection.tooltipUnknown')
+                        : aiDetection
+                          ? t('printers.aiDetection.tooltip', {
+                              status: t(`printers.aiDetection.${cls}`),
+                              score: aiDetection.score.toFixed(3),
+                            })
+                          : t('printers.aiDetection.tooltipIdle');
+                  const Icon = cls === 'error' ? EyeOff : ScanEye;
+                  return (
+                    <button
+                      onClick={() => setShowAiModal(true)}
+                      className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer hover:opacity-80 transition-opacity ${colorClass}`}
+                      title={title}
+                    >
+                      <Icon className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                      <span className="sr-only">{t(`printers.aiDetection.${cls}`)}</span>
+                    </button>
+                  );
+                })()}
+                {/* Maintenance Status Indicator */}
+                {maintenanceInfo && (
+                  <button
+                    onClick={() => navigate('/maintenance')}
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer hover:opacity-80 transition-opacity ${
+                      maintenanceInfo.due_count > 0
+                        ? 'bg-status-error/20 text-status-error'
+                        : maintenanceInfo.warning_count > 0
+                        ? 'bg-status-warning/20 text-status-warning'
+                        : 'bg-status-ok/20 text-status-ok'
+                    }`}
+                    title={
+                      maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0
+                        ? `${maintenanceInfo.due_count > 0 ? `${maintenanceInfo.due_count} maintenance due` : ''}${maintenanceInfo.due_count > 0 && maintenanceInfo.warning_count > 0 ? ', ' : ''}${maintenanceInfo.warning_count > 0 ? `${maintenanceInfo.warning_count} due soon` : ''} - Click to view`
+                        : t('printers.maintenanceUpToDate')
+                    }
+                  >
+                    <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    {(maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0) && (
+                      <span className={`absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
+                        maintenanceInfo.due_count > 0 ? 'bg-status-error' : 'bg-status-warning'
+                      }`}>
+                        {maintenanceInfo.due_count + maintenanceInfo.warning_count}
+                      </span>
+                    )}
+                  </button>
+                )}
+                {/* Queue Count Badge */}
+                {queueCount > 0 && (
+                  <button
+                    onClick={() => navigate('/queue')}
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 hover:opacity-80 transition-opacity"
+                    title={t('printers.queue.inQueue', { count: queueCount })}
+                  >
+                    <Layers className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none bg-indigo-500 text-white">
+                      {queueCount}
+                    </span>
+                  </button>
+                )}
+                {/* Firmware Version Badge */}
+                {checkPrinterFirmware && firmwareInfo?.current_version && firmwareInfo?.latest_version ? (
+                  <button
+                    onClick={() => setShowFirmwareModal(true)}
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs hover:opacity-80 transition-opacity ${
+                      firmwareInfo.update_available
+                        ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400'
+                        : 'bg-status-ok/20 text-status-ok'
+                    }`}
+                    title={
+                      firmwareInfo.update_available
+                        ? t('printers.firmwareUpdateAvailable', { current: firmwareInfo.current_version, latest: firmwareInfo.latest_version })
+                        : t('printers.firmwareUpToDate', { version: firmwareInfo.current_version })
+                    }
+                  >
+                    {firmwareInfo.update_available ? <Download className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <CheckCircle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
+                  </button>
+                ) : status?.firmware_version ? (
+                  <span
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-bambu-dark-tertiary/50 text-bambu-gray"
+                    title={t('printers.firmwareUpToDate', { version: status.firmware_version })}
+                  >
+                    <CheckCircle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                  </span>
+                ) : null}
+
+                {/* Enclosure Door Badge — models with an actual door sensor.
+                    P1S has an enclosure door but no sensor; P1P has no enclosure at all. */}
+                {status?.connected && ['X1C', 'X1', 'X1E', 'X2D', 'P2S', 'H2D', 'H2D Pro', 'H2C', 'H2S'].includes(printer.model ?? '') && (
+                  <span
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs ${
+                      status.door_open
+                        ? 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
+                        : 'bg-status-ok/20 text-status-ok'
+                    }`}
+                    title={status.door_open ? t('printers.door.open') : t('printers.door.closed')}
+                  >
+                    {status.door_open ? <DoorOpen className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <DoorClosed className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -6519,210 +6740,6 @@ function PrinterCard({
                   {t('common.print')}
                 </Button>
               </div>
-            </div>
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {/* Connection status badge (or Maintenance pill when out of service).
-                  Defensive: only swap when is_active is EXPLICITLY false. An
-                  undefined / missing field defaults to "active" so the regular
-                  pill renders — matches the backend default and prevents test
-                  fixtures (or stale clients) from accidentally tripping the
-                  maintenance UI. */}
-              {printer.is_active === false ? (
-                <span
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400"
-                  title={t('printers.maintenance.subtitle')}
-                >
-                  <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('printers.maintenance.pillLabel')}
-                </span>
-              ) : !status?.connected ? (
-                <span
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-status-error/20 text-status-error"
-                >
-                  <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('printers.connection.offline')}
-                </span>
-              ) : status?.wired_network ? (
-                <span
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-status-ok/20 text-status-ok"
-                  title={`${t('printers.connection.connected')} - ${t('printers.connection.ethernet', 'Ethernet')}`}
-                >
-                  <Cable className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('printers.connection.ethernet', 'Ethernet')}
-                </span>
-              ) : wifiSignal != null ? (
-                <span
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-                    wifiSignal >= -50
-                      ? 'bg-status-ok/20 text-status-ok'
-                      : wifiSignal >= -60
-                      ? 'bg-status-ok/20 text-status-ok'
-                      : wifiSignal >= -70
-                      ? 'bg-status-warning/20 text-status-warning'
-                      : wifiSignal >= -80
-                      ? 'bg-orange-500/20 text-orange-600'
-                      : 'bg-status-error/20 text-status-error'
-                  }`}
-                  title={`${t('printers.connection.connected')} - WiFi: ${wifiSignal} dBm (${t(getWifiStrength(wifiSignal).labelKey)})`}
-                >
-                  <Signal className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {wifiSignal}dBm
-                </span>
-              ) : (
-                <span
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-status-ok/20 text-status-ok"
-                >
-                  <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('printers.connection.connected')}
-                </span>
-              )}
-              {/* Run connection diagnostic — offered when the printer is offline, NOT in maintenance */}
-              {printer.is_active !== false && !status?.connected && (
-                <button
-                  onClick={() => setShowDiagnostic(true)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer bg-bambu-dark-tertiary text-bambu-gray hover:text-white transition-colors"
-                  title={t('diagnostic.runButton')}
-                >
-                  <Stethoscope className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {t('diagnostic.runButton')}
-                </button>
-              )}
-              {/* HMS Status Indicator */}
-              {status?.connected && (() => {
-                const knownErrors = status.hms_errors ? filterKnownHMSErrors(status.hms_errors) : [];
-                return (
-                  <button
-                    onClick={() => setShowHMSModal(true)}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-opacity ${
-                      knownErrors.length > 0
-                        ? knownErrors.some(isSevereHMSError)
-                          ? 'bg-status-error/20 text-status-error'
-                          : 'bg-status-warning/20 text-status-warning'
-                        : 'bg-status-ok/20 text-status-ok'
-                    }`}
-                    title={t('printers.clickToViewHmsErrors')}
-                  >
-                    <AlertTriangle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    {knownErrors.length > 0 && knownErrors.length}
-                  </button>
-                );
-              })()}
-              {/* AI failure detection badge (#1546) — always shown while detection
-                  is enabled for this printer, like the other health badges. Gray
-                  "Idle" outside a monitored print, class-colored during one. */}
-              {aiDetectionEnabled && (() => {
-                const cls = aiDetectionClass(aiDetection);
-                const colorClass =
-                  cls === 'failure'
-                    ? 'bg-status-error/20 text-status-error'
-                    : cls === 'warning'
-                      ? 'bg-status-warning/20 text-status-warning'
-                      : cls === 'safe'
-                        ? 'bg-status-ok/20 text-status-ok'
-                        : cls === 'error'
-                          ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
-                          : 'bg-bambu-dark-tertiary text-bambu-gray';
-                // 'error' and 'unknown' have no score to quote — saying
-                // "Safe (0.000)" for a print nothing is looking at is the
-                // whole of #2952.
-                const title =
-                  cls === 'error'
-                    ? t('printers.aiDetection.tooltipError', {
-                        reason: aiDetection?.error ?? t('printers.aiDetection.error'),
-                      })
-                    : cls === 'unknown'
-                      ? t('printers.aiDetection.tooltipUnknown')
-                      : aiDetection
-                        ? t('printers.aiDetection.tooltip', {
-                            status: t(`printers.aiDetection.${cls}`),
-                            score: aiDetection.score.toFixed(3),
-                          })
-                        : t('printers.aiDetection.tooltipIdle');
-                const Icon = cls === 'error' ? EyeOff : ScanEye;
-                return (
-                  <button
-                    onClick={() => setShowAiModal(true)}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-opacity ${colorClass}`}
-                    title={title}
-                  >
-                    <Icon className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    {t(`printers.aiDetection.${cls}`)}
-                  </button>
-                );
-              })()}
-              {/* Maintenance Status Indicator */}
-              {maintenanceInfo && (
-                <button
-                  onClick={() => navigate('/maintenance')}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-opacity ${
-                    maintenanceInfo.due_count > 0
-                      ? 'bg-status-error/20 text-status-error'
-                      : maintenanceInfo.warning_count > 0
-                      ? 'bg-status-warning/20 text-status-warning'
-                      : 'bg-status-ok/20 text-status-ok'
-                  }`}
-                  title={
-                    maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0
-                      ? `${maintenanceInfo.due_count > 0 ? `${maintenanceInfo.due_count} maintenance due` : ''}${maintenanceInfo.due_count > 0 && maintenanceInfo.warning_count > 0 ? ', ' : ''}${maintenanceInfo.warning_count > 0 ? `${maintenanceInfo.warning_count} due soon` : ''} - Click to view`
-                      : t('printers.maintenanceUpToDate')
-                  }
-                >
-                  <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {(maintenanceInfo.due_count > 0 || maintenanceInfo.warning_count > 0) &&
-                    (maintenanceInfo.due_count + maintenanceInfo.warning_count)}
-                </button>
-              )}
-              {/* Queue Count Badge */}
-              {queueCount > 0 && (
-                <button
-                  onClick={() => navigate('/queue')}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 hover:opacity-80 transition-opacity"
-                  title={t('printers.queue.inQueue', { count: queueCount })}
-                >
-                  <Layers className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                  {queueCount}
-                </button>
-              )}
-              {/* Firmware Version Badge */}
-              {checkPrinterFirmware && firmwareInfo?.current_version && firmwareInfo?.latest_version ? (
-                <button
-                  onClick={() => setShowFirmwareModal(true)}
-                  className={`flex items-center px-2 py-1 rounded-full text-xs hover:opacity-80 transition-opacity ${
-                    firmwareInfo.update_available
-                      ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                      : 'bg-status-ok/20 text-status-ok'
-                  }`}
-                  title={
-                    firmwareInfo.update_available
-                      ? t('printers.firmwareUpdateAvailable', { current: firmwareInfo.current_version, latest: firmwareInfo.latest_version })
-                      : t('printers.firmwareUpToDate', { version: firmwareInfo.current_version })
-                  }
-                >
-                  {firmwareInfo.update_available ? <Download className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <CheckCircle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
-                </button>
-              ) : status?.firmware_version ? (
-                <span
-                  className="flex items-center px-2 py-1 rounded-full text-xs bg-bambu-dark-tertiary/50 text-bambu-gray"
-                  title={t('printers.firmwareUpToDate', { version: status.firmware_version })}
-                >
-                  <CheckCircle className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                </span>
-              ) : null}
-
-              {/* Enclosure Door Badge — models with an actual door sensor.
-                  P1S has an enclosure door but no sensor; P1P has no enclosure at all. */}
-              {status?.connected && ['X1C', 'X1', 'X1E', 'X2D', 'P2S', 'H2D', 'H2D Pro', 'H2C', 'H2S'].includes(printer.model ?? '') && (
-                <span
-                  className={`flex items-center px-2 py-1 rounded-full text-xs ${
-                    status.door_open
-                      ? 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
-                      : 'bg-status-ok/20 text-status-ok'
-                  }`}
-                  title={status.door_open ? t('printers.door.open') : t('printers.door.closed')}
-                >
-                  {status.door_open ? <DoorOpen className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <DoorClosed className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
-                </span>
-              )}
             </div>
         </div>
           </div>
