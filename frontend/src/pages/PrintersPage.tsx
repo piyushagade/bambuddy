@@ -10423,12 +10423,12 @@ export function PrintersPage({
           {embedded ? (
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2.5">
-                <PrinterIcon className="w-5 h-5 text-bambu-green" />
+                <PrinterIcon className="w-5 h-5 text-bambu-gray" />
                 {t('printers.title', 'Printers')}
               </h2>
               <RouterLink
                 to="/printers"
-                className="text-xs text-bambu-green hover:underline flex items-center gap-1"
+                className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1"
               >
                 {t('printers.viewAllPrinters', 'All Printers')}
                 <ArrowRight className="w-3.5 h-3.5" />

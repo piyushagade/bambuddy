@@ -513,7 +513,7 @@ export function DashboardPage() {
               </p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-white">{printerStats.total}</span>
-                <span className="text-xs text-bambu-green">
+                <span className="text-xs text-bambu-gray">
                   {t('dashboard.kpi.printingIdle', '{{printing}} printing · {{idle}} idle', {
                     printing: printerStats.printing,
                     idle: printerStats.idle,
@@ -521,7 +521,7 @@ export function DashboardPage() {
                 </span>
               </div>
             </div>
-            <div className="p-2.5 rounded-xl bg-bambu-green/15 text-bambu-green">
+            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
               <PrinterIcon className="w-5 h-5" />
             </div>
           </CardContent>
@@ -538,14 +538,14 @@ export function DashboardPage() {
               </p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-white">{projects.length}</span>
-                <span className="text-xs text-blue-400">
+                <span className="text-xs text-bambu-gray">
                   {t('dashboard.kpi.filesCount', '{{count}} library files', {
                     count: libraryFiles.length,
                   })}
                 </span>
               </div>
             </div>
-            <div className="p-2.5 rounded-xl bg-blue-500/15 text-blue-400">
+            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
               <FolderKanban className="w-5 h-5" />
             </div>
           </CardContent>
@@ -562,14 +562,14 @@ export function DashboardPage() {
               </p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-white">{spools.length}</span>
-                <span className="text-xs text-purple-400">
+                <span className="text-xs text-bambu-gray">
                   {t('dashboard.kpi.materialsCount', '{{count}} materials', {
                     count: spoolMaterials.length,
                   })}
                 </span>
               </div>
             </div>
-            <div className="p-2.5 rounded-xl bg-purple-500/15 text-purple-400">
+            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
               <Disc3 className="w-5 h-5" />
             </div>
           </CardContent>
@@ -603,7 +603,7 @@ export function DashboardPage() {
                 )}
               </div>
             </div>
-            <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400">
+            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
               <ListOrdered className="w-5 h-5" />
             </div>
           </CardContent>
@@ -615,13 +615,13 @@ export function DashboardPage() {
         <div className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="text-xs font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
-              <UserCheck className="w-4 h-4 text-bambu-green" />
+              <UserCheck className="w-4 h-4 text-bambu-gray" />
               {t('dashboard.quotas.yourAccess', 'Your Access & Quotas:')}
             </span>
             {quotaSummary.activeGroups.map((g) => (
               <span
                 key={g.id}
-                className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30"
+                className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-bambu-dark text-gray-200 border border-bambu-dark-tertiary"
               >
                 {g.name}
               </span>
@@ -1000,14 +1000,14 @@ export function DashboardPage() {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                  <FolderKanban className="w-4 h-4 text-blue-400 shrink-0" />
+                  <FolderKanban className="w-4 h-4 text-bambu-gray shrink-0" />
                   {t('dashboard.projects.title', 'Projects')}
                   <span className="text-xs font-normal text-bambu-gray">({projects.length})</span>
                 </h2>
               </div>
               <Link
                 to="/projects"
-                className="text-xs text-bambu-green hover:underline flex items-center gap-1 shrink-0"
+                className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1 shrink-0"
               >
                 {t('dashboard.projects.viewAll', 'All Projects')}
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -1041,7 +1041,7 @@ export function DashboardPage() {
                     <Link
                       key={proj.id}
                       to={`/projects/${proj.id}`}
-                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary hover:border-bambu-green/50 transition-all flex flex-col justify-between gap-1.5 group"
+                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary hover:border-white/20 transition-all flex flex-col justify-between gap-1.5 group"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
@@ -1049,7 +1049,7 @@ export function DashboardPage() {
                             className="w-2.5 h-2.5 rounded-full shrink-0"
                             style={{ backgroundColor: proj.color || '#00ae42' }}
                           />
-                          <h3 className="text-xs font-semibold text-white group-hover:text-bambu-green truncate transition-colors">
+                          <h3 className="text-xs font-semibold text-white group-hover:text-gray-200 truncate transition-colors">
                             {proj.name}
                           </h3>
                         </div>
@@ -1064,7 +1064,7 @@ export function DashboardPage() {
                         {target > 0 && (
                           <div className="w-full h-1 bg-bambu-dark-tertiary rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-bambu-green rounded-full"
+                              className="h-full bg-white/40 rounded-full"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -1094,7 +1094,7 @@ export function DashboardPage() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <FolderOpen className="w-4 h-4 text-bambu-green shrink-0" />
+                <FolderOpen className="w-4 h-4 text-bambu-gray shrink-0" />
                 {t('dashboard.files.title', 'Files & Print Library')}
                 <span className="text-xs font-normal text-bambu-gray">
                   ({libraryFiles.length})
@@ -1102,7 +1102,7 @@ export function DashboardPage() {
               </h2>
               <Link
                 to="/files"
-                className="text-xs text-bambu-green hover:underline flex items-center gap-1 shrink-0"
+                className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1 shrink-0"
               >
                 {t('dashboard.files.openFileManager', 'File Manager')}
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -1196,7 +1196,7 @@ export function DashboardPage() {
                                 name: file.print_name || file.filename,
                               })
                             }
-                            className="px-2 py-1 rounded-md text-[11px] font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors flex items-center gap-1"
+                            className="px-2 py-1 rounded-md text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary transition-colors flex items-center gap-1"
                             title={t('dashboard.files.print', 'Print')}
                           >
                             <Play className="w-3 h-3" />
@@ -1217,7 +1217,7 @@ export function DashboardPage() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <Disc3 className="w-4 h-4 text-purple-400 shrink-0" />
+                <Disc3 className="w-4 h-4 text-bambu-gray shrink-0" />
                 {t('dashboard.spools.title', 'Spools')}
                 <span className="text-xs font-normal text-bambu-gray">({spools.length})</span>
               </h2>
@@ -1236,7 +1236,7 @@ export function DashboardPage() {
                 )}
                 <Link
                   to="/inventory"
-                  className="text-xs text-bambu-green hover:underline flex items-center gap-1"
+                  className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1"
                 >
                   {t('nav.inventory', 'Inventory')}
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -1346,10 +1346,10 @@ export function DashboardPage() {
                         <div
                           className={`h-full rounded-full ${
                             pct <= 15
-                              ? 'bg-red-500'
+                              ? 'bg-red-500/80'
                               : pct <= 30
-                                ? 'bg-amber-500'
-                                : 'bg-bambu-green'
+                                ? 'bg-amber-500/80'
+                                : 'bg-white/30'
                           }`}
                           style={{ width: `${pct}%` }}
                         />
@@ -1362,9 +1362,9 @@ export function DashboardPage() {
                             assignments.map((a) => (
                               <span
                                 key={a.id}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30 truncate"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-dark-secondary text-gray-300 border border-bambu-dark-tertiary truncate"
                               >
-                                <PrinterIcon className="w-2.5 h-2.5 shrink-0" />
+                                <PrinterIcon className="w-2.5 h-2.5 text-bambu-gray shrink-0" />
                                 {a.printer_name || `#${a.printer_id}`} · {getAmsSlotLabel(a.ams_id, a.tray_id)}
                               </span>
                             ))
@@ -1380,10 +1380,10 @@ export function DashboardPage() {
                             <button
                               type="button"
                               onClick={() => setAssigningSpool(spool)}
-                              className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors flex items-center gap-1"
+                              className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary transition-colors flex items-center gap-1"
                               title={t('dashboard.spools.assignToAms', 'Load / Assign to AMS')}
                             >
-                              <Layers className="w-3 h-3" />
+                              <Layers className="w-3 h-3 text-bambu-gray" />
                               {t('dashboard.spools.load', 'Load')}
                             </button>
                           )}
@@ -1414,14 +1414,14 @@ export function DashboardPage() {
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <Activity className="w-4 h-4 text-amber-400 shrink-0" />
+                <Activity className="w-4 h-4 text-bambu-gray shrink-0" />
                 {t('dashboard.activity.title', 'Queue & Recent Prints')}
               </h2>
               <div className="flex items-center gap-3 text-xs">
-                <Link to="/queue" className="text-bambu-green hover:underline">
+                <Link to="/queue" className="text-bambu-gray hover:text-white transition-colors">
                   {t('nav.queue', 'Queue')} ({activeQueueItems.length})
                 </Link>
-                <Link to="/archives" className="text-bambu-gray hover:text-white">
+                <Link to="/archives" className="text-bambu-gray hover:text-white transition-colors">
                   {t('nav.archives', 'History')}
                 </Link>
               </div>
@@ -1484,7 +1484,7 @@ export function DashboardPage() {
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         {arch.status === 'completed' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-bambu-green shrink-0" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         ) : (
                           <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
                         )}
@@ -1509,10 +1509,10 @@ export function DashboardPage() {
                               name: arch.print_name || arch.filename,
                             })
                           }
-                          className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-white border border-bambu-dark-tertiary flex items-center gap-1 shrink-0 transition-colors"
+                          className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary flex items-center gap-1 shrink-0 transition-colors"
                           title={t('dashboard.activity.reprint', 'Reprint')}
                         >
-                          <RotateCcw className="w-3 h-3 text-bambu-green" />
+                          <RotateCcw className="w-3 h-3 text-bambu-gray" />
                           {t('dashboard.activity.reprint', 'Reprint')}
                         </button>
                       )}
