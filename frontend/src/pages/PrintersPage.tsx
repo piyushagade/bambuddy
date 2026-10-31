@@ -3986,48 +3986,57 @@ function PrinterCard({
                     <Wrench className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
                     <span className="sr-only">{t('printers.maintenance.pillLabel')}</span>
                   </span>
-                ) : !status?.connected ? (
-                  <span
-                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-error/20 text-status-error"
-                    title={t('printers.connection.offline')}
-                  >
-                    <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    <span className="sr-only">{t('printers.connection.offline')}</span>
-                  </span>
-                ) : status?.wired_network ? (
-                  <span
-                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-ok/20 text-status-ok"
-                    title={`${t('printers.connection.connected')} - ${t('printers.connection.ethernet', 'Ethernet')}`}
-                  >
-                    <Cable className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    <span className="sr-only">{t('printers.connection.ethernet', 'Ethernet')}</span>
-                  </span>
-                ) : wifiSignal != null ? (
-                  <span
-                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs ${
-                      wifiSignal >= -50
-                        ? 'bg-status-ok/20 text-status-ok'
-                        : wifiSignal >= -60
-                        ? 'bg-status-ok/20 text-status-ok'
-                        : wifiSignal >= -70
-                        ? 'bg-status-warning/20 text-status-warning'
-                        : wifiSignal >= -80
-                        ? 'bg-orange-500/20 text-orange-600'
-                        : 'bg-status-error/20 text-status-error'
-                    }`}
-                    title={`${t('printers.connection.connected')} - WiFi: ${wifiSignal} dBm (${t(getWifiStrength(wifiSignal).labelKey)})`}
-                  >
-                    <Signal className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    <span className="sr-only">{wifiSignal}dBm</span>
-                  </span>
                 ) : (
                   <span
-                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-ok/20 text-status-ok"
-                    title={t('printers.connection.connected')}
+                    className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs ${
+                      status?.connected
+                        ? 'bg-status-ok/20 text-status-ok'
+                        : 'bg-status-error/20 text-status-error'
+                    }`}
+                    title={status?.connected ? t('printers.connection.connected') : t('printers.connection.offline')}
                   >
-                    <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                    <span className="sr-only">{t('printers.connection.connected')}</span>
+                    {status?.connected ? (
+                      <>
+                        <Link className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                        <span className="sr-only">{t('printers.connection.connected')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlink className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                        <span className="sr-only">{t('printers.connection.offline')}</span>
+                      </>
+                    )}
                   </span>
+                )}
+                {/* Network Type / WiFi Signal Indicator */}
+                {status?.connected && (
+                  status.wired_network ? (
+                    <span
+                      className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs bg-status-ok/20 text-status-ok"
+                      title={t('printers.connection.ethernet', 'Ethernet')}
+                    >
+                      <Cable className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                      <span className="sr-only">{t('printers.connection.ethernet', 'Ethernet')}</span>
+                    </span>
+                  ) : wifiSignal != null ? (
+                    <span
+                      className={`relative flex h-6 w-6 items-center justify-center rounded-md text-xs ${
+                        wifiSignal >= -50
+                          ? 'bg-status-ok/20 text-status-ok'
+                          : wifiSignal >= -60
+                          ? 'bg-status-ok/20 text-status-ok'
+                          : wifiSignal >= -70
+                          ? 'bg-status-warning/20 text-status-warning'
+                          : wifiSignal >= -80
+                          ? 'bg-orange-500/20 text-orange-600'
+                          : 'bg-status-error/20 text-status-error'
+                      }`}
+                      title={`WiFi: ${wifiSignal} dBm (${t(getWifiStrength(wifiSignal).labelKey)})`}
+                    >
+                      <Signal className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                      <span className="sr-only">{wifiSignal}dBm</span>
+                    </span>
+                  ) : null
                 )}
                 {/* Run connection diagnostic — offered when the printer is offline, NOT in maintenance */}
                 {printer.is_active !== false && !status?.connected && (
