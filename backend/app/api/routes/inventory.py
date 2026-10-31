@@ -24,7 +24,7 @@ from backend.app.models.ams_label import AmsLabel
 from backend.app.models.color_catalog import ColorCatalogEntry
 from backend.app.models.location import Location
 from backend.app.models.settings import Settings
-from backend.app.models.spool import Spool
+from backend.app.models.spool import Spool, is_user_authorized_for_spool
 from backend.app.models.spool_assignment import SpoolAssignment
 from backend.app.models.spool_catalog import SpoolCatalogEntry
 from backend.app.models.spool_filament_preset import SpoolFilamentPreset
@@ -1381,8 +1381,9 @@ async def sync_from_filamentcolors(
 @router.get("/spools", response_model=list[SpoolResponse])
 async def list_spools(
     include_archived: bool = False,
+    authorized_only: bool = False,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_READ),
 ):
     """List all spools, excluding archived by default."""
     query = select(Spool).options(*spool_response_loads())
@@ -1390,7 +1391,10 @@ async def list_spools(
         query = query.where(Spool.archived_at.is_(None))
     query = query.order_by(Spool.material, Spool.brand, Spool.color_name)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    spools = list(result.scalars().all())
+    if authorized_only and current_user is not None:
+        spools = [s for s in spools if is_user_authorized_for_spool(s, current_user)]
+    return spools
 
 
 # ── CSV import / export (#1576) ──────────────────────────────────────────────
@@ -1551,6 +1555,9 @@ async def get_spool_access_options(
     _: User | None = RequireAnyPermissionIfAuthEnabled(
         Permission.INVENTORY_READ,
         Permission.INVENTORY_UPDATE,
+        Permission.PRINTERS_READ,
+        Permission.PRINTERS_CREATE,
+        Permission.PRINTERS_UPDATE,
     ),
 ):
     """Return slim lists of groups and users for configuring spool access restrictions."""
@@ -1638,15 +1645,20 @@ async def update_spool(
     spool_id: int,
     spool_data: SpoolUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.INVENTORY_UPDATE),
 ):
     """Update a spool."""
     result = await db.execute(select(Spool).where(Spool.id == spool_id))
     spool = result.scalar_one_or_none()
     if not spool:
         raise HTTPException(404, "Spool not found")
+    if current_user is not None and not is_user_authorized_for_spool(spool, current_user):
+        raise HTTPException(403, "Not authorized to modify this spool")
 
     update_data = spool_data.model_dump(exclude_unset=True)
+    if current_user is not None and not current_user.is_admin:
+        update_data.pop("allowed_group_ids", None)
+        update_data.pop("allowed_user_ids", None)
     try:
         update_data = await prepare_internal_spool_payload(db, update_data, set(spool_data.model_fields_set))
     except ValueError as exc:

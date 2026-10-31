@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: 'Pannello di controllo',
     printers: 'Stampanti',
     archives: 'Archivi',
     queue: 'Coda di stampa',

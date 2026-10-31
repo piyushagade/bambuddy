@@ -27,6 +27,14 @@ class GroupBrief(BaseModel):
 
     id: int
     name: str
+    expires_at: str | None = None
+    is_expired: bool = False
+    max_print_duration_minutes: int | None = None
+    max_filament_grams_per_job: float | None = None
+    max_active_queue_items: int | None = None
+    requires_approval: bool = False
+    allowed_hours_start: int | None = None
+    allowed_hours_end: int | None = None
 
     class Config:
         from_attributes = True

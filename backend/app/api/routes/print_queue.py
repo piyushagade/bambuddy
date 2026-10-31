@@ -26,7 +26,7 @@ from backend.app.models.archive import PrintArchive
 from backend.app.models.library import LibraryFile
 from backend.app.models.print_batch import PrintBatch, PrintBatchPlate
 from backend.app.models.print_queue import PrintQueueItem, PrintQueueVariant
-from backend.app.models.printer import Printer
+from backend.app.models.printer import Printer, is_user_authorized_for_printer
 from backend.app.models.project import Project
 from backend.app.models.user import User
 from backend.app.schemas.print_queue import (
@@ -874,15 +874,11 @@ async def add_to_queue(
                 403,
                 "Safety certification is required or has expired. Please renew your lab safety certification before queueing prints.",
             )
-        user_active_group_ids = {
-            g.id for g in current_user.groups if not getattr(g, "is_expired", False)
-        }
-        if target_printer is not None and target_printer.allowed_group_ids:
-            if not (user_active_group_ids & set(target_printer.allowed_group_ids)):
-                raise HTTPException(
-                    403,
-                    f"Printer '{target_printer.name}' is restricted to authorized course/research groups.",
-                )
+        if target_printer is not None and not is_user_authorized_for_printer(target_printer, current_user):
+            raise HTTPException(
+                403,
+                f"Printer '{target_printer.name}' is restricted to authorized users or course/research groups.",
+            )
 
     # Validate target_model has active printers. Skipped for cross-model items:
     # target_model there is just the first candidate, and _resolve_queue_variants

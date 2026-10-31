@@ -40,6 +40,16 @@ class PrinterBase(BaseModel):
     external_camera_snapshot_url: str | None = None  # Optional single-frame override; #1177
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
     allowed_group_ids: list[int] = Field(default_factory=list)
+    allowed_user_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("allowed_group_ids", "allowed_user_ids", mode="before")
+    @classmethod
+    def _normalize_id_lists(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return sorted({int(x) for x in v if int(x) > 0})
+        return v
 
 
 class PrinterCreate(PrinterBase):
@@ -79,6 +89,16 @@ class PrinterUpdate(BaseModel):
     plate_detection_enabled: bool | None = None
     plate_detection_roi: PlateDetectionROI | None = None
     allowed_group_ids: list[int] | None = None
+    allowed_user_ids: list[int] | None = None
+
+    @field_validator("allowed_group_ids", "allowed_user_ids", mode="before")
+    @classmethod
+    def _normalize_update_id_lists(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return sorted({int(x) for x in v if int(x) > 0})
+        return v
 
 
 class PrinterResponse(PrinterBase):
@@ -125,6 +145,8 @@ class PrinterResponse(PrinterBase):
             "supports_nozzle_flow_type": supports_nozzle_flow_type(printer.model),
             "print_hours_offset": printer.print_hours_offset,
             "plate_detection_enabled": printer.plate_detection_enabled,
+            "allowed_group_ids": printer.allowed_group_ids or [],
+            "allowed_user_ids": printer.allowed_user_ids or [],
             "created_at": printer.created_at,
             "updated_at": printer.updated_at,
         }

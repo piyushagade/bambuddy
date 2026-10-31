@@ -49,8 +49,9 @@ class Printer(Base):
     awaiting_plate_clear: Mapped[bool] = mapped_column(Boolean, default=False)
     plate_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     pickup_sla_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
-    # Printer-to-group access control (empty list = all groups with printer permissions)
+    # Printer-to-group/user access control (empty lists = open access to all users with printer permissions)
     allowed_group_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    allowed_user_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -67,6 +68,33 @@ class Printer(Base):
         back_populates="printer", cascade="all, delete-orphan"
     )
     ha_sensors: Mapped[list["PrinterHASensor"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+
+
+def is_user_authorized_for_printer(printer: "Printer | None", user) -> bool:
+    """Return True if ``user`` is permitted to view/use ``printer``.
+
+    Empty ``allowed_group_ids`` and ``allowed_user_ids`` means unrestricted (open access).
+    When either list is non-empty, ``user`` must be an admin, listed in
+    ``allowed_user_ids``, or a member of at least one non-expired group in
+    ``allowed_group_ids``. When auth is disabled (``user is None``), access
+    is unrestricted.
+    """
+    if printer is None or user is None:
+        return True
+    if getattr(user, "is_admin", False):
+        return True
+    allowed_groups = [int(gid) for gid in (printer.allowed_group_ids or []) if gid is not None]
+    allowed_users = [int(uid) for uid in (printer.allowed_user_ids or []) if uid is not None]
+    if not allowed_groups and not allowed_users:
+        return True
+    if getattr(user, "id", None) in allowed_users:
+        return True
+    if allowed_groups:
+        user_groups = getattr(user, "groups", None) or []
+        active_group_ids = {g.id for g in user_groups if not getattr(g, "is_expired", False)}
+        if active_group_ids & set(allowed_groups):
+            return True
+    return False
 
 
 from backend.app.models.ams_history import AMSSensorHistory  # noqa: E402

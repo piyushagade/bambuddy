@@ -25,7 +25,7 @@ from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.core.tasks import spawn_background_task
 from backend.app.models.ams_label import AmsLabel
-from backend.app.models.printer import Printer
+from backend.app.models.printer import Printer, is_user_authorized_for_printer
 from backend.app.models.slot_preset import SlotPresetMapping
 from backend.app.models.user import User
 from backend.app.schemas.printer import (
@@ -148,7 +148,7 @@ async def list_printers(
     API keys never receive it.
     """
     result = await db.execute(select(Printer).order_by(Printer.name))
-    printers = list(result.scalars().all())
+    printers = [p for p in result.scalars().all() if is_user_authorized_for_printer(p, user)]
     include_secret = await _caller_can_view_printer_secrets(user, db)
     return [_serialize_printer(p, include_secret=include_secret) for p in printers]
 
@@ -366,6 +366,8 @@ async def get_printer(
     printer = result.scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
+    if not is_user_authorized_for_printer(printer, user):
+        raise HTTPException(403, "Not authorized to access this printer")
     include_secret = await _caller_can_view_printer_secrets(user, db)
     return _serialize_printer(printer, include_secret=include_secret)
 
@@ -480,7 +482,7 @@ async def delete_printer(
 @router.get("/{printer_id}/status", response_model=PrinterStatus)
 async def get_printer_status(
     printer_id: int,
-    _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
+    user: User | None = RequirePermissionIfAuthEnabled(Permission.PRINTERS_READ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get real-time status of a printer."""
@@ -488,6 +490,8 @@ async def get_printer_status(
     printer = result.scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
+    if not is_user_authorized_for_printer(printer, user):
+        raise HTTPException(403, "Not authorized to access this printer")
 
     state = printer_manager.get_status(printer_id)
     if not state:

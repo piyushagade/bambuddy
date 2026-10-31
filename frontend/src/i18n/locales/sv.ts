@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: 'Översikt',
     printers: 'Skrivare',
     archives: 'Arkiv',
     queue: 'Utskriftskö',

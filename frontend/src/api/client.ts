@@ -438,6 +438,8 @@ export interface Printer {
   camera_rotation: number;  // 0, 90, 180, 270 degrees
   plate_detection_enabled: boolean;  // Check plate before print
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
+  allowed_group_ids?: number[];
+  allowed_user_ids?: number[];
   created_at: string;
   updated_at: string;
 }
@@ -744,6 +746,8 @@ export interface PrinterCreate {
   camera_rotation?: number;
   plate_detection_enabled?: boolean;
   plate_detection_roi?: PlateDetectionROI;
+  allowed_group_ids?: number[];
+  allowed_user_ids?: number[];
 }
 
 // Plate Detection
@@ -2708,7 +2712,7 @@ export interface PrintQueueItem {
   confirm_outcome: boolean;
   preheat_override: 'inherit' | 'on' | 'off';
   preheat_chamber_target_override: number | null;
-  status: 'pending' | 'printing' | 'completed' | 'failed' | 'skipped' | 'cancelled';
+  status: 'pending' | 'pending_approval' | 'printing' | 'completed' | 'failed' | 'skipped' | 'cancelled';
   started_at: string | null;
   completed_at: string | null;
   error_message: string | null;
@@ -4366,6 +4370,12 @@ export interface GroupBrief {
   name: string;
   expires_at?: string | null;
   is_expired?: boolean;
+  max_print_duration_minutes?: number | null;
+  max_filament_grams_per_job?: number | null;
+  max_active_queue_items?: number | null;
+  requires_approval?: boolean;
+  allowed_hours_start?: number | null;
+  allowed_hours_end?: number | null;
 }
 
 export interface Group {
@@ -4465,7 +4475,7 @@ export interface EnrollmentRedeemRequest {
   first_name?: string | null;
   last_name?: string | null;
   password?: string;
-  email?: string;
+  email?: string | null;
 }
 
 export interface EnrollmentRedeemResponse {
@@ -4528,6 +4538,10 @@ export interface UserResponse {
   created_at: string;
   expires_at?: string | null;
   is_expired?: boolean;
+  require_safety_certification?: boolean;
+  safety_certified_at?: string | null;
+  safety_certification_expires_at?: string | null;
+  is_certification_expired?: boolean;
 }
 
 /**
@@ -6469,6 +6483,12 @@ export const api = {
     }),
   cancelQueueItem: (id: number) =>
     request<{ message: string }>(`/queue/${id}/cancel`, { method: 'POST' }),
+  approveQueueItem: (id: number) =>
+    request<PrintQueueItem>(`/queue/${id}/approve`, { method: 'POST' }),
+  rejectQueueItem: (id: number, reason?: string) => {
+    const qs = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    return request<PrintQueueItem>(`/queue/${id}/reject${qs}`, { method: 'POST' });
+  },
   stopQueueItem: (id: number) =>
     request<{ message: string }>(`/queue/${id}/stop`, { method: 'POST' }),
   /**
@@ -6890,8 +6910,8 @@ export const api = {
     }),
 
   // Inventory
-  getSpools: (includeArchived = false) =>
-    request<InventorySpool[]>(`/inventory/spools?include_archived=${includeArchived}`),
+  getSpools: (includeArchived = false, authorizedOnly = false) =>
+    request<InventorySpool[]>(`/inventory/spools?include_archived=${includeArchived}${authorizedOnly ? '&authorized_only=true' : ''}`),
   getSpoolAccessOptions: () =>
     request<SpoolAccessOptions>('/inventory/access-options'),
   getSpool: (id: number) => request<InventorySpool>(`/inventory/spools/${id}`),

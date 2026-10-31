@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: '仪表盘',
     printers: '打印机',
     archives: '归档',
     queue: '打印队列',

@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: 'Dashboard',
     printers: 'Printers',
     archives: 'Archieven',
     queue: 'Afdrukwachtrij',

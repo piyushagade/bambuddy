@@ -69,6 +69,21 @@ from backend.app.utils.local_time import to_naive_utc, utcnow_naive
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+def _group_to_brief(g: Group) -> GroupBrief:
+    return GroupBrief(
+        id=g.id,
+        name=g.name,
+        expires_at=g.expires_at.isoformat() if getattr(g, "expires_at", None) else None,
+        is_expired=bool(getattr(g, "is_expired", False)),
+        max_print_duration_minutes=getattr(g, "max_print_duration_minutes", None),
+        max_filament_grams_per_job=getattr(g, "max_filament_grams_per_job", None),
+        max_active_queue_items=getattr(g, "max_active_queue_items", None),
+        requires_approval=bool(getattr(g, "requires_approval", False)),
+        allowed_hours_start=getattr(g, "allowed_hours_start", None),
+        allowed_hours_end=getattr(g, "allowed_hours_end", None),
+    )
+
+
 def _user_to_response(user: User) -> UserResponse:
     """Convert a User model to UserResponse schema."""
     return UserResponse(
@@ -81,7 +96,7 @@ def _user_to_response(user: User) -> UserResponse:
         is_active=user.is_effectively_active,
         is_admin=user.is_admin,
         auth_source=getattr(user, "auth_source", "local"),
-        groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
+        groups=[_group_to_brief(g) for g in user.groups],
         permissions=sorted(user.get_permissions()),
         created_at=user.created_at.isoformat(),
         expires_at=user.expires_at.isoformat() if user.expires_at else None,
@@ -553,7 +568,7 @@ async def import_roster_csv(
                 email=email or None,
                 password_hash=get_password_hash(initial_password),
                 role="user",
-                is_active=True if (row_exp is None or row_exp > now_naive) else False,
+                is_active=bool(row_exp is None or row_exp > now_naive),
                 expires_at=row_exp,
             )
             if target_group is not None:

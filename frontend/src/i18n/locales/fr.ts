@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: 'Tableau de bord',
     printers: 'Imprimantes',
     archives: 'Archives',
     queue: 'File d\'attente d\'impression',

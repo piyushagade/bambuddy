@@ -1,6 +1,7 @@
 export default {
   // Navigation
   nav: {
+    dashboard: 'ダッシュボード',
     printers: 'プリンター',
     archives: 'アーカイブ',
     queue: '印刷キュー',

@@ -1,5 +1,6 @@
 export default {
   nav: {
+    dashboard: 'Панель управления',
     printers: "Принтеры",
     archives: "Архив",
     queue: "Очередь печати",

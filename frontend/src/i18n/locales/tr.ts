@@ -1,6 +1,7 @@
 export default {
   // Navigasyon
   nav: {
+    dashboard: 'Kontrol Paneli',
     printers: 'Yazıcılar',
     archives: 'Arşivler',
     queue: 'Baskı Kuyruğu',

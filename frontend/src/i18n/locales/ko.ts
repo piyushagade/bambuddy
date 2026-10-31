@@ -1,5 +1,6 @@
 export default {
   nav: {
+    dashboard: '대시보드',
     printers: '프린터',
     archives: '아카이브',
     queue: '대기열',

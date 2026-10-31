@@ -12,7 +12,12 @@ export function getSidebarOrder(defaultOrder: string[]): string[] {
 
   try {
     const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : defaultOrder;
+    if (!Array.isArray(parsed)) return defaultOrder;
+    const cleaned = parsed.filter((id): id is string => typeof id === 'string');
+    if (defaultOrder[0] === 'dashboard' && !cleaned.includes('dashboard')) {
+      return ['dashboard', ...cleaned];
+    }
+    return cleaned;
   } catch {
     return defaultOrder;
   }

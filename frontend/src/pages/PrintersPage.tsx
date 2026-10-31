@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { compareFwVersions } from '../utils/firmwareVersion';
+import { PrinterAccessControlSection } from '../components/PrinterAccessControlSection';
 import { mapModelCode } from '../utils/printerModel';
 import { formatPrintName } from '../utils/printName';
 import { isBedSlinger } from '../utils/bedSlinger';
@@ -7681,6 +7682,8 @@ export function AddPrinterModal({
     model: '',
     location: '',
     auto_archive: true,
+    allowed_group_ids: [],
+    allowed_user_ids: [],
   });
 
   // Discovery state
@@ -8117,6 +8120,17 @@ export function AddPrinterModal({
                 {t('printers.modal.autoArchiveLabel')}
               </label>
             </div>
+            <PrinterAccessControlSection
+              allowedGroupIds={form.allowed_group_ids ?? []}
+              allowedUserIds={form.allowed_user_ids ?? []}
+              onChange={(allowedGroupIds, allowedUserIds) =>
+                setForm({
+                  ...form,
+                  allowed_group_ids: allowedGroupIds,
+                  allowed_user_ids: allowedUserIds,
+                })
+              }
+            />
             <button
               type="button"
               onClick={() => setShowDiagnostic(true)}
@@ -8460,7 +8474,7 @@ function FirmwareUpdateModal({
   );
 }
 
-function EditPrinterModal({
+export function EditPrinterModal({
   printer,
   onClose,
 }: {
@@ -8478,6 +8492,8 @@ function EditPrinterModal({
     location: printer.location || '',
     auto_archive: printer.auto_archive,
     is_active: printer.is_active,
+    allowed_group_ids: printer.allowed_group_ids ?? [],
+    allowed_user_ids: printer.allowed_user_ids ?? [],
   });
 
   // Setup-time pre-flight — same warn-on-save as the Add-Printer dialog, so an
@@ -8512,6 +8528,8 @@ function EditPrinterModal({
       location: form.location || undefined,
       auto_archive: form.auto_archive,
       is_active: form.is_active,
+      allowed_group_ids: form.allowed_group_ids,
+      allowed_user_ids: form.allowed_user_ids,
     };
     // Only include access_code if it was changed
     if (form.access_code) {
@@ -8679,6 +8697,17 @@ function EditPrinterModal({
                 {t('printers.maintenance.editFieldHelp')}
               </p>
             </div>
+            <PrinterAccessControlSection
+              allowedGroupIds={form.allowed_group_ids}
+              allowedUserIds={form.allowed_user_ids}
+              onChange={(allowedGroupIds, allowedUserIds) =>
+                setForm({
+                  ...form,
+                  allowed_group_ids: allowedGroupIds,
+                  allowed_user_ids: allowedUserIds,
+                })
+              }
+            />
             {saveWarning && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 p-3 space-y-3">
                 <div className="flex items-start gap-2">

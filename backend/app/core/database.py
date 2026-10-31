@@ -5306,6 +5306,14 @@ async def run_migrations(conn):
         await conn.execute(text("UPDATE spool SET allowed_group_ids = '[]' WHERE allowed_group_ids IS NULL"))
         await conn.execute(text("UPDATE spool SET allowed_user_ids = '[]' WHERE allowed_user_ids IS NULL"))
 
+    # Migration: per-printer access control (allowed groups and allowed users).
+    # Empty list means open access.
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN allowed_group_ids JSON DEFAULT '[]'")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN allowed_user_ids JSON DEFAULT '[]'")
+    async with conn.begin_nested():
+        await conn.execute(text("UPDATE printers SET allowed_group_ids = '[]' WHERE allowed_group_ids IS NULL"))
+        await conn.execute(text("UPDATE printers SET allowed_user_ids = '[]' WHERE allowed_user_ids IS NULL"))
+
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:
     """Replace the one-tap verdict URLs in the outcome prompt's body (#1898).
