@@ -9853,7 +9853,7 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
           {embedded ? (
             <h2 className="text-lg font-semibold text-white flex items-center gap-2.5">
               <PrinterIcon className="w-5 h-5 text-bambu-green" />
-              {t('dashboard.printers.title', 'Accessible Printers')}
+              {t('printers.title', 'Printers')}
             </h2>
           ) : (
             <h1 className="text-2xl font-bold text-white flex items-center gap-3">

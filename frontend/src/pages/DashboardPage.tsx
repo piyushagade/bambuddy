@@ -517,7 +517,7 @@ export function DashboardPage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {t('dashboard.kpi.accessiblePrinters', 'Accessible Printers')}
+                {t('dashboard.kpi.printers', 'Printers')}
               </p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-white">{printerStats.total}</span>
@@ -566,7 +566,7 @@ export function DashboardPage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {t('dashboard.kpi.allowedSpools', 'Allowed Spools')}
+                {t('dashboard.kpi.spools', 'Spools')}
               </p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-white">{spools.length}</span>
@@ -997,501 +997,444 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Accessible Printers Section (Point #3 — Full Printer Cards & Controls) ── */}
+      {/* ── Printers Section (Point #3 — Full Printer Cards & Controls) ── */}
       <PrintersPage embedded />
 
-      {/* ── Main Two-Column Workspace: Projects & Files (Point #1) + Allowed Spools (Point #2) ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Left Column (7 cols): Files & Projects Control Center */}
-        <div className="xl:col-span-7 space-y-6">
-          {/* Accessible Projects */}
-          <Card className="border-bambu-dark-tertiary">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                    <FolderKanban className="w-5 h-5 text-blue-400" />
-                    {t('dashboard.projects.title', 'Accessible Projects')}
-                    <span className="text-xs font-normal text-bambu-gray">({projects.length})</span>
-                  </h2>
-                  <p className="text-xs text-bambu-gray">
-                    {t(
-                      'dashboard.projects.subtitle',
-                      'Projects you own or have been granted access to collaborate on.',
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/projects"
-                    className="text-xs text-bambu-green hover:underline flex items-center gap-1"
-                  >
-                    {t('dashboard.projects.viewAll', 'All Projects')}
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
+      {/* ── Compact 2x2 Control Grid: Projects, Files, Spools, Queue & Recent Prints ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* 1. Projects */}
+        <Card className="border-bambu-dark-tertiary">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                  <FolderKanban className="w-4 h-4 text-blue-400 shrink-0" />
+                  {t('dashboard.projects.title', 'Projects')}
+                  <span className="text-xs font-normal text-bambu-gray">({projects.length})</span>
+                </h2>
               </div>
+              <Link
+                to="/projects"
+                className="text-xs text-bambu-green hover:underline flex items-center gap-1 shrink-0"
+              >
+                {t('dashboard.projects.viewAll', 'All Projects')}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
 
-              {projectsLoading ? (
-                <div className="py-6 flex justify-center">
-                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
-                </div>
-              ) : projects.length === 0 ? (
-                <div className="p-6 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary text-center space-y-2">
-                  <p className="text-sm text-white font-medium">
-                    {t('dashboard.projects.empty', 'No active projects yet')}
-                  </p>
-                  <p className="text-xs text-bambu-gray">
-                    {t(
-                      'dashboard.projects.emptyHint',
-                      'Create a project to organize parts, track progress, and share access with your team.',
-                    )}
-                  </p>
-                  {hasPermission('projects:create') && (
-                    <div className="pt-1">
-                      <Button size="sm" onClick={() => navigate('/projects')}>
-                        <Plus className="w-3.5 h-3.5" />
-                        {t('dashboard.projects.createFirst', 'Go to Projects')}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {projects.slice(0, 6).map((proj) => {
-                    const completed = proj.completed_count ?? 0;
-                    const target = proj.target_count ?? proj.archive_count ?? 0;
-                    const pct =
-                      target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0;
-                    return (
-                      <Link
-                        key={proj.id}
-                        to={`/projects/${proj.id}`}
-                        className="p-3.5 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary hover:border-bambu-green/50 transition-all flex flex-col justify-between gap-2.5 group"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: proj.color || '#00ae42' }}
-                              />
-                              <h3 className="text-sm font-semibold text-white group-hover:text-bambu-green truncate transition-colors">
-                                {proj.name}
-                              </h3>
-                            </div>
-                            {proj.priority && proj.priority !== 'normal' && (
-                              <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium shrink-0">
-                                {proj.priority}
-                              </span>
-                            )}
-                          </div>
-                          {proj.description && (
-                            <p className="text-xs text-bambu-gray line-clamp-1 mt-1">
-                              {proj.description}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="space-y-1.5">
-                          {target > 0 && (
-                            <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-bambu-green rounded-full"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between text-[11px] text-bambu-gray">
-                            <span>
-                              {completed} {t('dashboard.projects.prints', 'prints')}
-                              {proj.queue_count ? ` · ${proj.queue_count} queued` : ''}
-                            </span>
-                            {proj.due_date && (
-                              <span>
-                                Due {parseUTCDate(proj.due_date)?.toLocaleDateString() ?? ''}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Accessible Files Control Center */}
-          <Card className="border-bambu-dark-tertiary">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                    <FolderOpen className="w-5 h-5 text-bambu-green" />
-                    {t('dashboard.files.title', 'Accessible Files & Print Library')}
-                    <span className="text-xs font-normal text-bambu-gray">
-                      ({libraryFiles.length})
-                    </span>
-                  </h2>
-                  <p className="text-xs text-bambu-gray">
-                    {t(
-                      'dashboard.files.subtitle',
-                      'Quickly queue or manage 3MF, G-code, and 3D model files you have access to.',
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => navigate('/files')}>
-                    <FolderOpen className="w-3.5 h-3.5" />
-                    {t('dashboard.files.openFileManager', 'Open File Manager')}
-                  </Button>
-                </div>
+            {projectsLoading ? (
+              <div className="py-4 flex justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
               </div>
-
-              {libraryFiles.length > 0 && (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray/50" />
-                  <input
-                    type="search"
-                    value={fileSearch}
-                    onChange={(e) => setFileSearch(e.target.value)}
-                    placeholder={t('dashboard.files.searchPlaceholder', 'Search your accessible files...')}
-                    className="w-full pl-9 pr-4 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-sm text-white placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
-                  />
-                </div>
-              )}
-
-              {filesLoading ? (
-                <div className="py-6 flex justify-center">
-                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
-                </div>
-              ) : filteredFiles.length === 0 ? (
-                <div className="p-6 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary text-center space-y-2">
-                  <FileText className="w-7 h-7 text-bambu-gray mx-auto" />
-                  <p className="text-sm text-white font-medium">
-                    {fileSearch
-                      ? t('dashboard.files.noMatchingFiles', 'No matching files found')
-                      : t('dashboard.files.noFiles', 'No files in your library yet')}
-                  </p>
-                  <Button size="sm" variant="secondary" onClick={() => navigate('/files')}>
-                    {t('dashboard.files.uploadInFileManager', 'Upload Files in File Manager')}
+            ) : projects.length === 0 ? (
+              <div className="p-4 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-3">
+                <p className="text-xs text-bambu-gray">
+                  {t('dashboard.projects.empty', 'No active projects yet')}
+                </p>
+                {hasPermission('projects:create') && (
+                  <Button size="sm" variant="secondary" onClick={() => navigate('/projects')}>
+                    <Plus className="w-3.5 h-3.5" />
+                    {t('dashboard.projects.createFirst', 'Go to Projects')}
                   </Button>
-                </div>
-              ) : (
-                <div className="divide-y divide-bambu-dark-tertiary border border-bambu-dark-tertiary rounded-xl overflow-hidden bg-bambu-dark">
-                  {filteredFiles.map((file: LibraryFileListItem) => {
-                    const isPrintable =
-                      file.file_type === '3mf' ||
-                      file.file_type === 'gcode' ||
-                      file.filename.toLowerCase().endsWith('.3mf') ||
-                      file.filename.toLowerCase().endsWith('.gcode');
-                    return (
-                      <div
-                        key={file.id}
-                        className="p-3 flex items-center justify-between gap-3 hover:bg-bambu-dark-secondary/60 transition-colors"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          {file.thumbnail_path ? (
-                            <img
-                              src={withMediaToken(api.getLibraryFileThumbnailUrl(file.id))}
-                              alt=""
-                              className="w-10 h-10 rounded-lg object-cover bg-bambu-dark-secondary border border-bambu-dark-tertiary shrink-0"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary flex items-center justify-center shrink-0">
-                              <FileText className="w-5 h-5 text-bambu-gray" />
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white truncate">
-                              {file.print_name || file.filename}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-bambu-gray flex-wrap">
-                              <span className="uppercase text-[10px] px-1.5 py-0.2 rounded bg-bambu-dark-tertiary text-bambu-gray">
-                                {file.file_type}
-                              </span>
-                              {file. sliced_for_model && <span>· {file.sliced_for_model}</span>}
-                              {file.print_time_seconds != null && file.print_time_seconds > 0 && (
-                                <span>
-                                  · {formatDurationMinutes(Math.round(file.print_time_seconds / 60))}
-                                </span>
-                              )}
-                              {file.filament_used_grams != null &&
-                                file.filament_used_grams > 0 && (
-                                  <span>· {Math.round(file.filament_used_grams)}g</span>
-                                )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {isPrintable && hasPermission('queue:create') && (
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                setPrintTarget({
-                                  libraryFileId: file.id,
-                                  name: file.print_name || file.filename,
-                                })
-                              }
-                            >
-                              <Play className="w-3.5 h-3.5" />
-                              {t('dashboard.files.print', 'Print')}
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() =>
-                              navigate(
-                                file.folder_id ? `/files?folder=${file.folder_id}` : '/files',
-                              )
-                            }
-                          >
-                            {t('common.open', 'Open')}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column (5 cols): Allowed Spools Management (Point #2) + My Queue & Recent Prints */}
-        <div className="xl:col-span-5 space-y-6">
-          {/* Manage Allowed Spools */}
-          <Card className="border-bambu-dark-tertiary">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Disc3 className="w-5 h-5 text-purple-400" />
-                    {t('dashboard.spools.title', 'Allowed Spools')}
-                    <span className="text-xs font-normal text-bambu-gray">({spools.length})</span>
-                  </h2>
-                  <p className="text-xs text-bambu-gray">
-                    {t(
-                      'dashboard.spools.subtitle',
-                      'Manage and load filament spools you are authorized to use.',
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasPermission('inventory:create') && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
-                        setSpoolModalState({ open: true, mode: 'create', spool: null })
-                      }
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {projects.slice(0, 6).map((proj) => {
+                  const completed = proj.completed_count ?? 0;
+                  const target = proj.target_count ?? proj.archive_count ?? 0;
+                  const pct =
+                    target > 0 ? Math.min(100, Math.round((completed / target) * 100)) : 0;
+                  return (
+                    <Link
+                      key={proj.id}
+                      to={`/projects/${proj.id}`}
+                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary hover:border-bambu-green/50 transition-all flex flex-col justify-between gap-1.5 group"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      {t('dashboard.spools.add', 'Add')}
-                    </Button>
-                  )}
-                  <Link
-                    to="/inventory"
-                    className="text-xs text-bambu-green hover:underline flex items-center gap-1"
-                  >
-                    {t('nav.inventory', 'Inventory')}
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              </div>
-
-              {/* Search + Material Filter */}
-              {spools.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray/50" />
-                    <input
-                      type="search"
-                      value={spoolSearch}
-                      onChange={(e) => setSpoolSearch(e.target.value)}
-                      placeholder={t('dashboard.spools.searchPlaceholder', 'Search spools...')}
-                      className="w-full pl-9 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-xs text-white placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
-                    />
-                  </div>
-                  <select
-                    value={spoolMaterialFilter}
-                    onChange={(e) => setSpoolMaterialFilter(e.target.value)}
-                    className="px-2.5 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-xs text-white focus:outline-none focus:border-bambu-green"
-                  >
-                    <option value="all">{t('dashboard.spools.allMaterials', 'All Materials')}</option>
-                    {spoolMaterials.map((mat) => (
-                      <option key={mat} value={mat}>
-                        {mat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {spoolsLoading ? (
-                <div className="py-6 flex justify-center">
-                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
-                </div>
-              ) : filteredSpools.length === 0 ? (
-                <div className="p-6 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary text-center space-y-2">
-                  <Disc3 className="w-7 h-7 text-bambu-gray mx-auto" />
-                  <p className="text-sm text-white font-medium">
-                    {t('dashboard.spools.noSpools', 'No matching allowed spools')}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-                  {filteredSpools.slice(0, 12).map((spool) => {
-                    const labelWeight = spool.label_weight || 1000;
-                    const remaining = Math.max(
-                      0,
-                      Math.round(labelWeight - (spool.weight_used || 0)),
-                    );
-                    const pct = Math.min(100, Math.round((remaining / labelWeight) * 100));
-                    const assignments = (assignmentsBySpoolId.get(spool.id) ?? []).filter(
-                      (a) => accessiblePrinterIds.has(a.printer_id),
-                    );
-                    const isRestricted =
-                      (spool.allowed_group_ids?.length ?? 0) > 0 ||
-                      (spool.allowed_user_ids?.length ?? 0) > 0;
-
-                    return (
-                      <div
-                        key={spool.id}
-                        className="p-3 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span
-                              className="w-5 h-5 rounded-full border border-white/20 shrink-0 shadow-inner"
-                              style={{
-                                backgroundColor: spool.rgba
-                                  ? `#${spool.rgba.slice(0, 6)}`
-                                  : '#888888',
-                              }}
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-semibold text-white truncate">
-                                  {[spool.brand, spool.material, spool.subtype]
-                                    .filter(Boolean)
-                                    .join(' ')}
-                                </span>
-                                {spool.color_name && (
-                                  <span className="text-xs text-bambu-gray truncate">
-                                    · {spool.color_name}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-[11px] text-bambu-gray mt-0.5 flex-wrap">
-                                <span>
-                                  {remaining}g / {labelWeight}g ({pct}%)
-                                </span>
-                                {spool.storage_location && <span>· {spool.storage_location}</span>}
-                                {isRestricted && (
-                                  <span className="inline-flex items-center gap-0.5 text-amber-400">
-                                    · <Lock className="w-2.5 h-2.5" /> Restricted
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {hasPermission('inventory:update') && printers.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setAssigningSpool(spool)}
-                                className="px-2 py-1 rounded-lg text-[11px] font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors flex items-center gap-1"
-                                title={t('dashboard.spools.assignToAms', 'Load / Assign to AMS')}
-                              >
-                                <Layers className="w-3 h-3" />
-                                {t('dashboard.spools.load', 'Load')}
-                              </button>
-                            )}
-                            {hasPermission('inventory:update') && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSpoolModalState({ open: true, mode: 'edit', spool })
-                                }
-                                className="p-1.5 rounded-lg text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
-                                title={t('dashboard.spools.editSpool', 'Edit Spool')}
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: proj.color || '#00ae42' }}
+                          />
+                          <h3 className="text-xs font-semibold text-white group-hover:text-bambu-green truncate transition-colors">
+                            {proj.name}
+                          </h3>
                         </div>
+                        {proj.priority && proj.priority !== 'normal' && (
+                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium shrink-0">
+                            {proj.priority}
+                          </span>
+                        )}
+                      </div>
 
-                        {/* Weight bar + loaded slot badges */}
-                        <div className="space-y-1.5">
-                          <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+                      <div className="space-y-1">
+                        {target > 0 && (
+                          <div className="w-full h-1 bg-bambu-dark-tertiary rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${
-                                pct <= 15
-                                  ? 'bg-red-500'
-                                  : pct <= 30
-                                    ? 'bg-amber-500'
-                                    : 'bg-bambu-green'
-                              }`}
+                              className="h-full bg-bambu-green rounded-full"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          {assignments.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {assignments.map((a) => (
-                                <span
-                                  key={a.id}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30"
-                                >
-                                  <PrinterIcon className="w-2.5 h-2.5" />
-                                  {a.printer_name || `Printer #${a.printer_id}`} ·{' '}
-                                  {getAmsSlotLabel(a.ams_id, a.tray_id)}
-                                </span>
-                              ))}
-                            </div>
+                        )}
+                        <div className="flex items-center justify-between text-[11px] text-bambu-gray">
+                          <span>
+                            {completed} {t('dashboard.projects.prints', 'prints')}
+                            {proj.queue_count ? ` · ${proj.queue_count} queued` : ''}
+                          </span>
+                          {proj.due_date && (
+                            <span>
+                              Due {parseUTCDate(proj.due_date)?.toLocaleDateString() ?? ''}
+                            </span>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Active Queue & Recent Prints */}
-          <Card className="border-bambu-dark-tertiary">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-amber-400" />
-                  {t('dashboard.activity.title', 'Queue & Recent Prints')}
-                </h2>
-                <div className="flex items-center gap-3 text-xs">
-                  <Link to="/queue" className="text-bambu-green hover:underline">
-                    {t('nav.queue', 'Queue')} ({activeQueueItems.length})
-                  </Link>
-                  <Link to="/archives" className="text-bambu-gray hover:text-white">
-                    {t('nav.archives', 'History')}
-                  </Link>
-                </div>
+                    </Link>
+                  );
+                })}
               </div>
+            )}
+          </CardContent>
+        </Card>
 
-              {/* Active Queue Items */}
-              {activeQueueItems.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                    {t('dashboard.activity.activeJobs', 'Active / Queued Jobs')}
-                  </p>
+        {/* 2. Files & Print Library */}
+        <Card className="border-bambu-dark-tertiary">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-bambu-green shrink-0" />
+                {t('dashboard.files.title', 'Files & Print Library')}
+                <span className="text-xs font-normal text-bambu-gray">
+                  ({libraryFiles.length})
+                </span>
+              </h2>
+              <Link
+                to="/files"
+                className="text-xs text-bambu-green hover:underline flex items-center gap-1 shrink-0"
+              >
+                {t('dashboard.files.openFileManager', 'File Manager')}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {libraryFiles.length > 0 && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-bambu-gray/50" />
+                <input
+                  type="search"
+                  value={fileSearch}
+                  onChange={(e) => setFileSearch(e.target.value)}
+                  placeholder={t('dashboard.files.searchPlaceholder', 'Search files...')}
+                  className="w-full pl-8 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-xs text-white placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
+                />
+              </div>
+            )}
+
+            {filesLoading ? (
+              <div className="py-4 flex justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+              </div>
+            ) : filteredFiles.length === 0 ? (
+              <div className="p-4 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-bambu-gray">
+                  <FileText className="w-4 h-4 text-bambu-gray shrink-0" />
+                  <span>
+                    {fileSearch
+                      ? t('dashboard.files.noMatchingFiles', 'No matching files found')
+                      : t('dashboard.files.noFiles', 'No files in your library yet')}
+                  </span>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => navigate('/files')}>
+                  {t('dashboard.files.uploadInFileManager', 'Upload Files')}
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
+                {filteredFiles.map((file: LibraryFileListItem) => {
+                  const isPrintable =
+                    file.file_type === '3mf' ||
+                    file.file_type === 'gcode' ||
+                    file.filename.toLowerCase().endsWith('.3mf') ||
+                    file.filename.toLowerCase().endsWith('.gcode');
+                  return (
+                    <div
+                      key={file.id}
+                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2 hover:border-bambu-green/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {file.thumbnail_path ? (
+                          <img
+                            src={withMediaToken(api.getLibraryFileThumbnailUrl(file.id))}
+                            alt=""
+                            className="w-8 h-8 rounded-md object-cover bg-bambu-dark-secondary border border-bambu-dark-tertiary shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-md bg-bambu-dark-secondary border border-bambu-dark-tertiary flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4 text-bambu-gray" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-white truncate">
+                            {file.print_name || file.filename}
+                          </p>
+                          <div className="flex items-center gap-1.5 text-[11px] text-bambu-gray truncate">
+                            <span className="uppercase text-[10px] px-1 rounded bg-bambu-dark-tertiary text-bambu-gray">
+                              {file.file_type}
+                            </span>
+                            {file.print_time_seconds != null && file.print_time_seconds > 0 && (
+                              <span>
+                                · {formatDurationMinutes(Math.round(file.print_time_seconds / 60))}
+                              </span>
+                            )}
+                            {file.filament_used_grams != null &&
+                              file.filament_used_grams > 0 && (
+                                <span>· {Math.round(file.filament_used_grams)}g</span>
+                              )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isPrintable && hasPermission('queue:create') && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPrintTarget({
+                                libraryFileId: file.id,
+                                name: file.print_name || file.filename,
+                              })
+                            }
+                            className="px-2 py-1 rounded-md text-[11px] font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors flex items-center gap-1"
+                            title={t('dashboard.files.print', 'Print')}
+                          >
+                            <Play className="w-3 h-3" />
+                            {t('dashboard.files.print', 'Print')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 3. Spools */}
+        <Card className="border-bambu-dark-tertiary">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Disc3 className="w-4 h-4 text-purple-400 shrink-0" />
+                {t('dashboard.spools.title', 'Spools')}
+                <span className="text-xs font-normal text-bambu-gray">({spools.length})</span>
+              </h2>
+              <div className="flex items-center gap-2">
+                {hasPermission('inventory:create') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      setSpoolModalState({ open: true, mode: 'create', spool: null })
+                    }
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {t('dashboard.spools.add', 'Add')}
+                  </Button>
+                )}
+                <Link
+                  to="/inventory"
+                  className="text-xs text-bambu-green hover:underline flex items-center gap-1"
+                >
+                  {t('nav.inventory', 'Inventory')}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Search + Material Filter */}
+            {spools.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-bambu-gray/50" />
+                  <input
+                    type="search"
+                    value={spoolSearch}
+                    onChange={(e) => setSpoolSearch(e.target.value)}
+                    placeholder={t('dashboard.spools.searchPlaceholder', 'Search spools...')}
+                    className="w-full pl-8 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-xs text-white placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
+                  />
+                </div>
+                <select
+                  value={spoolMaterialFilter}
+                  onChange={(e) => setSpoolMaterialFilter(e.target.value)}
+                  className="px-2.5 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-xs text-white focus:outline-none focus:border-bambu-green"
+                >
+                  <option value="all">{t('dashboard.spools.allMaterials', 'All Materials')}</option>
+                  {spoolMaterials.map((mat) => (
+                    <option key={mat} value={mat}>
+                      {mat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {spoolsLoading ? (
+              <div className="py-4 flex justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+              </div>
+            ) : filteredSpools.length === 0 ? (
+              <div className="p-4 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary text-center">
+                <p className="text-xs text-bambu-gray">
+                  {t('dashboard.spools.noSpools', 'No matching spools')}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1">
+                {filteredSpools.slice(0, 12).map((spool) => {
+                  const labelWeight = spool.label_weight || 1000;
+                  const remaining = Math.max(
+                    0,
+                    Math.round(labelWeight - (spool.weight_used || 0)),
+                  );
+                  const pct = Math.min(100, Math.round((remaining / labelWeight) * 100));
+                  const assignments = (assignmentsBySpoolId.get(spool.id) ?? []).filter(
+                    (a) => accessiblePrinterIds.has(a.printer_id),
+                  );
+                  const isRestricted =
+                    (spool.allowed_group_ids?.length ?? 0) > 0 ||
+                    (spool.allowed_user_ids?.length ?? 0) > 0;
+
+                  return (
+                    <div
+                      key={spool.id}
+                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex flex-col justify-between gap-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-inner"
+                            style={{
+                              backgroundColor: spool.rgba
+                                ? `#${spool.rgba.slice(0, 6)}`
+                                : '#888888',
+                            }}
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1 truncate">
+                              <span className="text-xs font-semibold text-white truncate">
+                                {[spool.brand, spool.material, spool.subtype]
+                                  .filter(Boolean)
+                                  .join(' ')}
+                              </span>
+                              {spool.color_name && (
+                                <span className="text-[11px] text-bambu-gray truncate">
+                                  · {spool.color_name}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-bambu-gray">
+                              <span>
+                                {remaining}g ({pct}%)
+                              </span>
+                              {isRestricted && (
+                                <span className="inline-flex items-center gap-0.5 text-amber-400">
+                                  · <Lock className="w-2.5 h-2.5" />
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {hasPermission('inventory:update') && printers.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setAssigningSpool(spool)}
+                              className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors flex items-center gap-1"
+                              title={t('dashboard.spools.assignToAms', 'Load / Assign to AMS')}
+                            >
+                              <Layers className="w-3 h-3" />
+                              {t('dashboard.spools.load', 'Load')}
+                            </button>
+                          )}
+                          {hasPermission('inventory:update') && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSpoolModalState({ open: true, mode: 'edit', spool })
+                              }
+                              className="p-1 rounded-md text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
+                              title={t('dashboard.spools.editSpool', 'Edit Spool')}
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Compact inline weight bar + loaded slot badge */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              pct <= 15
+                                ? 'bg-red-500'
+                                : pct <= 30
+                                  ? 'bg-amber-500'
+                                  : 'bg-bambu-green'
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        {assignments.map((a) => (
+                          <span
+                            key={a.id}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30 shrink-0"
+                          >
+                            <PrinterIcon className="w-2.5 h-2.5" />
+                            {a.printer_name || `#${a.printer_id}`} · {getAmsSlotLabel(a.ams_id, a.tray_id)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 4. Queue & Recent Prints */}
+        <Card className="border-bambu-dark-tertiary">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Activity className="w-4 h-4 text-amber-400 shrink-0" />
+                {t('dashboard.activity.title', 'Queue & Recent Prints')}
+              </h2>
+              <div className="flex items-center gap-3 text-xs">
+                <Link to="/queue" className="text-bambu-green hover:underline">
+                  {t('nav.queue', 'Queue')} ({activeQueueItems.length})
+                </Link>
+                <Link to="/archives" className="text-bambu-gray hover:text-white">
+                  {t('nav.archives', 'History')}
+                </Link>
+              </div>
+            </div>
+
+            {/* Active Queue Items */}
+            {activeQueueItems.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-medium text-bambu-gray uppercase tracking-wider">
+                  {t('dashboard.activity.activeJobs', 'Active / Queued Jobs')}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeQueueItems.slice(0, 4).map((item) => (
                     <div
                       key={item.id}
-                      className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                      className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-white truncate">
@@ -1517,66 +1460,66 @@ export function DashboardPage() {
                     </div>
                   ))}
                 </div>
-              )}
-
-              {/* Recent Print History */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                  {t('dashboard.activity.recentPrints', 'Recent Prints')}
-                </p>
-                {recentArchives.length === 0 ? (
-                  <p className="text-xs text-bambu-gray py-2">
-                    {t('dashboard.activity.noRecentPrints', 'No recent print history yet.')}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {recentArchives.slice(0, 4).map((arch: Archive) => (
-                      <div
-                        key={arch.id}
-                        className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {arch.status === 'completed' ? (
-                            <CheckCircle2 className="w-4 h-4 text-bambu-green shrink-0" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-red-400 shrink-0" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-white truncate">
-                              {arch.print_name || arch.filename}
-                            </p>
-                            <p className="text-[11px] text-bambu-gray truncate">
-                              {arch.filament_type || 'Print'}
-                              {arch.filament_used_grams
-                                ? ` · ${Math.round(arch.filament_used_grams)}g`
-                                : ''}
-                            </p>
-                          </div>
-                        </div>
-                        {hasPermission('queue:create') && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPrintTarget({
-                                archiveId: arch.id,
-                                name: arch.print_name || arch.filename,
-                              })
-                            }
-                            className="px-2 py-1 rounded-lg text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-white border border-bambu-dark-tertiary flex items-center gap-1 shrink-0 transition-colors"
-                            title={t('dashboard.activity.reprint', 'Reprint')}
-                          >
-                            <RotateCcw className="w-3 h-3 text-bambu-green" />
-                            {t('dashboard.activity.reprint', 'Reprint')}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            )}
+
+            {/* Recent Print History */}
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-medium text-bambu-gray uppercase tracking-wider">
+                {t('dashboard.activity.recentPrints', 'Recent Prints')}
+              </p>
+              {recentArchives.length === 0 ? (
+                <p className="text-xs text-bambu-gray py-2">
+                  {t('dashboard.activity.noRecentPrints', 'No recent print history yet.')}
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {recentArchives.slice(0, 6).map((arch: Archive) => (
+                    <div
+                      key={arch.id}
+                      className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {arch.status === 'completed' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-bambu-green shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-white truncate">
+                            {arch.print_name || arch.filename}
+                          </p>
+                          <p className="text-[11px] text-bambu-gray truncate">
+                            {arch.filament_type || 'Print'}
+                            {arch.filament_used_grams
+                              ? ` · ${Math.round(arch.filament_used_grams)}g`
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+                      {hasPermission('queue:create') && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPrintTarget({
+                              archiveId: arch.id,
+                              name: arch.print_name || arch.filename,
+                            })
+                          }
+                          className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-white border border-bambu-dark-tertiary flex items-center gap-1 shrink-0 transition-colors"
+                          title={t('dashboard.activity.reprint', 'Reprint')}
+                        >
+                          <RotateCcw className="w-3 h-3 text-bambu-green" />
+                          {t('dashboard.activity.reprint', 'Reprint')}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
