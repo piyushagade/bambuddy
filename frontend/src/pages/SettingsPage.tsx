@@ -7879,8 +7879,8 @@ export function SettingsPage() {
 
       {/* Delete Group Confirmation Modal */}
       {deleteGroupId !== null && (() => {
-        const targetGroup = groups?.find((g) => g.id === deleteGroupId);
-        const groupMembers = (users ?? []).filter((u) =>
+        const targetGroup = groupsData.find((g) => g.id === deleteGroupId);
+        const groupMembers = usersData.filter((u) =>
           (u.groups ?? []).some((g) => g.id === deleteGroupId)
         );
         const soleGroupMembers = groupMembers.filter(
