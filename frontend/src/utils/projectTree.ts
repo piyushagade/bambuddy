@@ -12,7 +12,8 @@ export function eligibleParents(
   projects: ProjectListItem[],
   projectId: number | undefined,
 ): ProjectListItem[] {
-  if (projectId === undefined) return projects;
+  const writable = projects.filter((p) => p.can_write !== false);
+  if (projectId === undefined) return writable;
   const blocked = new Set([projectId]);
   // Repeat until nothing new is blocked: the list is in no particular order, so
   // a grandchild can appear before its parent has been blocked.
@@ -26,7 +27,7 @@ export function eligibleParents(
       }
     }
   }
-  return projects.filter((p) => !blocked.has(p.id));
+  return writable.filter((p) => !blocked.has(p.id));
 }
 
 /**
@@ -49,5 +50,5 @@ export function assignableProjects(
   projects: ProjectListItem[],
   keepId?: number | null,
 ): ProjectListItem[] {
-  return projects.filter((p) => p.status !== 'archived' || p.id === keepId);
+  return projects.filter((p) => (p.status !== 'archived' && p.can_write !== false) || p.id === keepId);
 }

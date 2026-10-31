@@ -32,6 +32,8 @@ import {
   Download,
   Pencil,
   FileBox,
+  Shield,
+  User,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { parseUTCDate, formatDateOnly, formatDateTime, formatDurationFromHours, type TimeFormat } from '../utils/date';
@@ -43,6 +45,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { PrintModal } from '../components/PrintModal';
+import { ProjectPermissionsModal } from '../components/ProjectPermissionsModal';
 
 // Project edit modal (reused from ProjectsPage)
 import { ProjectModal } from './ProjectsPage';
@@ -203,6 +206,7 @@ export function ProjectDetailPage() {
   const { showToast } = useToast();
   const { hasPermission } = useAuth();
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesContent, setNotesContent] = useState('');
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
@@ -498,6 +502,8 @@ export function ProjectDetailPage() {
   const platesProgressPercent = stats?.progress_percent ?? 0;
   // Parts progress: completed_prints / target_parts_count
   const partsProgressPercent = stats?.parts_progress_percent ?? 0;
+  const canEdit = project.can_write !== false && hasPermission('projects:update');
+  const canManage = project.can_manage !== false && hasPermission('projects:update');
 
   return (
     <div className="p-4 md:p-8 space-y-8">
@@ -532,6 +538,15 @@ export function ProjectDetailPage() {
             </div>
           </div>
           <StatusBadge status={project.status} t={t} />
+          {project.created_by_username && (
+            <span
+              className="px-2 py-1 rounded text-xs font-medium bg-bambu-dark border border-bambu-dark-tertiary text-bambu-gray inline-flex items-center gap-1.5"
+              title={`Owner: @${project.created_by_username}`}
+            >
+              <User className="w-3.5 h-3.5 text-bambu-green" />
+              {project.created_by_username}
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
           <Button
@@ -543,10 +558,20 @@ export function ProjectDetailPage() {
             <Download className="w-4 h-4 mr-2" />
             {t('projectDetail.export')}
           </Button>
+          {canManage && (
+            <Button
+              variant="secondary"
+              onClick={() => setShowShareModal(true)}
+              title="Share project with teammates or groups"
+            >
+              <Shield className="w-4 h-4 mr-2 text-bambu-green" />
+              Share
+            </Button>
+          )}
           <Button
             onClick={() => setShowEditModal(true)}
-            disabled={!hasPermission('projects:update')}
-            title={!hasPermission('projects:update') ? t('projectDetail.noEditPermission') : undefined}
+            disabled={!canEdit}
+            title={!canEdit ? t('projectDetail.noEditPermission') : undefined}
           >
             <Edit3 className="w-4 h-4 mr-2" />
             {t('common.edit')}
@@ -949,8 +974,8 @@ export function ProjectDetailPage() {
                 variant="secondary"
                 size="sm"
                 onClick={handleStartEditNotes}
-                disabled={!hasPermission('projects:update')}
-                title={!hasPermission('projects:update') ? t('projectDetail.notes.noEditPermission') : undefined}
+                disabled={!canEdit}
+                title={!canEdit ? t('projectDetail.notes.noEditPermission') : undefined}
               >
                 <Edit3 className="w-4 h-4 mr-1" />
                 {t('common.edit')}
@@ -1183,8 +1208,8 @@ export function ProjectDetailPage() {
                   variant="secondary"
                   size="sm"
                   onClick={() => setShowBomForm(true)}
-                  disabled={!hasPermission('projects:update')}
-                  title={!hasPermission('projects:update') ? t('projectDetail.bom.noAddPermission') : undefined}
+                  disabled={!canEdit}
+                  title={!canEdit ? t('projectDetail.bom.noAddPermission') : undefined}
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   {t('projectDetail.bom.addPart')}
@@ -1330,13 +1355,13 @@ export function ProjectDetailPage() {
                     // Display mode
                     <div className="flex items-start gap-3">
                       <button
-                        onClick={() => hasPermission('projects:update') && handleToggleAcquired(item)}
-                        disabled={updateBomMutation.isPending || !hasPermission('projects:update')}
-                        title={!hasPermission('projects:update') ? t('projectDetail.bom.noUpdatePermission') : undefined}
+                        onClick={() => canEdit && handleToggleAcquired(item)}
+                        disabled={updateBomMutation.isPending || !canEdit}
+                        title={!canEdit ? t('projectDetail.bom.noUpdatePermission') : undefined}
                         className={`w-5 h-5 mt-0.5 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${
                           item.is_complete
                             ? 'bg-status-ok border-status-ok text-white'
-                            : hasPermission('projects:update')
+                            : canEdit
                               ? 'border-bambu-gray hover:border-bambu-green'
                               : 'border-bambu-gray/50 cursor-not-allowed'
                         }`}
@@ -1360,26 +1385,26 @@ export function ProjectDetailPage() {
                           </div>
                           <div className="flex items-center gap-1">
                             <button
-                              onClick={() => hasPermission('projects:update') && handleEditBomItem(item)}
-                              disabled={!hasPermission('projects:update')}
+                              onClick={() => canEdit && handleEditBomItem(item)}
+                              disabled={!canEdit}
                               className={`p-1 rounded transition-colors shrink-0 ${
-                                hasPermission('projects:update')
+                                canEdit
                                   ? 'hover:bg-bambu-dark-tertiary text-bambu-gray hover:text-white'
                                   : 'text-bambu-gray/50 cursor-not-allowed'
                               }`}
-                              title={!hasPermission('projects:update') ? t('projectDetail.bom.noEditPermission') : t('common.edit')}
+                              title={!canEdit ? t('projectDetail.bom.noEditPermission') : t('common.edit')}
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => hasPermission('projects:update') && handleDeleteBomItem(item.id, item.name)}
-                              disabled={!hasPermission('projects:update')}
+                              onClick={() => canEdit && handleDeleteBomItem(item.id, item.name)}
+                              disabled={!canEdit}
                               className={`p-1 rounded transition-colors shrink-0 ${
-                                hasPermission('projects:update')
+                                canEdit
                                   ? 'hover:bg-bambu-dark-tertiary text-bambu-gray hover:text-red-400'
                                   : 'text-bambu-gray/50 cursor-not-allowed'
                               }`}
-                              title={!hasPermission('projects:update') ? t('projectDetail.bom.noDeletePermission') : t('common.delete')}
+                              title={!canEdit ? t('projectDetail.bom.noDeletePermission') : t('common.delete')}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1574,6 +1599,14 @@ export function ProjectDetailPage() {
           onClose={() => setShowEditModal(false)}
           onSave={(data) => updateMutation.mutate(data as ProjectUpdate)}
           isLoading={updateMutation.isPending}
+        />
+      )}
+
+      {/* Share / Permissions Modal */}
+      {showShareModal && (
+        <ProjectPermissionsModal
+          project={{ id: project.id, name: project.name }}
+          onClose={() => setShowShareModal(false)}
         />
       )}
 

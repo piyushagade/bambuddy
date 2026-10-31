@@ -6,25 +6,30 @@ import uuid
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.routes.library import get_library_dir
-from backend.app.core.auth import RequirePermissionIfAuthEnabled, require_media_token_permission
+from backend.app.core.auth import (
+    RequireAnyPermissionIfAuthEnabled,
+    RequirePermissionIfAuthEnabled,
+    require_media_token_permission,
+)
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
 from backend.app.models.archive import PrintArchive
+from backend.app.models.group import Group, user_groups
 from backend.app.models.library import LibraryFile, LibraryFolder
 from backend.app.models.print_log import PrintLogEntry
 from backend.app.models.print_queue import PrintQueueItem
-from backend.app.models.project import Project
+from backend.app.models.project import Project, ProjectPermission
 from backend.app.models.project_bom import ProjectBOMItem
 from backend.app.models.user import User
 from backend.app.schemas.project import (
@@ -39,7 +44,12 @@ from backend.app.schemas.project import (
     ProjectFileProgress,
     ProjectImport,
     ProjectListResponse,
+    ProjectPermissionEntry,
+    ProjectPermissionsListResponse,
+    ProjectPermissionsUpdateRequest,
     ProjectResponse,
+    ProjectShareTargetGroup,
+    ProjectShareTargetUser,
     ProjectStats,
     ProjectUpdate,
     TimelineEvent,
@@ -50,6 +60,265 @@ from backend.app.utils.safe_path import safe_join_under
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _require_project_read():
+    return RequireAnyPermissionIfAuthEnabled(
+        Permission.PROJECTS_READ_ALL,
+        Permission.PROJECTS_READ_OWN,
+        Permission.PROJECTS_READ,
+    )
+
+
+def _require_project_write():
+    return RequireAnyPermissionIfAuthEnabled(
+        Permission.PROJECTS_UPDATE_ALL,
+        Permission.PROJECTS_UPDATE_OWN,
+        Permission.PROJECTS_UPDATE,
+        Permission.PROJECTS_READ_ALL,
+        Permission.PROJECTS_READ_OWN,
+        Permission.PROJECTS_READ,
+    )
+
+
+def _require_project_delete():
+    return RequireAnyPermissionIfAuthEnabled(
+        Permission.PROJECTS_DELETE_ALL,
+        Permission.PROJECTS_DELETE_OWN,
+        Permission.PROJECTS_DELETE,
+    )
+
+
+@dataclass
+class _ProjectAccess:
+    """Resolved access permissions for a user on a single Project."""
+
+    can_read: bool = False
+    can_write: bool = False
+    can_manage: bool = False
+    can_delete: bool = False
+
+
+async def _compute_project_access_map(
+    db: AsyncSession,
+    user: User | None,
+) -> dict[int, _ProjectAccess]:
+    """Compute effective project permissions across the project hierarchy.
+
+    Rules:
+    - Admins or auth-disabled (`user is None or user.is_admin`) have full access on all projects.
+    - Non-admins have access to a project if:
+      1. They hold `projects:read_all` / `projects:update_all` / `projects:delete_all`
+         (or the legacy flat `projects:read` / `projects:update` / `projects:delete`).
+      2. They created/own the project (`project.created_by_id == user.id`) ->
+         `can_read=True`, and `can_write`/`can_manage`/`can_delete` when holding
+         the corresponding `_own` (or `_all`) permission.
+      3. They or one of their active (non-expired) groups have an explicit
+         `ProjectPermission` grant on the project.
+    - Top-down inheritance: `can_read`, `can_write`, `can_manage`, and `can_delete`
+      propagate downward from parent projects to all descendant sub-projects.
+    """
+    all_rows = (
+        await db.execute(
+            select(Project.id, Project.parent_id, Project.created_by_id)
+        )
+    ).all()
+    if not all_rows:
+        return {}
+
+    if user is None or user.is_admin:
+        return {
+            pid: _ProjectAccess(can_read=True, can_write=True, can_manage=True, can_delete=True)
+            for pid, _, _ in all_rows
+        }
+
+    can_read_all = user.has_any_permission(
+        Permission.PROJECTS_READ_ALL.value,
+        Permission.PROJECTS_READ.value,
+    )
+    can_write_all = user.has_any_permission(
+        Permission.PROJECTS_UPDATE_ALL.value,
+        Permission.PROJECTS_UPDATE.value,
+    )
+    can_write_own = can_write_all or user.has_permission(Permission.PROJECTS_UPDATE_OWN.value)
+    can_delete_all = user.has_any_permission(
+        Permission.PROJECTS_DELETE_ALL.value,
+        Permission.PROJECTS_DELETE.value,
+    )
+    can_delete_own = can_delete_all or user.has_permission(Permission.PROJECTS_DELETE_OWN.value)
+
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    grp_rows = (
+        await db.execute(
+            select(Group.id, Group.expires_at)
+            .join(user_groups, user_groups.c.group_id == Group.id)
+            .where(user_groups.c.user_id == user.id)
+        )
+    ).all()
+    active_group_ids = {
+        gid
+        for gid, gexp in grp_rows
+        if gexp is None or (gexp.replace(tzinfo=None) if gexp.tzinfo else gexp) > now_naive
+    }
+
+    perm_filters = [ProjectPermission.user_id == user.id]
+    if active_group_ids:
+        perm_filters.append(ProjectPermission.group_id.in_(active_group_ids))
+
+    perm_rows = (
+        await db.execute(
+            select(
+                ProjectPermission.project_id,
+                ProjectPermission.can_read,
+                ProjectPermission.can_write,
+            ).where(or_(*perm_filters))
+        )
+    ).all()
+
+    access_map: dict[int, _ProjectAccess] = {}
+    children_by_parent: dict[int | None, list[int]] = {}
+    all_ids = {pid for pid, _, _ in all_rows}
+
+    for pid, parent_id, creator_id in all_rows:
+        effective_parent = parent_id if parent_id in all_ids and parent_id != pid else None
+        children_by_parent.setdefault(effective_parent, []).append(pid)
+        is_owner = creator_id is not None and creator_id == user.id
+        access_map[pid] = _ProjectAccess(
+            can_read=can_read_all or is_owner,
+            can_write=can_write_all or (is_owner and can_write_own),
+            can_manage=can_write_all or (is_owner and can_write_own),
+            can_delete=can_delete_all or (is_owner and can_delete_own),
+        )
+
+    for pid, p_read, p_write in perm_rows:
+        acc = access_map.get(pid)
+        if acc is not None:
+            if p_read or p_write:
+                acc.can_read = True
+            if p_write:
+                acc.can_write = True
+
+    # Top-down inheritance (parent -> children)
+    queue = list(children_by_parent.get(None, []))
+    visited_down: set[int] = set()
+    while queue:
+        curr_id = queue.pop(0)
+        if curr_id in visited_down:
+            continue
+        visited_down.add(curr_id)
+        curr_acc = access_map[curr_id]
+        for child_id in children_by_parent.get(curr_id, []):
+            child_acc = access_map[child_id]
+            if curr_acc.can_read:
+                child_acc.can_read = True
+            if curr_acc.can_write:
+                child_acc.can_write = True
+            if curr_acc.can_manage:
+                child_acc.can_manage = True
+            if curr_acc.can_delete:
+                child_acc.can_delete = True
+            queue.append(child_id)
+
+    return access_map
+
+
+async def user_can_read_project(
+    db: AsyncSession,
+    user: User | None,
+    project_id: int | None,
+) -> bool:
+    """Return True if ``user`` can read ``project_id``."""
+    if project_id is None:
+        return False
+    if user is None or user.is_admin:
+        return True
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id)
+    return bool(acc and acc.can_read)
+
+
+async def _get_creator_username(db: AsyncSession, created_by_id: int | None) -> str | None:
+    if created_by_id is None:
+        return None
+    return (await db.execute(select(User.username).where(User.id == created_by_id))).scalar_one_or_none()
+
+
+async def _build_project_permissions_response(
+    db: AsyncSession,
+    project: Project,
+) -> ProjectPermissionsListResponse:
+    """Build the ProjectPermissionsListResponse payload for a project."""
+    creator_username = await _get_creator_username(db, project.created_by_id)
+
+    perm_rows = (
+        await db.execute(
+            select(
+                ProjectPermission,
+                User.username,
+                User.first_name,
+                User.last_name,
+                Group.name,
+            )
+            .outerjoin(User, ProjectPermission.user_id == User.id)
+            .outerjoin(Group, ProjectPermission.group_id == Group.id)
+            .where(ProjectPermission.project_id == project.id)
+            .order_by(ProjectPermission.id)
+        )
+    ).all()
+
+    entries = [
+        ProjectPermissionEntry(
+            id=perm.id,
+            project_id=perm.project_id,
+            user_id=perm.user_id,
+            username=uname,
+            first_name=ufirst,
+            last_name=ulast,
+            group_id=perm.group_id,
+            group_name=gname,
+            can_read=perm.can_read,
+            can_write=perm.can_write,
+        )
+        for perm, uname, ufirst, ulast, gname in perm_rows
+    ]
+
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    users_res = await db.execute(
+        select(User).where(User.is_active.is_(True)).order_by(User.username)
+    )
+    available_users = [
+        ProjectShareTargetUser(
+            id=u.id,
+            username=u.username,
+            first_name=u.first_name,
+            last_name=u.last_name,
+            email=u.email,
+            group_names=[g.name for g in (u.groups or []) if g.name != "Administrators"],
+        )
+        for u in users_res.scalars().all()
+        if u.is_effectively_active and not u.is_admin
+    ]
+
+    groups_res = await db.execute(select(Group).order_by(Group.name))
+    available_groups = [
+        ProjectShareTargetGroup(id=g.id, name=g.name, description=g.description)
+        for g in groups_res.scalars().all()
+        if g.name != "Administrators"
+        and (
+            g.expires_at is None
+            or (g.expires_at.replace(tzinfo=None) if g.expires_at.tzinfo else g.expires_at) > now_naive
+        )
+    ]
+
+    return ProjectPermissionsListResponse(
+        project_id=project.id,
+        project_name=project.name,
+        created_by_id=project.created_by_id,
+        created_by_username=creator_username,
+        permissions=entries,
+        available_users=available_users,
+        available_groups=available_groups,
+    )
 
 
 _FAILURE_STATUSES = ("failed", "aborted", "cancelled", "stopped")
@@ -396,16 +665,18 @@ async def compute_subtree_stats(db: AsyncSession, root_id: int) -> _SubtreeRepor
 async def list_projects(
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    current_user: User | None = _require_project_read(),
 ):
     """List all projects with basic stats."""
-    query = select(Project)
+    access_map = await _compute_project_access_map(db, current_user)
+
+    query = select(Project, User.username).outerjoin(User, Project.created_by_id == User.id)
     if status:
         query = query.where(Project.status == status)
     query = query.order_by(Project.updated_at.desc())
 
     result = await db.execute(query)
-    projects = result.scalars().all()
+    project_rows = result.all()
 
     # Direct sub-project counts for every project in one pass (#1264). Counted
     # across all projects rather than the filtered page: a sub-project hidden
@@ -427,7 +698,11 @@ async def list_projects(
     # multi-plate prints contribute every run, not just the source file
     # (#1593). Quick stats and the full stats endpoint must agree.
     response = []
-    for project in projects:
+    for project, creator_username in project_rows:
+        acc = access_map.get(project.id, _ProjectAccess())
+        if not acc.can_read:
+            continue
+
         log_quick_result = await db.execute(
             select(
                 func.count(PrintLogEntry.id).label("archive_count"),
@@ -512,6 +787,11 @@ async def list_projects(
                 archives=archive_previews,
                 url=project.url,
                 cover_image_filename=project.cover_image_filename,
+                created_by_id=project.created_by_id,
+                created_by_username=creator_username,
+                can_read=acc.can_read,
+                can_write=acc.can_write,
+                can_manage=acc.can_manage,
             )
         )
 
@@ -522,7 +802,7 @@ async def list_projects(
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a new project."""
     # Verify parent exists if specified
@@ -532,6 +812,14 @@ async def create_project(
         parent = parent_result.scalar_one_or_none()
         if not parent:
             raise HTTPException(status_code=400, detail="Parent project not found")
+        if current_user is not None and not current_user.is_admin:
+            access_map = await _compute_project_access_map(db, current_user)
+            parent_acc = access_map.get(data.parent_id, _ProjectAccess())
+            if not parent_acc.can_write:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have write permission on the parent project",
+                )
         parent_name = parent.name
 
     project = Project(
@@ -548,6 +836,7 @@ async def create_project(
         budget=data.budget,
         parent_id=data.parent_id,
         url=data.url,
+        created_by_id=current_user.id if current_user else None,
     )
     db.add(project)
     await db.flush()
@@ -580,6 +869,11 @@ async def create_project(
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
+        created_by_id=project.created_by_id,
+        created_by_username=current_user.username if current_user else None,
+        can_read=True,
+        can_write=True,
+        can_manage=True,
     )
 
 
@@ -589,14 +883,23 @@ async def create_project(
 @router.get("/templates", response_model=list[ProjectListResponse])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    current_user: User | None = _require_project_read(),
 ):
     """List all project templates."""
-    result = await db.execute(select(Project).where(Project.is_template.is_(True)).order_by(Project.name))
-    templates = result.scalars().all()
+    access_map = await _compute_project_access_map(db, current_user)
+    result = await db.execute(
+        select(Project, User.username)
+        .outerjoin(User, Project.created_by_id == User.id)
+        .where(Project.is_template.is_(True))
+        .order_by(Project.name)
+    )
+    template_rows = result.all()
 
     response = []
-    for project in templates:
+    for project, creator_username in template_rows:
+        acc = access_map.get(project.id, _ProjectAccess())
+        if not acc.can_read:
+            continue
         # Get archive count
         archive_count_result = await db.execute(
             select(func.count(PrintArchive.id)).where(PrintArchive.project_id == project.id, _LIVE_ARCHIVE)
@@ -624,6 +927,11 @@ async def list_templates(
                 archives=[],
                 url=project.url,
                 cover_image_filename=project.cover_image_filename,
+                created_by_id=project.created_by_id,
+                created_by_username=creator_username,
+                can_read=acc.can_read,
+                can_write=acc.can_write,
+                can_manage=acc.can_manage,
             )
         )
 
@@ -635,7 +943,7 @@ async def create_project_from_template(
     template_id: int,
     name: str = None,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a new project from a template."""
     result = await db.execute(select(Project).where(Project.id == template_id))
@@ -643,6 +951,12 @@ async def create_project_from_template(
 
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    if current_user is not None and not current_user.is_admin:
+        access_map = await _compute_project_access_map(db, current_user)
+        t_acc = access_map.get(template_id, _ProjectAccess())
+        if not t_acc.can_read:
+            raise HTTPException(status_code=404, detail="Template not found")
 
     if not template.is_template:
         raise HTTPException(status_code=400, detail="Project is not a template")
@@ -662,6 +976,7 @@ async def create_project_from_template(
         is_template=False,
         template_source_id=template.id,
         url=template.url,
+        created_by_id=current_user.id if current_user else None,
     )
     db.add(project)
     await db.flush()
@@ -714,6 +1029,11 @@ async def create_project_from_template(
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
+        created_by_id=project.created_by_id,
+        created_by_username=current_user.username if current_user else None,
+        can_read=True,
+        can_write=True,
+        can_manage=True,
     )
 
 
@@ -724,7 +1044,7 @@ async def create_project_from_template(
 async def get_project(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """Get a project by ID with detailed stats."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -732,6 +1052,11 @@ async def get_project(
 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project.id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Get parent name
     parent_name = None
@@ -742,6 +1067,7 @@ async def get_project(
     subtree = await compute_subtree_stats(db, project.id)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)
+    creator_username = await _get_creator_username(db, project.created_by_id)
 
     return ProjectResponse(
         id=project.id,
@@ -766,6 +1092,11 @@ async def get_project(
         parent_name=parent_name,
         children=subtree.child_previews,
         descendant_count=subtree.descendant_count,
+        created_by_id=project.created_by_id,
+        created_by_username=creator_username,
+        can_read=acc.can_read,
+        can_write=acc.can_write,
+        can_manage=acc.can_manage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
@@ -778,7 +1109,7 @@ async def update_project(
     project_id: int,
     data: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Update a project."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -786,6 +1117,11 @@ async def update_project(
 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project.id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Update fields if provided
     if data.name is not None:
@@ -832,6 +1168,9 @@ async def update_project(
             parent_result = await db.execute(select(Project).where(Project.id == data.parent_id))
             if not parent_result.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Parent project not found")
+            parent_acc = access_map.get(data.parent_id, _ProjectAccess())
+            if not parent_acc.can_write:
+                raise HTTPException(status_code=403, detail="You do not have write access to the parent project")
             # Refusing only the project itself left A -> B -> A reachable in two
             # calls, and a cycle has no root to roll figures up to — the walk in
             # ``_descendants_of`` would revisit forever without its seen-set
@@ -854,6 +1193,7 @@ async def update_project(
     subtree = await compute_subtree_stats(db, project.id)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)
+    creator_username = await _get_creator_username(db, project.created_by_id)
 
     return ProjectResponse(
         id=project.id,
@@ -878,6 +1218,11 @@ async def update_project(
         parent_name=parent_name,
         children=subtree.child_previews,
         descendant_count=subtree.descendant_count,
+        created_by_id=project.created_by_id,
+        created_by_username=creator_username,
+        can_read=acc.can_read,
+        can_write=acc.can_write,
+        can_manage=acc.can_manage,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
@@ -889,7 +1234,7 @@ async def update_project(
 async def delete_project(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_DELETE),
+    user: User | None = _require_project_delete(),
 ):
     """Delete a project. Archives and queue items will have project_id set to NULL."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -897,6 +1242,11 @@ async def delete_project(
 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project.id, _ProjectAccess())
+    if not acc.can_delete:
+        raise HTTPException(status_code=403, detail="Only the project owner or an administrator can delete this project")
 
     # Sub-projects move up to the deleted project's own parent rather than
     # being cut loose at the top level, so deleting a middle layer collapses
@@ -909,19 +1259,116 @@ async def delete_project(
     return {"message": "Project deleted"}
 
 
+@router.get("/{project_id}/permissions", response_model=ProjectPermissionsListResponse)
+async def get_project_permissions(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = _require_project_write(),
+):
+    """Get explicit user/group sharing permissions for a project."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project.id, _ProjectAccess())
+    if not acc.can_manage:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner or an administrator can manage project permissions",
+        )
+
+    return await _build_project_permissions_response(db, project)
+
+
+@router.put("/{project_id}/permissions", response_model=ProjectPermissionsListResponse)
+async def update_project_permissions(
+    project_id: int,
+    data: ProjectPermissionsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = _require_project_write(),
+):
+    """Replace explicit user/group sharing permissions on a project."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project.id, _ProjectAccess())
+    if not acc.can_manage:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner or an administrator can manage project permissions",
+        )
+
+    seen_users: set[int] = set()
+    seen_groups: set[int] = set()
+    validated_grants = []
+
+    for grant in data.permissions:
+        if (grant.user_id is None) == (grant.group_id is None):
+            raise HTTPException(
+                status_code=400,
+                detail="Each permission entry must specify either user_id or group_id, not both",
+            )
+        if not grant.can_read and not grant.can_write:
+            continue
+
+        if grant.user_id is not None:
+            if grant.user_id in seen_users:
+                continue
+            seen_users.add(grant.user_id)
+            u_exists = (await db.execute(select(User.id).where(User.id == grant.user_id))).scalar_one_or_none()
+            if u_exists is None:
+                raise HTTPException(status_code=400, detail=f"User {grant.user_id} not found")
+        else:
+            assert grant.group_id is not None
+            if grant.group_id in seen_groups:
+                continue
+            seen_groups.add(grant.group_id)
+            g_exists = (await db.execute(select(Group.id).where(Group.id == grant.group_id))).scalar_one_or_none()
+            if g_exists is None:
+                raise HTTPException(status_code=400, detail=f"Group {grant.group_id} not found")
+
+        validated_grants.append(grant)
+
+    await db.execute(delete(ProjectPermission).where(ProjectPermission.project_id == project_id))
+    for grant in validated_grants:
+        db.add(
+            ProjectPermission(
+                project_id=project_id,
+                user_id=grant.user_id,
+                group_id=grant.group_id,
+                can_read=True if (grant.can_read or grant.can_write) else False,
+                can_write=grant.can_write,
+            )
+        )
+    await db.commit()
+    await db.refresh(project)
+
+    return await _build_project_permissions_response(db, project)
+
+
 @router.get("/{project_id}/archives")
 async def list_project_archives(
     project_id: int,
     limit: int = 100,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """List archives in a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Get archives with both ``project`` and ``created_by`` eagerly loaded.
     # ``archive_to_response`` accesses ``archive.created_by.username`` to
@@ -954,13 +1401,18 @@ async def list_project_archives(
 async def list_project_queue(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """List queue items in a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Get queue items
     query = select(PrintQueueItem).where(PrintQueueItem.project_id == project_id).order_by(PrintQueueItem.position)
@@ -974,7 +1426,7 @@ async def list_project_queue(
 async def get_project_file_progress(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """Completed-run counts per library file inside a project (#1897).
 
@@ -992,6 +1444,11 @@ async def get_project_file_progress(
     result = await db.execute(select(Project.id).where(Project.id == project_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     files_result = await db.execute(
         select(LibraryFile.id, LibraryFile.file_hash, LibraryFile.filename)
@@ -1050,13 +1507,18 @@ async def add_archives_to_project(
     project_id: int,
     data: BatchAddArchives,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Batch add archives to a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Update archives
     updated = 0
@@ -1075,13 +1537,18 @@ async def add_queue_items_to_project(
     project_id: int,
     data: BatchAddQueueItems,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Batch add queue items to a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Update queue items
     updated = 0
@@ -1100,9 +1567,14 @@ async def remove_archives_from_project(
     project_id: int,
     data: BatchAddArchives,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Remove archives from a project (sets project_id to NULL)."""
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
+
     updated = 0
     for archive_id in data.archive_ids:
         result = await db.execute(
@@ -1200,7 +1672,7 @@ async def upload_attachment(
     project_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Upload an attachment to a project."""
     logger.info("=== UPLOAD START: %s for project %s ===", file.filename, project_id)
@@ -1210,6 +1682,11 @@ async def upload_attachment(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Validate file extension
     original_name = file.filename or "unknown"
@@ -1278,7 +1755,7 @@ async def download_attachment(
     project_id: int,
     filename: str,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """Download an attachment from a project."""
     # Validate filename to prevent path traversal
@@ -1290,6 +1767,11 @@ async def download_attachment(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Verify attachment exists in project
     attachments = project.attachments or []
@@ -1316,7 +1798,7 @@ async def delete_attachment(
     project_id: int,
     filename: str,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Delete an attachment from a project."""
     # Validate filename to prevent path traversal
@@ -1328,6 +1810,11 @@ async def delete_attachment(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Find and remove attachment from list
     attachments = project.attachments or []
@@ -1367,7 +1854,7 @@ async def upload_project_cover_image(
     project_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Upload (or replace) the project's cover image (#1155).
 
@@ -1380,6 +1867,11 @@ async def upload_project_cover_image(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     original_name = file.filename or "cover"
     ext = os.path.splitext(original_name)[1].lower()
@@ -1429,7 +1921,7 @@ async def upload_project_cover_image(
 async def get_project_cover_image(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = Depends(require_media_token_permission(Permission.PROJECTS_READ)),
+    user: User | None = Depends(require_media_token_permission(Permission.PROJECTS_READ)),
 ):
     """Stream the project's cover image (#1155).
 
@@ -1440,12 +1932,17 @@ async def get_project_cover_image(
     Gated on ``projects:read`` like every other project route. It used to take
     the camera-stream token, which required ``camera:view`` instead -- an
     unrelated permission that a user could hold without any project access, and
-    that a project reader could easily lack (#3025). Projects carry no
-    ``created_by_id``, so there is no per-row owner to check beyond that."""
+    that a project reader could easily lack (#3025)."""
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
+
     if not project.cover_image_filename:
         raise HTTPException(status_code=404, detail="No cover image set")
 
@@ -1468,13 +1965,18 @@ async def get_project_cover_image(
 async def delete_project_cover_image(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Remove the project's cover image (#1155)."""
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     if project.cover_image_filename:
         file_path = get_project_attachments_dir(project_id) / project.cover_image_filename
@@ -1498,13 +2000,18 @@ async def delete_project_cover_image(
 async def list_bom_items(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """List all BOM items for a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Get BOM items
     result = await db.execute(
@@ -1550,13 +2057,18 @@ async def create_bom_item(
     project_id: int,
     data: BOMItemCreate,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Add a BOM item to a project."""
     # Verify project exists
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Get max sort order
     max_order_result = await db.execute(
@@ -1610,9 +2122,14 @@ async def update_bom_item(
     item_id: int,
     data: BOMItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Update a BOM item."""
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
+
     result = await db.execute(
         select(ProjectBOMItem).where(
             ProjectBOMItem.id == item_id,
@@ -1674,9 +2191,14 @@ async def delete_bom_item(
     project_id: int,
     item_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_UPDATE),
+    user: User | None = _require_project_write(),
 ):
     """Delete a BOM item."""
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_write:
+        raise HTTPException(status_code=403, detail="You do not have write access to this project")
+
     result = await db.execute(
         select(ProjectBOMItem).where(
             ProjectBOMItem.id == item_id,
@@ -1697,7 +2219,7 @@ async def delete_bom_item(
 async def create_template_from_project(
     project_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Create a template from an existing project."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -1705,6 +2227,11 @@ async def create_template_from_project(
 
     if not source:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Create template
     template = Project(
@@ -1721,6 +2248,7 @@ async def create_template_from_project(
         is_template=True,
         template_source_id=source.id,
         url=source.url,
+        created_by_id=user.id if user else None,
     )
     db.add(template)
     await db.flush()
@@ -1770,6 +2298,11 @@ async def create_template_from_project(
         parent_id=template.parent_id,
         parent_name=None,
         children=[],
+        created_by_id=template.created_by_id,
+        created_by_username=user.username if user else None,
+        can_read=True,
+        can_write=True,
+        can_manage=True,
         created_at=template.created_at,
         updated_at=template.updated_at,
         stats=stats,
@@ -1784,7 +2317,7 @@ async def get_project_timeline(
     project_id: int,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """Get timeline of events for a project."""
     # Verify project exists
@@ -1792,6 +2325,11 @@ async def get_project_timeline(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     events = []
 
@@ -1885,7 +2423,7 @@ async def export_project(
     project_id: int,
     format: str = "zip",  # "zip" (with files) or "json" (metadata only)
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_READ),
+    user: User | None = _require_project_read(),
 ):
     """Export a project. Use format=zip (default) for full export with files, or format=json for metadata only."""
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -1893,6 +2431,11 @@ async def export_project(
 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    access_map = await _compute_project_access_map(db, user)
+    acc = access_map.get(project_id, _ProjectAccess())
+    if not acc.can_read:
+        raise HTTPException(status_code=403, detail="You do not have access to this project")
 
     # Get BOM items
     bom_result = await db.execute(
@@ -2007,7 +2550,7 @@ async def export_project(
 async def import_project(
     data: ProjectImport,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Import a project with optional BOM items and linked folders."""
     # Create the project
@@ -2024,6 +2567,7 @@ async def import_project(
         due_date=data.due_date,
         priority=data.priority,
         budget=data.budget,
+        created_by_id=user.id if user else None,
     )
     db.add(project)
     await db.flush()
@@ -2065,6 +2609,7 @@ async def import_project(
                 is_external=False,
                 external_readonly=False,
                 external_show_hidden=False,
+                created_by_id=user.id if user else None,
             )
             db.add(new_folder)
 
@@ -2095,6 +2640,11 @@ async def import_project(
         parent_id=project.parent_id,
         parent_name=None,
         children=[],
+        created_by_id=project.created_by_id,
+        created_by_username=user.username if user else None,
+        can_read=True,
+        can_write=True,
+        can_manage=True,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
@@ -2105,7 +2655,7 @@ async def import_project(
 async def import_project_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
 ):
     """Import a project from a ZIP or JSON file."""
     if not file.filename:
@@ -2151,6 +2701,7 @@ async def import_project_file(
         due_date=datetime.fromisoformat(data["due_date"]) if data.get("due_date") else None,
         priority=data.get("priority", 0),
         budget=data.get("budget"),
+        created_by_id=user.id if user else None,
     )
     db.add(project)
     await db.flush()
@@ -2205,6 +2756,7 @@ async def import_project_file(
                 is_external=False,
                 external_readonly=False,
                 external_show_hidden=False,
+                created_by_id=user.id if user else None,
             )
             db.add(folder)
             await db.flush()
@@ -2258,6 +2810,7 @@ async def import_project_file(
                 file_type=file_type,
                 file_size=len(file_content),
                 is_external=False,
+                created_by_id=user.id if user else None,
             )
             db.add(lib_file)
 
@@ -2288,6 +2841,11 @@ async def import_project_file(
         parent_id=project.parent_id,
         parent_name=None,
         children=[],
+        created_by_id=project.created_by_id,
+        created_by_username=user.username if user else None,
+        can_read=True,
+        can_write=True,
+        can_manage=True,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,

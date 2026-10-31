@@ -1110,6 +1110,11 @@ export interface Project {
   parent_name: string | null;
   children: ProjectChildPreview[];
   descendant_count: number;  // Sub-projects at any depth beneath this one (#1264)
+  created_by_id?: number | null;
+  created_by_username?: string | null;
+  can_read?: boolean;
+  can_write?: boolean;
+  can_manage?: boolean;
   created_at: string;
   updated_at: string;
   stats?: ProjectStats;
@@ -1164,9 +1169,59 @@ export interface ProjectListItem {
   progress_percent: number | null;  // Plates progress
   parent_id: number | null;  // #1264 — set when this is a sub-project
   child_count: number;  // #1264 — direct sub-projects only
+  created_by_id?: number | null;
+  created_by_username?: string | null;
+  can_read?: boolean;
+  can_write?: boolean;
+  can_manage?: boolean;
   archives: ArchivePreview[];
   url: string | null;  // #1155
   cover_image_filename: string | null;  // #1155
+}
+
+export interface ProjectPermissionGrant {
+  user_id?: number | null;
+  group_id?: number | null;
+  can_read: boolean;
+  can_write: boolean;
+}
+
+export interface ProjectPermissionEntry {
+  id: number;
+  project_id: number;
+  user_id: number | null;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  group_id: number | null;
+  group_name: string | null;
+  can_read: boolean;
+  can_write: boolean;
+}
+
+export interface ProjectShareTargetUser {
+  id: number;
+  username: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  group_names: string[];
+}
+
+export interface ProjectShareTargetGroup {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
+export interface ProjectPermissionsListResponse {
+  project_id: number;
+  project_name: string;
+  created_by_id: number | null;
+  created_by_username: string | null;
+  permissions: ProjectPermissionEntry[];
+  available_users: ProjectShareTargetUser[];
+  available_groups: ProjectShareTargetGroup[];
 }
 
 export interface ProjectCreate {
@@ -4275,7 +4330,9 @@ export type Permission =
   | 'library:read' | 'library:read_own' | 'library:read_all' | 'library:upload'
   | 'library:update_own' | 'library:update_all' | 'library:delete_own' | 'library:delete_all'
   | 'library:purge'
-  | 'projects:read' | 'projects:create' | 'projects:update' | 'projects:delete'
+  | 'projects:read' | 'projects:read_own' | 'projects:read_all' | 'projects:create'
+  | 'projects:update' | 'projects:update_own' | 'projects:update_all'
+  | 'projects:delete' | 'projects:delete_own' | 'projects:delete_all'
   | 'filaments:read' | 'filaments:create' | 'filaments:update' | 'filaments:delete'
   | 'inventory:read' | 'inventory:create' | 'inventory:update' | 'inventory:delete' | 'inventory:view_assignments'
   | 'inventory:forecast_read' | 'inventory:forecast_write'
@@ -7476,6 +7533,13 @@ export const api = {
     }),
   deleteProject: (id: number) =>
     request<{ message: string }>(`/projects/${id}`, { method: 'DELETE' }),
+  getProjectPermissions: (projectId: number) =>
+    request<ProjectPermissionsListResponse>(`/projects/${projectId}/permissions`),
+  updateProjectPermissions: (projectId: number, permissions: ProjectPermissionGrant[]) =>
+    request<ProjectPermissionsListResponse>(`/projects/${projectId}/permissions`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    }),
   getProjectArchives: (id: number, limit = 100, offset = 0) =>
     request<Archive[]>(`/projects/${id}/archives?limit=${limit}&offset=${offset}`),
   // Completed-run counts per library file (#1897); files with 0 runs are omitted

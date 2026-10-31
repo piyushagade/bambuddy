@@ -27,7 +27,7 @@ from backend.app.models.print_batch import PrintBatch, PrintBatchPlate
 from backend.app.models.printer import Printer
 from backend.app.models.printer_ha_sensor import PrinterHASensor
 from backend.app.models.printer_sensor_history import PrinterSensorHistory
-from backend.app.models.project import Project
+from backend.app.models.project import Project, ProjectPermission
 from backend.app.models.scheduled_drying import ScheduledDrying
 from backend.app.models.settings import Settings
 from backend.app.models.slicer_pipeline import SlicerPipeline
@@ -61,6 +61,7 @@ __all__ = [
     "NotificationTemplate",
     "NotificationLog",
     "Project",
+    "ProjectPermission",
     "APIKey",
     "AMSSensorHistory",
     "PrinterSensorHistory",

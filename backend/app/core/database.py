@@ -1891,6 +1891,42 @@ async def run_migrations(conn):
             """,
         )
 
+    # Migration: Add created_by_id to projects and create project_permissions table
+    await _safe_execute(
+        conn,
+        "ALTER TABLE projects ADD COLUMN created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    )
+    if is_sqlite():
+        await _safe_execute(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS project_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+                can_read BOOLEAN NOT NULL DEFAULT 1,
+                can_write BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+        )
+    else:
+        await _safe_execute(
+            conn,
+            """
+            CREATE TABLE IF NOT EXISTS project_permissions (
+                id SERIAL PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+                can_read BOOLEAN NOT NULL DEFAULT TRUE,
+                can_write BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+        )
+
     # Migration: Add is_favorite column to print_archives
     await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN is_favorite BOOLEAN DEFAULT 0")
 
@@ -5970,6 +6006,8 @@ async def seed_default_groups():
         "archives:reprint": "archives:reprint_all",
         "library:update": "library:update_all",
         "library:delete": "library:delete_all",
+        "projects:update": "projects:update_all",
+        "projects:delete": "projects:delete_all",
     }
 
     PERMISSION_MIGRATION_OWN = {
@@ -5989,6 +6027,9 @@ async def seed_default_groups():
         "library:update": "library:update_own",
         "library:delete": "library:delete_own",
         "library:read": "library:read_own",
+        "projects:read": "projects:read_own",
+        "projects:update": "projects:update_own",
+        "projects:delete": "projects:delete_own",
     }
 
     FINANCE_PERMISSION_MIGRATION = {
@@ -6066,6 +6107,9 @@ async def seed_default_groups():
                             ("library:update_own", "library:update_all"),
                             ("library:delete_own", "library:delete_all"),
                             ("library:read_own", "library:read_all"),
+                            ("projects:update_own", "projects:update_all"),
+                            ("projects:delete_own", "projects:delete_all"),
+                            ("projects:read_own", "projects:read_all"),
                         ]:
                             # Add *_all if not present
                             if all_perm not in new_permissions:
@@ -6164,7 +6208,7 @@ async def seed_default_groups():
                 continue
             perms = list(grp.permissions)
             changed = False
-            for own_perm in ("archives:read_own", "library:read_own", "queue:read_own"):
+            for own_perm in ("archives:read_own", "library:read_own", "queue:read_own", "projects:read_own"):
                 if own_perm not in perms:
                     perms.append(own_perm)
                     changed = True

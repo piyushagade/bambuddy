@@ -158,7 +158,12 @@ async def _compute_folder_access_map(
     """
     all_rows = (
         await db.execute(
-            select(LibraryFolder.id, LibraryFolder.parent_id, LibraryFolder.created_by_id)
+            select(
+                LibraryFolder.id,
+                LibraryFolder.parent_id,
+                LibraryFolder.created_by_id,
+                LibraryFolder.project_id,
+            )
         )
     ).all()
     if not all_rows:
@@ -167,7 +172,7 @@ async def _compute_folder_access_map(
     if user is None or user.is_admin:
         return {
             fid: _FolderAccess(can_read=True, can_write=True, can_manage=True, visible_in_tree=True)
-            for fid, _, _ in all_rows
+            for fid, _, _, _ in all_rows
         }
 
     # Resolve active (non-expired) groups for this user
@@ -199,21 +204,31 @@ async def _compute_folder_access_map(
         )
     ).all()
 
+    project_access_map = {}
+    if any(proj_id is not None for _, _, _, proj_id in all_rows):
+        from backend.app.api.routes.projects import _compute_project_access_map
+
+        project_access_map = await _compute_project_access_map(db, user)
+
     access_map: dict[int, _FolderAccess] = {}
     parent_by_id: dict[int, int | None] = {}
     children_by_parent: dict[int | None, list[int]] = {}
-    all_ids = {fid for fid, _, _ in all_rows}
+    all_ids = {fid for fid, _, _, _ in all_rows}
 
-    for fid, pid, creator_id in all_rows:
+    for fid, pid, creator_id, proj_id in all_rows:
         effective_pid = pid if pid in all_ids and pid != fid else None
         parent_by_id[fid] = effective_pid
         children_by_parent.setdefault(effective_pid, []).append(fid)
         is_owner = creator_id is not None and creator_id == user.id
+        proj_acc = project_access_map.get(proj_id) if proj_id is not None else None
+        p_read = bool(proj_acc and proj_acc.can_read)
+        p_write = bool(proj_acc and proj_acc.can_write)
+        p_manage = bool(proj_acc and proj_acc.can_manage)
         access_map[fid] = _FolderAccess(
-            can_read=is_owner,
-            can_write=is_owner,
-            can_manage=is_owner,
-            visible_in_tree=is_owner,
+            can_read=is_owner or p_read,
+            can_write=is_owner or p_write,
+            can_manage=is_owner or p_manage,
+            visible_in_tree=is_owner or p_read,
         )
 
     for fid, p_read, p_write in perm_rows:

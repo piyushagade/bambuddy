@@ -1636,7 +1636,13 @@ async def get_archive(
     """Get a specific archive."""
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     # Find duplicates
     makerworld_id = archive.extra_data.get("makerworld_model_id") if archive.extra_data else None
@@ -1672,7 +1678,13 @@ async def get_archive_delete_impact(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
     from backend.app.services.archive import _count_related_queue_items
 
     total, printing = await _count_related_queue_items(db, archive.id)
@@ -1767,16 +1779,41 @@ async def update_archive(
     if not archive:
         raise HTTPException(404, "Archive not found")
 
+    update_payload = update_data.model_dump(exclude_unset=True)
+
+    # Verify write access when linking/unlinking a project
+    if user is not None and not user.is_admin and "project_id" in update_payload:
+        from backend.app.api.routes.projects import _ProjectAccess, _compute_project_access_map
+
+        project_access_map = await _compute_project_access_map(db, user)
+        target_project_id = update_payload["project_id"]
+        if target_project_id is not None:
+            if not project_access_map.get(target_project_id, _ProjectAccess()).can_write:
+                raise HTTPException(403, "You do not have write access to the selected project")
+        if archive.project_id is not None and archive.project_id != target_project_id:
+            if not can_modify_all and archive.created_by_id != user.id:
+                if not project_access_map.get(archive.project_id, _ProjectAccess()).can_write:
+                    raise HTTPException(403, "You do not have write access to remove this archive from its project")
+
     # Ownership check
     if not can_modify_all:
         if archive.created_by_id != user.id:
-            raise HTTPException(403, "You can only update your own archives")
+            # Allow project collaborators with write access to link/unlink project_id
+            allowed_via_project = False
+            if set(update_payload.keys()) == {"project_id"} and user is not None:
+                from backend.app.api.routes.projects import _ProjectAccess, _compute_project_access_map
+
+                project_access_map = await _compute_project_access_map(db, user)
+                check_pid = update_payload["project_id"] or archive.project_id
+                if check_pid is not None and project_access_map.get(check_pid, _ProjectAccess()).can_write:
+                    allowed_via_project = True
+            if not allowed_via_project:
+                raise HTTPException(403, "You can only update your own archives")
 
     # Read before the writes below: the mirror needs to know whether the run's
     # figure was inherited from this archive or measured on its own (#1820).
     previous_filament_grams = archive.filament_used_grams
 
-    update_payload = update_data.model_dump(exclude_unset=True)
     # #1898: how the verdict arrived is recorded with it, never on its own.
     verdict_source = update_payload.pop("user_verdict_source", None)
     for field, value in update_payload.items():
@@ -2138,7 +2175,13 @@ async def get_archive_duplicates(
     """Get duplicates for a specific archive."""
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     makerworld_id = archive.extra_data.get("makerworld_model_id") if archive.extra_data else None
     duplicates = await service.find_duplicates(
@@ -2271,7 +2314,13 @@ async def download_archive(
     """Download the 3MF file."""
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -2303,7 +2352,13 @@ async def download_archive_with_filename(
     """Download the 3MF file with filename in URL."""
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -2396,7 +2451,13 @@ async def get_thumbnail(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
     if not archive.thumbnail_path:
         raise HTTPException(404, "Thumbnail not found")
 
@@ -2632,7 +2693,13 @@ async def get_timelapse(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
     if not archive.timelapse_path:
         raise HTTPException(404, "Timelapse not found")
 
@@ -3115,7 +3182,13 @@ async def get_timelapse_info(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
     if not archive.timelapse_path:
         raise HTTPException(404, "Timelapse not found")
 
@@ -3153,7 +3226,13 @@ async def get_timelapse_thumbnails(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
     if not archive.timelapse_path:
         raise HTTPException(404, "Timelapse not found")
 
@@ -3750,7 +3829,13 @@ async def get_archive_capabilities(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -3982,7 +4067,13 @@ async def get_gcode(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -4039,7 +4130,13 @@ async def get_plate_preview(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -4259,7 +4356,13 @@ async def get_archive_plates(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -4574,7 +4677,13 @@ async def get_plate_thumbnail(
     """
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -4666,7 +4775,13 @@ async def get_filament_requirements(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():
@@ -4965,7 +5080,13 @@ async def get_project_page(
 
     user, can_read_all = auth_result
     service = ArchiveService(db)
-    archive = _ensure_archive_visible(await service.get_archive(archive_id), user, can_read_all)
+    raw_archive = await service.get_archive(archive_id)
+    if not can_read_all and raw_archive and raw_archive.project_id is not None and user is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if await user_can_read_project(db, user, raw_archive.project_id):
+            can_read_all = True
+    archive = _ensure_archive_visible(raw_archive, user, can_read_all)
 
     file_path = settings.base_dir / archive.file_path
     if not file_path.is_file():

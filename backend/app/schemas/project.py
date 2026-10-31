@@ -142,6 +142,11 @@ class ProjectResponse(BaseModel):
     rollup_stats: ProjectStats | None = None
     url: str | None = None
     cover_image_filename: str | None = None
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    can_read: bool = True
+    can_write: bool = True
+    can_manage: bool = False
 
     class Config:
         from_attributes = True
@@ -201,6 +206,11 @@ class ProjectListResponse(BaseModel):
     # #1155: card-level metadata
     url: str | None = None
     cover_image_filename: str | None = None
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    can_read: bool = True
+    can_write: bool = True
+    can_manage: bool = False
 
     class Config:
         from_attributes = True
@@ -333,3 +343,60 @@ class ProjectImport(BaseModel):
     budget: float | None = None
     bom_items: list[BOMItemExport] = []
     linked_folders: list[LinkedFolderExport] = []
+
+
+class ProjectPermissionGrant(BaseModel):
+    """A single user or group permission grant for a project."""
+
+    user_id: int | None = None
+    group_id: int | None = None
+    can_read: bool = True
+    can_write: bool = False
+
+
+class ProjectPermissionEntry(BaseModel):
+    """Schema for returning a project permission entry with resolved user/group names."""
+
+    id: int
+    project_id: int
+    user_id: int | None = None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    group_id: int | None = None
+    group_name: str | None = None
+    can_read: bool
+    can_write: bool
+
+
+class ProjectShareTargetUser(BaseModel):
+    id: int
+    username: str
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    group_names: list[str] = []
+
+
+class ProjectShareTargetGroup(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+
+
+class ProjectPermissionsListResponse(BaseModel):
+    """Full project permissions response including owner and available targets for sharing."""
+
+    project_id: int
+    project_name: str
+    created_by_id: int | None = None
+    created_by_username: str | None = None
+    permissions: list[ProjectPermissionEntry]
+    available_users: list[ProjectShareTargetUser]
+    available_groups: list[ProjectShareTargetGroup]
+
+
+class ProjectPermissionsUpdateRequest(BaseModel):
+    """Replace the explicit ACL entries for a project."""
+
+    permissions: list[ProjectPermissionGrant]

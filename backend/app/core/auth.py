@@ -93,6 +93,8 @@ _APIKEY_SCOPE_BY_PERMISSION: dict[Permission, str | tuple[str, ...]] = {
     Permission.LIBRARY_READ_OWN: "can_read_status",
     Permission.LIBRARY_READ_ALL: "can_read_status",
     Permission.PROJECTS_READ: "can_read_status",
+    Permission.PROJECTS_READ_OWN: "can_read_status",
+    Permission.PROJECTS_READ_ALL: "can_read_status",
     Permission.FILAMENTS_READ: "can_read_status",
     Permission.INVENTORY_READ: "can_read_status",
     Permission.INVENTORY_VIEW_ASSIGNMENTS: "can_read_status",
@@ -205,7 +207,11 @@ _APIKEY_SCOPE_BY_PERMISSION: dict[Permission, str | tuple[str, ...]] = {
     # PROJECTS_READ stays under can_read_status (unchanged).
     Permission.PROJECTS_CREATE: "can_manage_projects",
     Permission.PROJECTS_UPDATE: "can_manage_projects",
+    Permission.PROJECTS_UPDATE_OWN: "can_manage_projects",
+    Permission.PROJECTS_UPDATE_ALL: "can_manage_projects",
     Permission.PROJECTS_DELETE: "can_manage_projects",
+    Permission.PROJECTS_DELETE_OWN: "can_manage_projects",
+    Permission.PROJECTS_DELETE_ALL: "can_manage_projects",
     # can_queue AND can_manage_library — running a pipeline does two things a
     # key is separately trusted with. It slices the source into a new library
     # file (``slice_and_persist``, the same write the direct
@@ -2431,7 +2437,23 @@ def require_media_token_permission(*permissions: str | Permission):
     dependency has, so handlers need no new branch.
     """
     perm_strings = [p.value if isinstance(p, Permission) else p for p in permissions]
-    header_checker = require_permission_if_auth_enabled(*permissions)
+    if perm_strings == [Permission.PROJECTS_READ.value]:
+        header_checker = require_any_permission_if_auth_enabled(
+            Permission.PROJECTS_READ,
+            Permission.PROJECTS_READ_OWN,
+            Permission.PROJECTS_READ_ALL,
+        )
+    else:
+        header_checker = require_permission_if_auth_enabled(*permissions)
+
+    def _has_perm(user: User, p: str) -> bool:
+        if p == Permission.PROJECTS_READ.value:
+            return user.has_any_permission(
+                Permission.PROJECTS_READ.value,
+                Permission.PROJECTS_READ_OWN.value,
+                Permission.PROJECTS_READ_ALL.value,
+            )
+        return user.has_permission(p)
 
     async def checker(
         token: str | None = None,
@@ -2443,7 +2465,7 @@ def require_media_token_permission(*permissions: str | Permission):
                 return None  # Auth disabled, allow access
         if token:
             user = await _user_from_media_token(token)
-            missing = [p for p in perm_strings if not user.has_permission(p)]
+            missing = [p for p in perm_strings if not _has_perm(user, p)]
             if missing:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,

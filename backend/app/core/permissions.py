@@ -67,10 +67,16 @@ class Permission(StrEnum):
     LIBRARY_PURGE = "library:purge"
 
     # Projects
-    PROJECTS_READ = "projects:read"
+    PROJECTS_READ = "projects:read"  # legacy — kept for back-compat with custom roles
+    PROJECTS_READ_OWN = "projects:read_own"
+    PROJECTS_READ_ALL = "projects:read_all"
     PROJECTS_CREATE = "projects:create"
-    PROJECTS_UPDATE = "projects:update"
-    PROJECTS_DELETE = "projects:delete"
+    PROJECTS_UPDATE = "projects:update"  # legacy — kept for back-compat with custom roles
+    PROJECTS_UPDATE_OWN = "projects:update_own"
+    PROJECTS_UPDATE_ALL = "projects:update_all"
+    PROJECTS_DELETE = "projects:delete"  # legacy — kept for back-compat with custom roles
+    PROJECTS_DELETE_OWN = "projects:delete_own"
+    PROJECTS_DELETE_ALL = "projects:delete_all"
 
     # Filaments
     FILAMENTS_READ = "filaments:read"
@@ -248,10 +254,16 @@ PERMISSION_CATEGORIES = {
         Permission.LIBRARY_PURGE,
     ],
     "Projects": [
-        Permission.PROJECTS_READ,
+        Permission.PROJECTS_READ,  # legacy — kept for back-compat with custom roles
+        Permission.PROJECTS_READ_OWN,
+        Permission.PROJECTS_READ_ALL,
         Permission.PROJECTS_CREATE,
-        Permission.PROJECTS_UPDATE,
-        Permission.PROJECTS_DELETE,
+        Permission.PROJECTS_UPDATE,  # legacy — kept for back-compat with custom roles
+        Permission.PROJECTS_UPDATE_OWN,
+        Permission.PROJECTS_UPDATE_ALL,
+        Permission.PROJECTS_DELETE,  # legacy — kept for back-compat with custom roles
+        Permission.PROJECTS_DELETE_OWN,
+        Permission.PROJECTS_DELETE_ALL,
     ],
     "Filaments": [
         Permission.FILAMENTS_READ,
@@ -422,11 +434,11 @@ DEFAULT_GROUPS = {
             # (CLOUD_AUTH) stays admin-only — that one is a more sensitive
             # account binding.
             Permission.ORCA_CLOUD_AUTH.value,
-            # Projects - full access
-            Permission.PROJECTS_READ.value,
+            # Projects - own items
+            Permission.PROJECTS_READ_OWN.value,
             Permission.PROJECTS_CREATE.value,
-            Permission.PROJECTS_UPDATE.value,
-            Permission.PROJECTS_DELETE.value,
+            Permission.PROJECTS_UPDATE_OWN.value,
+            Permission.PROJECTS_DELETE_OWN.value,
             # Filaments - full access
             Permission.FILAMENTS_READ.value,
             Permission.FILAMENTS_CREATE.value,
@@ -501,7 +513,7 @@ DEFAULT_GROUPS = {
             Permission.ARCHIVES_READ_OWN.value,
             Permission.QUEUE_READ_OWN.value,
             Permission.LIBRARY_READ_OWN.value,
-            Permission.PROJECTS_READ.value,
+            Permission.PROJECTS_READ_OWN.value,
             Permission.FILAMENTS_READ.value,
             Permission.INVENTORY_READ.value,
             Permission.INVENTORY_VIEW_ASSIGNMENTS.value,

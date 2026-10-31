@@ -25,12 +25,15 @@ import {
   ExternalLink,
   Image as ImageIcon,
   X,
+  Shield,
+  User,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { ProjectListItem, ProjectCreate, ProjectUpdate, ProjectImport, Permission } from '../api/client';
 import { Button } from '../components/Button';
 import { PageHeader } from '../components/PageHeader';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { ProjectPermissionsModal } from '../components/ProjectPermissionsModal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getCurrencySymbol } from '../utils/currency';
@@ -550,12 +553,13 @@ interface ProjectCardProps {
   parentName?: string;  // #1264 — resolved by the caller, which holds the whole list
   onClick: () => void;
   onEdit: () => void;
+  onShare: () => void;
   onDelete: () => void;
   hasPermission: (permission: Permission) => boolean;
   t: TFunction;
 }
 
-function ProjectCard({ project, parentName, onClick, onEdit, onDelete, hasPermission, t }: ProjectCardProps) {
+function ProjectCard({ project, parentName, onClick, onEdit, onShare, onDelete, hasPermission, t }: ProjectCardProps) {
   // Plates progress: archive_count / target_count
   const platesProgressPercent = project.target_count
     ? Math.round((project.archive_count / project.target_count) * 100)
@@ -567,6 +571,9 @@ function ProjectCard({ project, parentName, onClick, onEdit, onDelete, hasPermis
   const isCompleted = project.status === 'completed';
   const isArchived = project.status === 'archived';
   const [showActions, setShowActions] = useState(false);
+  const canEdit = project.can_write !== false && hasPermission('projects:update');
+  const canManage = project.can_manage !== false && hasPermission('projects:update');
+  const canDelete = project.can_manage !== false && hasPermission('projects:delete');
 
   // Status icon and color
   const getStatusConfig = () => {
@@ -670,6 +677,15 @@ function ProjectCard({ project, parentName, onClick, onEdit, onDelete, hasPermis
                     {project.child_count}
                   </span>
                 )}
+                {project.created_by_username && (
+                  <span
+                    className="text-xs bg-bambu-dark text-bambu-gray px-2 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1"
+                    title={`Owner: @${project.created_by_username}`}
+                  >
+                    <User className="w-3 h-3 text-bambu-green" />
+                    {project.created_by_username}
+                  </span>
+                )}
               </div>
               {parentName && (
                 <p className="text-xs text-bambu-gray mt-1 flex items-center gap-1">
@@ -740,25 +756,36 @@ function ProjectCard({ project, parentName, onClick, onEdit, onDelete, hasPermis
             {showActions && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowActions(false)} />
-                <div className="absolute right-0 top-8 z-20 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl py-1 min-w-[120px]">
+                <div className="absolute right-0 top-8 z-20 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl py-1 min-w-[150px]">
                   <button
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
-                      hasPermission('projects:update') ? 'text-white hover:bg-bambu-dark' : 'text-bambu-gray cursor-not-allowed'
+                      canEdit ? 'text-white hover:bg-bambu-dark' : 'text-bambu-gray cursor-not-allowed'
                     }`}
-                    onClick={() => { if (hasPermission('projects:update')) { onEdit(); setShowActions(false); } }}
-                    disabled={!hasPermission('projects:update')}
-                    title={!hasPermission('projects:update') ? t('projects.noEditPermission') : undefined}
+                    onClick={() => { if (canEdit) { onEdit(); setShowActions(false); } }}
+                    disabled={!canEdit}
+                    title={!canEdit ? t('projects.noEditPermission') : undefined}
                   >
                     <Edit3 className="w-4 h-4" />
                     {t('common.edit')}
                   </button>
                   <button
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
-                      hasPermission('projects:delete') ? 'text-red-600 dark:text-red-400 hover:bg-bambu-dark' : 'text-bambu-gray cursor-not-allowed'
+                      canManage ? 'text-white hover:bg-bambu-dark' : 'text-bambu-gray cursor-not-allowed'
                     }`}
-                    onClick={() => { if (hasPermission('projects:delete')) { onDelete(); setShowActions(false); } }}
-                    disabled={!hasPermission('projects:delete')}
-                    title={!hasPermission('projects:delete') ? t('projects.noDeletePermission') : undefined}
+                    onClick={() => { if (canManage) { onShare(); setShowActions(false); } }}
+                    disabled={!canManage}
+                    title={!canManage ? 'Only the project owner or an administrator can manage project sharing' : undefined}
+                  >
+                    <Shield className="w-4 h-4 text-bambu-green" />
+                    Share / Access
+                  </button>
+                  <button
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
+                      canDelete ? 'text-red-600 dark:text-red-400 hover:bg-bambu-dark' : 'text-bambu-gray cursor-not-allowed'
+                    }`}
+                    onClick={() => { if (canDelete) { onDelete(); setShowActions(false); } }}
+                    disabled={!canDelete}
+                    title={!canDelete ? t('projects.noDeletePermission') : undefined}
                   >
                     <Trash2 className="w-4 h-4" />
                     {t('common.delete')}
@@ -930,6 +957,7 @@ export function ProjectsPage() {
   const { hasPermission } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectListItem | undefined>();
+  const [sharingProject, setSharingProject] = useState<ProjectListItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   // Sub-project groups fold away (#2991). Every sub-project at every depth was
@@ -1023,6 +1051,7 @@ export function ProjectsPage() {
         parentName={depth === 0 && project.parent_id !== null ? namesById.get(project.parent_id) : undefined}
         onClick={() => handleClick(project)}
         onEdit={() => handleEdit(project)}
+        onShare={() => setSharingProject(project)}
         onDelete={() => handleDeleteClick(project.id)}
         hasPermission={hasPermission}
         t={t}
@@ -1403,6 +1432,14 @@ export function ProjectsPage() {
           isLoading={createMutation.isPending || updateMutation.isPending}
           currencySymbol={currencySymbol}
           t={t}
+        />
+      )}
+
+      {/* Share / Permissions Modal */}
+      {sharingProject && (
+        <ProjectPermissionsModal
+          project={{ id: sharingProject.id, name: sharingProject.name }}
+          onClose={() => setSharingProject(null)}
         />
       )}
     </div>

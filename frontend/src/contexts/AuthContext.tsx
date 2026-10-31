@@ -18,7 +18,7 @@ interface AuthContextType {
   hasPermission: (permission: Permission) => boolean;
   hasAnyPermission: (...permissions: Permission[]) => boolean;
   hasAllPermissions: (...permissions: Permission[]) => boolean;
-  canModify: (resource: 'queue' | 'archives' | 'library', action: 'update' | 'delete' | 'reprint', createdById: number | null | undefined) => boolean;
+  canModify: (resource: 'queue' | 'archives' | 'library' | 'projects', action: 'update' | 'delete' | 'reprint', createdById: number | null | undefined) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -223,24 +223,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = useCallback((permission: Permission): boolean => {
     if (!authEnabled) return true; // Auth disabled = allow all
     if (isAdmin) return true; // Admins have all permissions
-    return permissionSet.has(permission);
+    if (permissionSet.has(permission)) return true;
+    // Compatibility for split project permissions
+    if (permission === 'projects:read') {
+      return permissionSet.has('projects:read_own') || permissionSet.has('projects:read_all');
+    }
+    if (permission === 'projects:update') {
+      return permissionSet.has('projects:update_own') || permissionSet.has('projects:update_all');
+    }
+    if (permission === 'projects:delete') {
+      return permissionSet.has('projects:delete_own') || permissionSet.has('projects:delete_all');
+    }
+    return false;
   }, [authEnabled, isAdmin, permissionSet]);
 
   const hasAnyPermission = useCallback((...permissions: Permission[]): boolean => {
     if (!authEnabled) return true;
     if (isAdmin) return true;
-    return permissions.some(p => permissionSet.has(p));
-  }, [authEnabled, isAdmin, permissionSet]);
+    return permissions.some(p => hasPermission(p));
+  }, [authEnabled, isAdmin, hasPermission]);
 
   const hasAllPermissions = useCallback((...permissions: Permission[]): boolean => {
     if (!authEnabled) return true;
     if (isAdmin) return true;
-    return permissions.every(p => permissionSet.has(p));
-  }, [authEnabled, isAdmin, permissionSet]);
+    return permissions.every(p => hasPermission(p));
+  }, [authEnabled, isAdmin, hasPermission]);
 
   // Ownership-based permission check
   const canModify = useCallback((
-    resource: 'queue' | 'archives' | 'library',
+    resource: 'queue' | 'archives' | 'library' | 'projects',
     action: 'update' | 'delete' | 'reprint',
     createdById: number | null | undefined,
   ): boolean => {
