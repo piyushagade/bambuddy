@@ -3984,7 +3984,7 @@ function PrinterCard({
               </div>
             </div>
             {viewMode === 'expanded' && (
-              <div className="grid grid-cols-3 gap-1.5 flex-shrink-0">
+              <div className="grid grid-cols-4 gap-1.5 flex-shrink-0">
                 {/* Connection status badge (or Maintenance pill when out of service).
                     Defensive: only swap when is_active is EXPLICITLY false. An
                     undefined / missing field defaults to "active" so the regular
