@@ -240,8 +240,9 @@ export function Layout() {
       const validIds = new Set(defaultNavItems.map(i => i.id));
       const filtered = orderArr.filter((id: string) => typeof id === 'string' && (validIds.has(id) || isExternalSidebarItemId(id)));
       if (filtered.length > 0) {
-        setSidebarOrder(filtered);
-        saveSidebarOrder(filtered);
+        const withDashboard = filtered.includes('dashboard') ? filtered : ['dashboard', ...filtered];
+        setSidebarOrder(withDashboard);
+        saveSidebarOrder(withDashboard);
         const hiddenIds = Array.isArray(parsed) ? [] : parsed.hiddenSystemItemIds;
         if (Array.isArray(hiddenIds)) {
           const filteredHiddenIds = hiddenIds.filter((id: string) => typeof id === 'string' && validIds.has(id) && id !== 'settings');
