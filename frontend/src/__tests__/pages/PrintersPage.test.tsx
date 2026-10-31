@@ -981,10 +981,10 @@ describe('PrintersPage', () => {
       render(<PrintersPage />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('01.09.00.00').length).toBeGreaterThan(0);
+        expect(screen.getAllByTitle(/01\.09\.00\.00/).length).toBeGreaterThan(0);
       });
 
-      const badge = screen.getAllByText('01.09.00.00')[0].closest('button');
+      const badge = screen.getAllByTitle(/01\.09\.00\.00/)[0].closest('button');
       expect(badge).toBeInTheDocument();
       expect(badge?.className).toContain('text-status-ok');
     });
@@ -1006,10 +1006,10 @@ describe('PrintersPage', () => {
       render(<PrintersPage />);
 
       await waitFor(() => {
-        expect(screen.getAllByText('01.08.00.00').length).toBeGreaterThan(0);
+        expect(screen.getAllByTitle(/01\.08\.00\.00/).length).toBeGreaterThan(0);
       });
 
-      const badge = screen.getAllByText('01.08.00.00')[0].closest('button');
+      const badge = screen.getAllByTitle(/01\.08\.00\.00/)[0].closest('button');
       expect(badge).toBeInTheDocument();
       expect(badge?.className).toContain('text-orange-400');
     });
@@ -1032,8 +1032,8 @@ describe('PrintersPage', () => {
       });
 
       // Version should not appear when firmware check is disabled
-      expect(screen.queryByText('01.09.00.00')).not.toBeInTheDocument();
-      expect(screen.queryByText('01.08.00.00')).not.toBeInTheDocument();
+      expect(screen.queryByTitle(/01\.09\.00\.00/)).not.toBeInTheDocument();
+      expect(screen.queryByTitle(/01\.08\.00\.00/)).not.toBeInTheDocument();
     });
 
     it('never asks for firmware when the check is off, not even before preferences load', async () => {
@@ -1096,7 +1096,7 @@ describe('PrintersPage', () => {
       });
 
       // Badge should not appear when API returns no latest_version
-      expect(screen.queryByText('01.01.03.00')).not.toBeInTheDocument();
+      expect(screen.queryByTitle(/01\.01\.03\.00/)).not.toBeInTheDocument();
     });
   });
 
