@@ -573,7 +573,7 @@ function ProjectCard({ project, parentName, onClick, onEdit, onShare, onDelete, 
   const [showActions, setShowActions] = useState(false);
   const canEdit = project.can_write !== false && hasPermission('projects:update');
   const canManage = project.can_manage !== false && hasPermission('projects:update');
-  const canDelete = project.can_manage !== false && hasPermission('projects:delete');
+  const canDelete = project.can_delete !== false && project.can_manage !== false && hasPermission('projects:delete');
 
   // Status icon and color
   const getStatusConfig = () => {

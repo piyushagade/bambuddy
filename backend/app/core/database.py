@@ -6124,8 +6124,44 @@ async def seed_default_groups():
                                 new_permissions.append(all_perm)
                                 updated = True
 
+                    if group_name == "Operators" and "projects:create" in new_permissions:
+                        new_permissions.remove("projects:create")
+                        updated = True
+                        logger.info("Removed 'projects:create' from group 'Operators'")
+
                     if updated:
                         group.permissions = new_permissions
+
+        # Migrate custom (non-default) groups from legacy flat permissions to *_own
+        for group_name, group in existing_groups.items():
+            if group_name in DEFAULT_GROUPS or not group.permissions:
+                continue
+            updated = False
+            new_permissions = list(group.permissions)
+            for old_perm, new_perm in PERMISSION_MIGRATION_OWN.items():
+                if old_perm in new_permissions:
+                    new_permissions.remove(old_perm)
+                    if new_perm not in new_permissions:
+                        new_permissions.append(new_perm)
+                    updated = True
+                    logger.info(
+                        "Migrated permission '%s' to '%s' in custom group '%s'", old_perm, new_perm, group_name
+                    )
+            for old_perm, new_perm in FINANCE_PERMISSION_MIGRATION.items():
+                if old_perm in new_permissions:
+                    new_permissions.remove(old_perm)
+                    if new_perm not in new_permissions:
+                        new_permissions.append(new_perm)
+                    updated = True
+                    logger.info(
+                        "Migrated permission '%s' to '%s' in custom group '%s'", old_perm, new_perm, group_name
+                    )
+            if group.description == "Auto-created from roster import" and "projects:create" in new_permissions:
+                new_permissions.remove("projects:create")
+                updated = True
+                logger.info("Removed 'projects:create' from roster group '%s'", group_name)
+            if updated:
+                group.permissions = new_permissions
 
         await session.commit()
 

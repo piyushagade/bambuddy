@@ -2136,3 +2136,101 @@ class TestSubProjectRollup:
 
         assert "Wing" not in rows
         assert rows["Airframe"]["child_count"] == 1
+
+
+class TestProjectAccessControl:
+    """Tests for project ownership and user/group ACL isolation."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_non_admin_cannot_see_unshared_project_until_shared(
+        self, async_client: AsyncClient, db_session
+    ):
+        """Non-admin user Sara must not see 'Test Project' created by admin
+        (or pre-existing with created_by_id=None) unless explicitly shared."""
+        from backend.app.core.auth import create_access_token, get_password_hash, invalidate_auth_enabled_cache
+        from backend.app.models.group import Group
+        from backend.app.models.project import Project
+        from backend.app.models.settings import Settings
+        from backend.app.models.user import User
+
+        db_session.add(Settings(key="auth_enabled", value="true"))
+        invalidate_auth_enabled_cache()
+
+        admin_group = Group(
+            name="TestAdmins",
+            permissions=["projects:read_all", "projects:create", "projects:update_all", "projects:delete_all"],
+            is_system=True,
+        )
+        student_group = Group(
+            name="F26 - ABE4042C",
+            permissions=["projects:read", "projects:read_own", "projects:update_own", "projects:delete_own"],
+            is_system=False,
+        )
+        db_session.add_all([admin_group, student_group])
+        await db_session.flush()
+
+        admin_user = User(
+            username="pagade",
+            password_hash=get_password_hash("AdminPass1!"),
+            role="admin",
+            is_active=True,
+            groups=[admin_group],
+        )
+        sara_user = User(
+            username="sara",
+            password_hash=get_password_hash("StudentPass1!"),
+            role="user",
+            is_active=True,
+            groups=[student_group],
+        )
+        db_session.add_all([admin_user, sara_user])
+        await db_session.flush()
+
+        # Legacy project (created_by_id=None) and admin-created project
+        legacy_proj = Project(name="Test Project", color="#EF4444", created_by_id=None)
+        admin_proj = Project(name="Admin Capstone", color="#3B82F6", created_by_id=admin_user.id)
+        db_session.add_all([legacy_proj, admin_proj])
+        await db_session.commit()
+        await db_session.refresh(legacy_proj)
+        await db_session.refresh(admin_proj)
+        legacy_proj_id = legacy_proj.id
+        student_group_id = student_group.id
+
+        admin_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': 'pagade', 'role': 'admin'})}"}
+        sara_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': 'sara', 'role': 'user'})}"}
+
+        # 1. Admin sees both projects
+        admin_list = (await async_client.get("/api/v1/projects/", headers=admin_headers)).json()
+        assert {p["name"] for p in admin_list} == {"Test Project", "Admin Capstone"}
+
+        # 2. Sara sees NO projects before sharing and gets 403 on direct access
+        sara_list = (await async_client.get("/api/v1/projects/", headers=sara_headers)).json()
+        assert sara_list == []
+        sara_direct = await async_client.get(f"/api/v1/projects/{legacy_proj_id}", headers=sara_headers)
+        assert sara_direct.status_code == 403
+
+        # 3. Admin shares 'Test Project' with Sara's group (Read Only)
+        share_resp = await async_client.put(
+            f"/api/v1/projects/{legacy_proj_id}/permissions",
+            headers=admin_headers,
+            json={"permissions": [{"group_id": student_group_id, "can_read": True, "can_write": False}]},
+        )
+        assert share_resp.status_code == 200
+
+        # 4. Now Sara sees 'Test Project' (read-only) and still does NOT see 'Admin Capstone'
+        sara_list_after = (await async_client.get("/api/v1/projects/", headers=sara_headers)).json()
+        assert [p["name"] for p in sara_list_after] == ["Test Project"]
+        assert sara_list_after[0]["can_read"] is True
+        assert sara_list_after[0]["can_write"] is False
+        assert sara_list_after[0]["can_manage"] is False
+        assert sara_list_after[0]["can_delete"] is False
+
+        # Sara cannot edit a read-only shared project
+        sara_edit = await async_client.patch(
+            f"/api/v1/projects/{legacy_proj_id}",
+            headers=sara_headers,
+            json={"description": "Unauthorized edit"},
+        )
+        assert sara_edit.status_code == 403
+

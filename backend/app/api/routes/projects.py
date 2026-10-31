@@ -107,13 +107,11 @@ async def _compute_project_access_map(
 
     Rules:
     - Admins or auth-disabled (`user is None or user.is_admin`) have full access on all projects.
-    - Non-admins have access to a project if:
-      1. They hold `projects:read_all` / `projects:update_all` / `projects:delete_all`
-         (or the legacy flat `projects:read` / `projects:update` / `projects:delete`).
-      2. They created/own the project (`project.created_by_id == user.id`) ->
+    - Non-admins do NOT inherently have access to projects unless:
+      1. They created/own the project (`project.created_by_id == user.id`) ->
          `can_read=True`, and `can_write`/`can_manage`/`can_delete` when holding
-         the corresponding `_own` (or `_all`) permission.
-      3. They or one of their active (non-expired) groups have an explicit
+         the corresponding update/delete permission.
+      2. They or one of their active (non-expired) groups have an explicit
          `ProjectPermission` grant on the project.
     - Top-down inheritance: `can_read`, `can_write`, `can_manage`, and `can_delete`
       propagate downward from parent projects to all descendant sub-projects.
@@ -132,20 +130,16 @@ async def _compute_project_access_map(
             for pid, _, _ in all_rows
         }
 
-    can_read_all = user.has_any_permission(
-        Permission.PROJECTS_READ_ALL.value,
-        Permission.PROJECTS_READ.value,
-    )
-    can_write_all = user.has_any_permission(
+    can_write_own = user.has_any_permission(
+        Permission.PROJECTS_UPDATE_OWN.value,
         Permission.PROJECTS_UPDATE_ALL.value,
         Permission.PROJECTS_UPDATE.value,
     )
-    can_write_own = can_write_all or user.has_permission(Permission.PROJECTS_UPDATE_OWN.value)
-    can_delete_all = user.has_any_permission(
+    can_delete_own = user.has_any_permission(
+        Permission.PROJECTS_DELETE_OWN.value,
         Permission.PROJECTS_DELETE_ALL.value,
         Permission.PROJECTS_DELETE.value,
     )
-    can_delete_own = can_delete_all or user.has_permission(Permission.PROJECTS_DELETE_OWN.value)
 
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     grp_rows = (
@@ -184,10 +178,10 @@ async def _compute_project_access_map(
         children_by_parent.setdefault(effective_parent, []).append(pid)
         is_owner = creator_id is not None and creator_id == user.id
         access_map[pid] = _ProjectAccess(
-            can_read=can_read_all or is_owner,
-            can_write=can_write_all or (is_owner and can_write_own),
-            can_manage=can_write_all or (is_owner and can_write_own),
-            can_delete=can_delete_all or (is_owner and can_delete_own),
+            can_read=is_owner,
+            can_write=is_owner and can_write_own,
+            can_manage=is_owner and can_write_own,
+            can_delete=is_owner and can_delete_own,
         )
 
     for pid, p_read, p_write in perm_rows:
@@ -792,6 +786,7 @@ async def list_projects(
                 can_read=acc.can_read,
                 can_write=acc.can_write,
                 can_manage=acc.can_manage,
+                can_delete=acc.can_delete,
             )
         )
 
@@ -932,6 +927,7 @@ async def list_templates(
                 can_read=acc.can_read,
                 can_write=acc.can_write,
                 can_manage=acc.can_manage,
+                can_delete=acc.can_delete,
             )
         )
 
