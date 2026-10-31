@@ -1311,18 +1311,19 @@ export function DashboardPage() {
                       key={spool.id}
                       className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex flex-col justify-between gap-2"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-inner"
-                            style={{
-                              backgroundColor: spool.rgba
-                                ? `#${spool.rgba.slice(0, 6)}`
-                                : '#888888',
-                            }}
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1 truncate">
+                      {/* Row 1: Color dot + full-width title & weight */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-inner"
+                          style={{
+                            backgroundColor: spool.rgba
+                              ? `#${spool.rgba.slice(0, 6)}`
+                              : '#888888',
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1 min-w-0 truncate">
                               <span className="text-xs font-semibold text-white truncate">
                                 {[spool.brand, spool.material, spool.subtype]
                                   .filter(Boolean)
@@ -1334,17 +1335,52 @@ export function DashboardPage() {
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-bambu-gray">
+                            <div className="flex items-center gap-1 text-[11px] text-bambu-gray shrink-0">
                               <span>
                                 {remaining}g ({pct}%)
                               </span>
                               {isRestricted && (
-                                <span className="inline-flex items-center gap-0.5 text-amber-400">
-                                  · <Lock className="w-2.5 h-2.5" />
+                                <span className="inline-flex items-center text-amber-400">
+                                  <Lock className="w-2.5 h-2.5" />
                                 </span>
                               )}
                             </div>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Row 2: Full-width weight progress bar */}
+                      <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            pct <= 15
+                              ? 'bg-red-500'
+                              : pct <= 30
+                                ? 'bg-amber-500'
+                                : 'bg-bambu-green'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+
+                      {/* Row 3 (Last Row): AMS assignment pill(s) + Load & Edit buttons */}
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          {assignments.length > 0 ? (
+                            assignments.map((a) => (
+                              <span
+                                key={a.id}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30 truncate"
+                              >
+                                <PrinterIcon className="w-2.5 h-2.5 shrink-0" />
+                                {a.printer_name || `#${a.printer_id}`} · {getAmsSlotLabel(a.ams_id, a.tray_id)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-bambu-gray/60">
+                              {spool.storage_location || t('dashboard.spools.unassigned', 'Unloaded')}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
@@ -1372,31 +1408,6 @@ export function DashboardPage() {
                             </button>
                           )}
                         </div>
-                      </div>
-
-                      {/* Compact inline weight bar + loaded slot badge */}
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              pct <= 15
-                                ? 'bg-red-500'
-                                : pct <= 30
-                                  ? 'bg-amber-500'
-                                  : 'bg-bambu-green'
-                            }`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        {assignments.map((a) => (
-                          <span
-                            key={a.id}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-green/15 text-bambu-green border border-bambu-green/30 shrink-0"
-                          >
-                            <PrinterIcon className="w-2.5 h-2.5" />
-                            {a.printer_name || `#${a.printer_id}`} · {getAmsSlotLabel(a.ams_id, a.tray_id)}
-                          </span>
-                        ))}
                       </div>
                     </div>
                   );
