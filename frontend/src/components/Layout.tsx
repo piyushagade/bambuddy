@@ -121,21 +121,36 @@ export function Layout() {
         return;
       }
       showToast(res.message || 'Updating & restarting server...', 'success');
-      // Wait for systemd RestartSec=5 and poll until server responds again, then reload
+      // Wait for systemd RestartSec=5 and poll until server responds again, then clear SW cache and reload
+      const clearCachesAndReload = async () => {
+        try {
+          if ('caches' in window) {
+            const keys = await window.caches.keys();
+            await Promise.all(keys.map((k) => window.caches.delete(k)));
+          }
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.update()));
+          }
+        } catch {
+          // ignore cache cleanup errors
+        }
+        window.location.reload();
+      };
       const start = Date.now();
       const poll = async () => {
         if (Date.now() - start > 45000) {
-          window.location.reload();
+          await clearCachesAndReload();
           return;
         }
         try {
           await api.getVersion();
-          window.location.reload();
+          await clearCachesAndReload();
         } catch {
           setTimeout(poll, 1500);
         }
       };
-      setTimeout(poll, 5500);
+      setTimeout(poll, 6500);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to trigger update';
       showToast(message, 'error');
