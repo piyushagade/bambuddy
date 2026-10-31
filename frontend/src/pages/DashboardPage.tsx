@@ -92,15 +92,7 @@ export function DashboardPage() {
   const { user, isAdmin, authEnabled, hasPermission, hasAnyPermission } = useAuth();
 
   // Admin can switch between 'admin' and 'maker' view to preview or focus
-  const canUseAdminDashboard =
-    isAdmin ||
-    hasAnyPermission(
-      'users:read',
-      'groups:read',
-      'queue:approve',
-      'printers:create',
-      'settings:update',
-    );
+  const canUseAdminDashboard = isAdmin;
   const [dashboardMode, setDashboardMode] = useState<'admin' | 'maker'>(() => {
     const saved = localStorage.getItem('bambuddy_dashboard_mode');
     return saved === 'maker' ? 'maker' : 'admin';
