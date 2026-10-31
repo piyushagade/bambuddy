@@ -493,7 +493,7 @@ export function AssignToAmsModal({
     ? 'fixed inset-0 z-[60] flex items-center justify-center bg-black/45 dark:bg-black/70 p-2 sm:p-4 backdrop-blur-sm animate-fade-in'
     : 'fixed inset-0 z-[60] bg-bambu-dark';
   const dialogClasses = isDialogVariant
-    ? 'bg-bambu-dark-secondary text-white font-sans w-full max-w-3xl h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] max-h-[820px] border border-[var(--border-color)] rounded-xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up'
+    ? 'bg-bambu-dark-secondary text-white font-sans w-full max-w-3xl max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-2rem)] border border-[var(--border-color)] rounded-xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up'
     : 'w-full h-full bg-bambu-dark flex flex-col';
 
   return (
@@ -596,7 +596,7 @@ export function AssignToAmsModal({
 
       <div className="flex-1 min-h-0 flex flex-col">
         {/* AMS slots */}
-        <section className="flex min-h-[18rem] flex-col gap-3 bg-bambu-dark p-4 lg:min-h-0 lg:overflow-y-auto">
+        <section className="flex flex-col gap-3 bg-bambu-dark p-4 overflow-y-auto">
           {showPrinterPicker && (
             <div className="flex items-center gap-2 text-sm font-medium text-white shrink-0">
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-bambu-green text-[11px] font-bold text-[#ffffff]">2</span>
