@@ -158,6 +158,7 @@ import {
   PictureInPicture2,
   ThumbsUp,
   ThumbsDown,
+  Lock,
 } from 'lucide-react';
 import { ConfirmOutcomeDialog } from '../components/ConfirmOutcomeDialog';
 
@@ -3966,6 +3967,15 @@ function PrinterCard({
                     <span className="ml-2 text-bambu-gray">
                       <Clock className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] inline-block mr-1" />
                       {Math.round(maintenanceInfo.total_print_hours)}h
+                    </span>
+                  )}
+                  {((printer.allowed_group_ids?.length ?? 0) > 0 || (printer.allowed_user_ids?.length ?? 0) > 0) && (
+                    <span
+                      className="ml-2 text-amber-400 inline-flex items-center gap-0.5"
+                      title={t('printers.accessControl.restrictedTooltip', 'Restricted to selected groups/users')}
+                    >
+                      <Lock className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] inline-block" />
+                      {viewMode === 'expanded' && <span>{t('printers.accessControl.restricted', 'Restricted')}</span>}
                     </span>
                   )}
                 </p>
@@ -8829,7 +8839,7 @@ function PowerDropdownItem({
   );
 }
 
-export function PrintersPage() {
+export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation();
   const { resolvedMode, darkAccent, lightAccent } = useTheme();
   const activeAccent = resolvedMode === 'dark' ? darkAccent : lightAccent;
@@ -9837,13 +9847,20 @@ export function PrintersPage() {
   );
 
   return (
-    <div className="p-4 md:p-8">
+    <div id="accessible-printers" className={embedded ? '' : 'p-4 md:p-8'}>
       <div className="space-y-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <PrinterIcon className="w-7 h-7 text-bambu-green" />
-            {t('printers.title')}
-          </h1>
+          {embedded ? (
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2.5">
+              <PrinterIcon className="w-5 h-5 text-bambu-green" />
+              {t('dashboard.printers.title', 'Accessible Printers')}
+            </h2>
+          ) : (
+            <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+              <PrinterIcon className="w-7 h-7 text-bambu-green" />
+              {t('printers.title')}
+            </h1>
+          )}
           <StatusSummaryBar printers={printers} />
         </div>
         <div ref={toolbarRef} className="relative flex items-center gap-2">

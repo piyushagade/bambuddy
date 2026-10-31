@@ -13,7 +13,13 @@ export function getSidebarOrder(defaultOrder: string[]): string[] {
   try {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return defaultOrder;
-    const cleaned = parsed.filter((id): id is string => typeof id === 'string');
+    const cleaned = Array.from(
+      new Set(
+        parsed
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => (id === 'printers' ? 'dashboard' : id)),
+      ),
+    );
     if (defaultOrder[0] === 'dashboard' && !cleaned.includes('dashboard')) {
       return ['dashboard', ...cleaned];
     }

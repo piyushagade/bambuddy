@@ -13,7 +13,6 @@ import {
   FileText,
   FolderKanban,
   FolderOpen,
-  Globe,
   Layers,
   LayoutDashboard,
   ListOrdered,
@@ -43,7 +42,6 @@ import {
   type Archive,
   type InventorySpool,
   type LibraryFileListItem,
-  type Printer,
   type PrinterCreate,
   type PrinterStatus,
 } from '../api/client';
@@ -54,7 +52,7 @@ import { Button } from '../components/Button';
 import { SpoolFormModal } from '../components/SpoolFormModal';
 import { AssignToAmsModal } from '../components/spoolbuddy/AssignToAmsModal';
 import { PrintModal } from '../components/PrintModal';
-import { AddPrinterModal, EditPrinterModal } from './PrintersPage';
+import { AddPrinterModal, PrintersPage } from './PrintersPage';
 import { getCurrencySymbol } from '../utils/currency';
 import { parseUTCDate } from '../utils/date';
 
@@ -121,7 +119,6 @@ export function DashboardPage() {
 
   // Modal states
   const [showAddPrinterModal, setShowAddPrinterModal] = useState(false);
-  const [editingPrinter, setEditingPrinter] = useState<Printer | null>(null);
   const [spoolModalState, setSpoolModalState] = useState<{
     open: boolean;
     mode: 'create' | 'edit';
@@ -143,8 +140,14 @@ export function DashboardPage() {
   });
   const currencySymbol = getCurrencySymbol(uiFlags?.currency ?? 'USD');
 
+  const { data: uiPreferences } = useQuery({
+    queryKey: ['ui-preferences'],
+    queryFn: api.getUiPreferences,
+  });
+  const requirePlateClear = uiPreferences?.require_plate_clear === true;
+
   const canReadPrinters = hasPermission('printers:read');
-  const { data: printers = [], isLoading: printersLoading } = useQuery({
+  const { data: printers = [] } = useQuery({
     queryKey: ['printers'],
     queryFn: api.getPrinters,
     enabled: canReadPrinters,
@@ -338,10 +341,10 @@ export function DashboardPage() {
       if (!st) return false;
       const hasHmsError = (st.hms_errors?.length ?? 0) > 0;
       const isPaused = st.state === 'PAUSE';
-      const needsClear = !!st.awaiting_plate_clear;
+      const needsClear = requirePlateClear && !!st.awaiting_plate_clear;
       return hasHmsError || isPaused || needsClear;
     });
-  }, [printers, statusByPrinterId]);
+  }, [printers, statusByPrinterId, requirePlateClear]);
 
   // Low stock spools
   const lowStockSpools = useMemo(() => {
@@ -508,7 +511,7 @@ export function DashboardPage() {
       {/* ── KPI Summary Strip ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <Card
-          onClick={() => navigate('/printers')}
+          onClick={() => document.getElementById('accessible-printers')?.scrollIntoView({ behavior: 'smooth' })}
           className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
         >
           <CardContent className="p-4 flex items-center justify-between">
@@ -890,7 +893,7 @@ export function DashboardPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-white truncate">{p.name}</p>
                               <p className="text-[11px] text-amber-400 truncate">
-                                {st?.awaiting_plate_clear
+                                {requirePlateClear && st?.awaiting_plate_clear
                                   ? t('dashboard.printers.awaitingPlateClear', 'Awaiting plate clear')
                                   : hmsCount > 0
                                     ? `${hmsCount} HMS alert(s)`
@@ -899,7 +902,7 @@ export function DashboardPage() {
                                       : ''}
                               </p>
                             </div>
-                            {st?.awaiting_plate_clear && hasPermission('printers:clear_plate') ? (
+                            {requirePlateClear && st?.awaiting_plate_clear && hasPermission('printers:clear_plate') ? (
                               <button
                                 type="button"
                                 onClick={() => clearPlateMutation.mutate(p.id)}
@@ -909,12 +912,17 @@ export function DashboardPage() {
                                 {t('dashboard.printers.clearPlate', 'Clear Plate')}
                               </button>
                             ) : (
-                              <Link
-                                to="/printers"
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  document
+                                    .getElementById('accessible-printers')
+                                    ?.scrollIntoView({ behavior: 'smooth' })
+                                }
                                 className="text-xs text-bambu-green hover:underline shrink-0"
                               >
                                 {t('common.view', 'View')}
-                              </Link>
+                              </button>
                             )}
                           </div>
                         );
@@ -989,279 +997,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* ── Accessible Printers Section (Point #3) ─────────────────────────── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <PrinterIcon className="w-5 h-5 text-bambu-green" />
-              {t('dashboard.printers.title', 'Accessible Printers')}
-              <span className="text-xs font-normal text-bambu-gray">({printers.length})</span>
-            </h2>
-            <p className="text-xs text-bambu-gray">
-              {t(
-                'dashboard.printers.subtitle',
-                'Live telemetry and availability for printers you are authorized to use.',
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {hasPermission('printers:create') && (
-              <Button size="sm" variant="secondary" onClick={() => setShowAddPrinterModal(true)}>
-                <Plus className="w-3.5 h-3.5" />
-                {t('printers.addPrinter', 'Add Printer')}
-              </Button>
-            )}
-            <Link
-              to="/printers"
-              className="text-xs text-bambu-green hover:underline flex items-center gap-1"
-            >
-              {t('dashboard.printers.openFullView', 'Full Printers View')}
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {printersLoading ? (
-          <div className="flex items-center justify-center py-8 text-bambu-gray gap-2">
-            <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
-            <span>{t('common.loading', 'Loading...')}</span>
-          </div>
-        ) : printers.length === 0 ? (
-          <Card className="border-bambu-dark-tertiary">
-            <CardContent className="p-8 text-center space-y-2">
-              <PrinterIcon className="w-8 h-8 text-bambu-gray mx-auto" />
-              <p className="text-sm text-white font-medium">
-                {t('dashboard.printers.noAccessiblePrinters', 'No accessible printers found')}
-              </p>
-              <p className="text-xs text-bambu-gray max-w-md mx-auto">
-                {t(
-                  'dashboard.printers.noAccessiblePrintersHint',
-                  'Ask an administrator to grant your account or group access to a printer, or add a new printer if you have permission.',
-                )}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {printers.map((printer) => {
-              const status = statusByPrinterId[printer.id];
-              const isConnected = !!status?.connected;
-              const state = status?.state || 'UNKNOWN';
-              const isRestricted =
-                (printer.allowed_group_ids?.length ?? 0) > 0 ||
-                (printer.allowed_user_ids?.length ?? 0) > 0;
-
-              const stateBadge = {
-                label: !printer.is_active
-                  ? t('printers.status.maintenance', 'Maintenance')
-                  : !isConnected
-                    ? t('printers.status.offline', 'Offline')
-                    : state === 'RUNNING'
-                      ? t('printers.status.printing', 'Printing')
-                      : state === 'PAUSE'
-                        ? t('printers.status.paused', 'Paused')
-                        : status?.awaiting_plate_clear
-                          ? t('dashboard.printers.awaitingClear', 'Clear Plate')
-                          : t('printers.status.idle', 'Ready'),
-                className: !printer.is_active
-                  ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                  : !isConnected
-                    ? 'bg-zinc-500/15 text-bambu-gray border-zinc-500/30'
-                    : state === 'RUNNING'
-                      ? 'bg-bambu-green/15 text-bambu-green border-bambu-green/30'
-                      : state === 'PAUSE' || status?.awaiting_plate_clear
-                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                        : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-              };
-
-              // Collect loaded trays (AMS + External)
-              const loadedTrays: Array<{ key: string; type: string; color: string }> = [];
-              for (const ams of status?.ams ?? []) {
-                for (const tray of ams.tray ?? []) {
-                  if (tray.tray_type) {
-                    loadedTrays.push({
-                      key: `ams-${ams.id}-${tray.id}`,
-                      type: tray.tray_type,
-                      color: tray.tray_color ? `#${tray.tray_color.slice(0, 6)}` : '#888888',
-                    });
-                  }
-                }
-              }
-              for (const vt of status?.vt_tray ?? []) {
-                if (vt.tray_type) {
-                  loadedTrays.push({
-                    key: `vt-${vt.id}`,
-                    type: vt.tray_type,
-                    color: vt.tray_color ? `#${vt.tray_color.slice(0, 6)}` : '#888888',
-                  });
-                }
-              }
-
-              return (
-                <Card key={printer.id} className="border-bambu-dark-tertiary flex flex-col">
-                  <CardContent className="p-4 flex-1 flex flex-col justify-between gap-3">
-                    <div className="space-y-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Link
-                              to="/printers"
-                              className="text-base font-semibold text-white hover:text-bambu-green truncate transition-colors"
-                            >
-                              {printer.name}
-                            </Link>
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${stateBadge.className}`}
-                            >
-                              {stateBadge.label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-bambu-gray mt-0.5 flex-wrap">
-                            {printer.model && <span>{printer.model}</span>}
-                            {printer.location && <span>· {printer.location}</span>}
-                            <span
-                              className={`inline-flex items-center gap-1 text-[11px] ${
-                                isRestricted ? 'text-amber-400' : 'text-bambu-gray'
-                              }`}
-                              title={
-                                isRestricted
-                                  ? t(
-                                      'printers.accessControl.restrictedTooltip',
-                                      'Restricted to selected groups/users',
-                                    )
-                                  : t(
-                                      'printers.accessControl.openTooltip',
-                                      'Open access to all makers',
-                                    )
-                              }
-                            >
-                              ·{' '}
-                              {isRestricted ? (
-                                <>
-                                  <Lock className="w-3 h-3" />
-                                  {t('printers.accessControl.restricted', 'Restricted')}
-                                </>
-                              ) : (
-                                <>
-                                  <Globe className="w-3 h-3" />
-                                  {t('printers.accessControl.openAccess', 'Open Access')}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-
-                        {hasPermission('printers:update') && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingPrinter(printer)}
-                            className="p-1.5 rounded-lg text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
-                            title={t('printers.editPrinter', 'Edit Printer & Access')}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Active Print Progress or Idle Summary */}
-                      {isConnected && (state === 'RUNNING' || state === 'PAUSE') ? (
-                        <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-white font-medium truncate">
-                              {status?.subtask_name || status?.gcode_file || 'Printing...'}
-                            </span>
-                            <span className="text-bambu-green font-semibold shrink-0 ml-2">
-                              {Math.round(status?.progress ?? 0)}%
-                            </span>
-                          </div>
-                          <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-bambu-green rounded-full transition-all"
-                              style={{ width: `${Math.min(100, Math.max(0, status?.progress ?? 0))}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-bambu-gray">
-                            <span>
-                              {status?.layer_num != null && status?.total_layers
-                                ? `Layer ${status.layer_num}/${status.total_layers}`
-                                : ''}
-                            </span>
-                            {status?.remaining_time != null && status.remaining_time > 0 && (
-                              <span>{formatDurationMinutes(status.remaining_time)} left</span>
-                            )}
-                          </div>
-                        </div>
-                      ) : status?.awaiting_plate_clear ? (
-                        <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2">
-                          <span className="text-xs text-amber-300">
-                            {t(
-                              'dashboard.printers.plateNeedsClearing',
-                              'Finished print — confirm plate is cleared for next job.',
-                            )}
-                          </span>
-                          {hasPermission('printers:clear_plate') && (
-                            <Button
-                              size="sm"
-                              onClick={() => clearPlateMutation.mutate(printer.id)}
-                              disabled={clearPlateMutation.isPending}
-                            >
-                              {t('dashboard.printers.clearPlate', 'Clear Plate')}
-                            </Button>
-                          )}
-                        </div>
-                      ) : null}
-
-                      {/* Loaded Filaments Strip */}
-                      {loadedTrays.length > 0 && (
-                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                          <span className="text-[11px] text-bambu-gray mr-1">
-                            {t('dashboard.printers.loadedFilaments', 'Loaded:')}
-                          </span>
-                          {loadedTrays.slice(0, 6).map((tray) => (
-                            <span
-                              key={tray.key}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-bambu-dark border border-bambu-dark-tertiary text-[11px] text-white"
-                            >
-                              <span
-                                className="w-2.5 h-2.5 rounded-full border border-white/20"
-                                style={{ backgroundColor: tray.color }}
-                              />
-                              {tray.type}
-                            </span>
-                          ))}
-                          {loadedTrays.length > 6 && (
-                            <span className="text-[11px] text-bambu-gray">
-                              +{loadedTrays.length - 6}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Card Footer */}
-                    <div className="pt-2 border-t border-bambu-dark-tertiary flex items-center justify-between text-xs text-bambu-gray">
-                      <span>
-                        {isConnected && status?.temperatures?.nozzle != null
-                          ? `Nozzle ${Math.round(status.temperatures.nozzle)}°C · Bed ${Math.round(
-                              status.temperatures.bed ?? 0,
-                            )}°C`
-                          : printer.ip_address}
-                      </span>
-                      <Link
-                        to="/printers"
-                        className="text-bambu-green hover:underline font-medium"
-                      >
-                        {t('dashboard.printers.manage', 'Open Controls →')}
-                      </Link>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      {/* ── Accessible Printers Section (Point #3 — Full Printer Cards & Controls) ── */}
+      <PrintersPage embedded />
 
       {/* ── Main Two-Column Workspace: Projects & Files (Point #1) + Allowed Spools (Point #2) ── */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1848,13 +1585,6 @@ export function DashboardPage() {
           onClose={() => setShowAddPrinterModal(false)}
           onAdd={(data) => addPrinterMutation.mutate(data)}
           existingSerials={printers.map((p) => p.serial_number)}
-        />
-      )}
-
-      {editingPrinter && (
-        <EditPrinterModal
-          printer={editingPrinter}
-          onClose={() => setEditingPrinter(null)}
         />
       )}
 

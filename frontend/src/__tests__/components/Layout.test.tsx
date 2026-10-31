@@ -122,7 +122,7 @@ describe('Layout', () => {
 
     it('hides system nav items stored in sidebar layout preferences', async () => {
       vi.mocked(localStorage.getItem).mockImplementation((key) => {
-        if (key === SIDEBAR_HIDDEN_SYSTEM_ITEMS_KEY) return JSON.stringify(['printers']);
+        if (key === SIDEBAR_HIDDEN_SYSTEM_ITEMS_KEY) return JSON.stringify(['projects']);
         return null;
       });
 
@@ -134,7 +134,7 @@ describe('Layout', () => {
         expect(sidebar?.querySelector('a[href="/inventory"]')).toBeInTheDocument();
       });
 
-      expect(document.querySelector('aside a[href="/printers"]')).toBeNull();
+      expect(document.querySelector('aside a[href="/projects"]')).toBeNull();
       expect(document.querySelector('aside a[href="/"]')).toBeInTheDocument();
     });
 
@@ -148,8 +148,8 @@ describe('Layout', () => {
         http.get('/api/v1/settings/default-sidebar-order', () =>
           HttpResponse.json({
             default_sidebar_order: JSON.stringify({
-              order: ['inventory', 'printers', 'settings'],
-              hiddenSystemItemIds: ['printers'],
+              order: ['inventory', 'projects', 'settings'],
+              hiddenSystemItemIds: ['projects'],
             }),
           }),
         ),
@@ -164,9 +164,9 @@ describe('Layout', () => {
       });
 
       await waitFor(() => {
-        expect(document.querySelector('aside a[href="/printers"]')).toBeNull();
-        expect(localStorage.setItem).toHaveBeenCalledWith(SIDEBAR_ORDER_KEY, JSON.stringify(['inventory', 'printers', 'settings']));
-        expect(localStorage.setItem).toHaveBeenCalledWith(SIDEBAR_HIDDEN_SYSTEM_ITEMS_KEY, JSON.stringify(['printers']));
+        expect(document.querySelector('aside a[href="/projects"]')).toBeNull();
+        expect(localStorage.setItem).toHaveBeenCalledWith(SIDEBAR_ORDER_KEY, JSON.stringify(['dashboard', 'inventory', 'projects', 'settings']));
+        expect(localStorage.setItem).toHaveBeenCalledWith(SIDEBAR_HIDDEN_SYSTEM_ITEMS_KEY, JSON.stringify(['projects']));
       });
     });
   });

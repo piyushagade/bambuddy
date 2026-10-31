@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Printer, Archive, ListOrdered, BarChart3, Cloud, Settings, Sun, Moon, Monitor, ChevronLeft, ChevronRight, Keyboard, Github, ArrowUpCircle, Wrench, FolderKanban, FolderOpen, X, Menu, Info, Plug, Bug, LogOut, Key, Loader2, Disc3, ShieldAlert, Globe, Bell, Receipt, Megaphone, MoreHorizontal, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Archive, ListOrdered, BarChart3, Cloud, Settings, Sun, Moon, Monitor, ChevronLeft, ChevronRight, Keyboard, Github, ArrowUpCircle, Wrench, FolderKanban, FolderOpen, X, Menu, Info, Plug, Bug, LogOut, Key, Loader2, Disc3, ShieldAlert, Globe, Bell, Receipt, Megaphone, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../contexts/ThemeContext';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -43,7 +43,6 @@ interface NavItem {
 
 export const defaultNavItems: NavItem[] = [
   { id: 'dashboard', to: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
-  { id: 'printers', to: '/printers', icon: Printer, labelKey: 'nav.printers' },
   { id: 'inventory', to: '/inventory', icon: Disc3, labelKey: 'nav.inventory' },
   { id: 'archives', to: '/archives', icon: Archive, labelKey: 'nav.archives' },
   { id: 'queue', to: '/queue', icon: ListOrdered, labelKey: 'nav.queue' },
@@ -66,7 +65,8 @@ export const defaultNavItems: NavItem[] = [
 
 // Get default view from localStorage
 export function getDefaultView(): string {
-  return localStorage.getItem('defaultView') || '/';
+  const stored = localStorage.getItem('defaultView') || '/';
+  return stored === '/printers' ? '/' : stored;
 }
 
 // Save default view to localStorage
@@ -943,7 +943,7 @@ export function Layout() {
                 const showArchiveBadge = id === 'archives' && pendingUploadsCount > 0;
                 const badgeCount = showQueueBadge ? pendingQueueCount : showArchiveBadge ? pendingUploadsCount : 0;
                 const showBadge = showQueueBadge || showArchiveBadge;
-                const showClearPlateDot = id === 'printers' && needsClearPlate;
+                const showClearPlateDot = id === 'dashboard' && needsClearPlate;
 
                 return (
                   <li key={id}>
