@@ -14,14 +14,14 @@ export function getSidebarOrder(defaultOrder: string[]): string[] {
     const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return defaultOrder;
     const cleaned = Array.from(
-      new Set(
-        parsed
-          .filter((id): id is string => typeof id === 'string')
-          .map((id) => (id === 'printers' ? 'dashboard' : id)),
-      ),
+      new Set(parsed.filter((id): id is string => typeof id === 'string')),
     );
     if (defaultOrder[0] === 'dashboard' && !cleaned.includes('dashboard')) {
-      return ['dashboard', ...cleaned];
+      cleaned.unshift('dashboard');
+    }
+    if (defaultOrder.includes('printers') && !cleaned.includes('printers')) {
+      const dashIdx = cleaned.indexOf('dashboard');
+      cleaned.splice(dashIdx >= 0 ? dashIdx + 1 : 0, 0, 'printers');
     }
     return cleaned;
   } catch {

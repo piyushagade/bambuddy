@@ -153,6 +153,8 @@ import {
   ScanEye,
   LineChart as LineChartIcon,
   LayoutGrid,
+  TableProperties,
+  ArrowUpDown,
   MonitorPlay,
   ExternalLink,
   PictureInPicture2,
@@ -8839,7 +8841,555 @@ function PowerDropdownItem({
   );
 }
 
-export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) {
+function PrinterListRow({
+  printer,
+  hideIfDisconnected,
+  maintenanceInfo,
+  requirePlateClear,
+  isSelected,
+  onToggleSelect,
+  cameraViewMode,
+  onOpenEmbeddedCamera,
+}: {
+  printer: Printer;
+  hideIfDisconnected: boolean;
+  maintenanceInfo?: PrinterMaintenanceInfo;
+  requirePlateClear?: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: number) => void;
+  cameraViewMode: CameraViewMode;
+  onOpenEmbeddedCamera: (id: number, name: string) => void;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const { hasPermission } = useAuth();
+
+  const { data: status } = useQuery({
+    queryKey: ['printerStatus', printer.id],
+    queryFn: () => api.getPrinterStatus(printer.id),
+    refetchInterval: 2000,
+  });
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showPrinterInfo, setShowPrinterInfo] = useState(false);
+  const [showHMSModal, setShowHMSModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false);
+  const [showResumeConfirm, setShowResumeConfirm] = useState(false);
+
+  const stopPrintMutation = useMutation({
+    mutationFn: () => api.stopPrint(printer.id),
+    onSuccess: () => {
+      showToast(t('printers.toast.printStopped'));
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.toast.failedToStopPrint'), 'error'),
+  });
+
+  const pausePrintMutation = useMutation({
+    mutationFn: () => api.pausePrint(printer.id),
+    onSuccess: () => {
+      showToast(t('printers.toast.printPaused'));
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.toast.failedToPausePrint'), 'error'),
+  });
+
+  const resumePrintMutation = useMutation({
+    mutationFn: () => api.resumePrint(printer.id),
+    onSuccess: () => {
+      showToast(t('printers.toast.printResumed'));
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.toast.failedToResumePrint'), 'error'),
+  });
+
+  const clearPlateMutation = useMutation({
+    mutationFn: () => api.clearPlate(printer.id),
+    onSuccess: () => {
+      showToast(t('queue.clearPlateSuccess'));
+      queryClient.setQueryData(['printerStatus', printer.id], (old: PrinterStatus | undefined) =>
+        old ? { ...old, awaiting_plate_clear: false } : old
+      );
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+      queryClient.invalidateQueries({ queryKey: ['queue', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.toast.failedToSendCommand'), 'error'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.deletePrinter(printer.id, false),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['printers'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenanceOverview'] });
+    },
+    onError: (error: Error) => showToast(error.message || t('printers.toast.failedToDelete'), 'error'),
+  });
+
+  const connectMutation = useMutation({
+    mutationFn: () => api.connectPrinter(printer.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+  });
+
+  if (hideIfDisconnected && status && !status.connected) {
+    return null;
+  }
+
+  const hmsErrors = status?.connected && status.hms_errors ? filterKnownHMSErrors(status.hms_errors) : [];
+  const stateBucket = classifyPrinterStatus(status);
+  const isPrintingOrPaused = status?.state === 'RUNNING' || status?.state === 'PAUSE';
+  const showClearPlate = Boolean(requirePlateClear && status?.awaiting_plate_clear && !isPrintingOrPaused);
+  const isRestricted =
+    (printer.allowed_group_ids?.length ?? 0) > 0 ||
+    (printer.allowed_user_ids?.length ?? 0) > 0;
+
+  const statusPillMeta: Record<PrinterState, { label: string; badgeClass: string; dotClass: string }> = {
+    printing: {
+      label: getStatusDisplay(status?.state, status?.stg_cur_name),
+      badgeClass: 'bg-bambu-green/15 text-bambu-green border-bambu-green/30',
+      dotClass: 'bg-bambu-green animate-pulse',
+    },
+    paused: {
+      label: t('printers.status.paused', 'Paused'),
+      badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      dotClass: 'bg-amber-400',
+    },
+    finished: {
+      label: status?.state === 'FAILED' ? t('printers.status.failed', 'Failed') : t('printers.status.finished', 'Finished'),
+      badgeClass: status?.state === 'FAILED'
+        ? 'bg-red-500/15 text-red-400 border-red-500/30'
+        : 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+      dotClass: status?.state === 'FAILED' ? 'bg-red-400' : 'bg-blue-400',
+    },
+    error: {
+      label: t('printers.status.problem', 'Problem'),
+      badgeClass: 'bg-red-500/15 text-red-400 border-red-500/30',
+      dotClass: 'bg-red-500',
+    },
+    idle: {
+      label: t('printers.status.idle', 'Idle'),
+      badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      dotClass: 'bg-emerald-400',
+    },
+    offline: {
+      label: t('printers.status.offline', 'Offline'),
+      badgeClass: 'bg-bambu-dark-tertiary text-bambu-gray border-bambu-dark-tertiary',
+      dotClass: 'bg-gray-400',
+    },
+  };
+
+  const pill = statusPillMeta[stateBucket];
+  const jobName = status?.connected && (status.subtask_name || status.current_print || status.gcode_file)
+    ? formatPrintName(status.subtask_name || status.current_print || null, status.gcode_file, t)
+    : null;
+
+  // Collect loaded AMS / External trays for compact swatch pills
+  const loadedTrays: Array<{ key: string; label: string; type: string; colorHex: string }> = [];
+  if (status?.ams) {
+    for (const ams of status.ams) {
+      const unitLabel = getAmsLabel(ams.id, ams.tray?.length ?? 4);
+      for (const tray of ams.tray || []) {
+        if (tray.tray_type) {
+          const hex = parseFilamentColor(tray.tray_color) || '#888888';
+          loadedTrays.push({
+            key: `ams-${ams.id}-${tray.id}`,
+            label: `${unitLabel} #${tray.id + 1}`,
+            type: tray.tray_sub_brands || tray.tray_type,
+            colorHex: hex,
+          });
+        }
+      }
+    }
+  }
+  if (status?.vt_tray?.tray_type) {
+    const hex = parseFilamentColor(status.vt_tray.tray_color) || '#888888';
+    loadedTrays.push({
+      key: 'vt-tray',
+      label: t('printers.externalSpool', 'Ext'),
+      type: status.vt_tray.tray_sub_brands || status.vt_tray.tray_type,
+      colorHex: hex,
+    });
+  }
+
+  const nozzleTemp = status?.temperatures?.nozzle !== undefined ? Math.round(status.temperatures.nozzle) : null;
+  const nozzle2Temp = status?.temperatures?.nozzle_2 !== undefined ? Math.round(status.temperatures.nozzle_2) : null;
+  const bedTemp = status?.temperatures?.bed !== undefined ? Math.round(status.temperatures.bed) : null;
+  const chamberTemp = status?.temperatures?.chamber !== undefined ? Math.round(status.temperatures.chamber) : null;
+
+  return (
+    <tr
+      className={`border-b border-bambu-dark-tertiary/60 hover:bg-bambu-dark-tertiary/20 transition-colors ${
+        isSelected ? 'bg-bambu-green/10' : ''
+      }`}
+    >
+      {/* Checkbox */}
+      <td className="w-10 px-3 py-3 align-middle">
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer rounded border-bambu-dark-tertiary bg-bambu-dark text-bambu-green focus:ring-bambu-green"
+          checked={isSelected}
+          onChange={() => onToggleSelect(printer.id)}
+          aria-label={printer.name}
+        />
+      </td>
+
+      {/* Printer Name + Image + IP/Serial */}
+      <td className="px-4 py-3 align-middle">
+        <div className="flex items-center gap-3 min-w-[180px]">
+          <img
+            src={getPrinterImage(printer.model)}
+            alt={printer.model || t('common.printer')}
+            className="w-9 h-9 object-contain rounded-lg bg-bambu-dark p-1 border border-bambu-dark-tertiary shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-white text-sm truncate">{printer.name}</span>
+              {isRestricted && (
+                <span
+                  className="inline-flex items-center text-amber-400"
+                  title={t('printers.accessControl.restrictedBadge', 'Restricted to specific groups/users')}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                </span>
+              )}
+              {printer.is_active === false && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium">
+                  {t('printers.maintenance.badge', 'Maintenance')}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-bambu-gray truncate font-mono">
+              {printer.ip_address}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      {/* Model & Nozzle / Hours */}
+      <td className="px-4 py-3 align-middle whitespace-nowrap">
+        <div className="text-sm text-white font-medium">{printer.model || '-'}</div>
+        <div className="text-xs text-bambu-gray flex items-center gap-1.5">
+          {status?.nozzle_diameter && <span>{status.nozzle_diameter}mm</span>}
+          {maintenanceInfo?.total_print_hours !== undefined && (
+            <span>· {Math.round(maintenanceInfo.total_print_hours)}h</span>
+          )}
+        </div>
+      </td>
+
+      {/* Location */}
+      <td className="px-4 py-3 align-middle whitespace-nowrap text-sm text-bambu-gray">
+        {printer.location || '-'}
+      </td>
+
+      {/* Status + HMS + Plate Clear */}
+      <td className="px-4 py-3 align-middle whitespace-nowrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${pill.badgeClass}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${pill.dotClass}`} />
+            {pill.label}
+          </span>
+          {hmsErrors.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowHMSModal(true)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors"
+              title={`${hmsErrors.length} HMS ${hmsErrors.length === 1 ? 'error' : 'errors'}`}
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {hmsErrors.length}
+            </button>
+          )}
+          {showClearPlate && (
+            <button
+              type="button"
+              onClick={() => clearPlateMutation.mutate()}
+              disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-400/40 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+              title={t('printers.plateStatus.markCleared')}
+            >
+              <PlateClearedIcon className="w-3 h-3" />
+              {t('printers.plateStatus.markCleared')}
+            </button>
+          )}
+        </div>
+      </td>
+
+      {/* Current Job & Progress */}
+      <td className="px-4 py-3 align-middle min-w-[200px]">
+        {status?.connected && (isPrintingOrPaused || (status.state === 'FINISH' && jobName)) ? (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-white font-medium truncate max-w-[180px]" title={jobName || undefined}>
+                {jobName || t('printers.printing', 'Printing')}
+              </span>
+              {status.progress != null && (
+                <span className="text-bambu-gray tabular-nums shrink-0">
+                  {Math.round(status.progress)}%
+                </span>
+              )}
+            </div>
+            <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${
+                  status.state === 'PAUSE' ? 'bg-amber-400' : 'bg-bambu-green'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(0, status.progress ?? 0))}%` }}
+              />
+            </div>
+            {isPrintingOrPaused && status.remaining_time != null && status.remaining_time > 0 && (
+              <div className="text-[11px] text-bambu-gray">
+                {formatDuration(status.remaining_time * 60)} {t('common.remaining', 'left')}
+                {status.current_layer != null && status.total_layers != null && status.total_layers > 0 && (
+                  <span> · {status.current_layer}/{status.total_layers}</span>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-bambu-gray/60">
+            {status?.connected ? t('printers.noActiveJob', 'No active job') : '—'}
+          </span>
+        )}
+      </td>
+
+      {/* Temperatures */}
+      <td className="px-4 py-3 align-middle whitespace-nowrap">
+        {status?.connected && nozzleTemp !== null ? (
+          <div className="flex items-center gap-2 text-xs text-bambu-gray tabular-nums">
+            <span title={t('printers.nozzle', 'Nozzle')} className="text-white">
+              {nozzle2Temp !== null ? `${nozzleTemp}°/${nozzle2Temp}°` : `${nozzleTemp}°C`}
+            </span>
+            {bedTemp !== null && (
+              <span title={t('printers.bed', 'Bed')}>
+                · {bedTemp}°C
+              </span>
+            )}
+            {chamberTemp !== null && chamberTemp > 0 && (
+              <span title={t('printers.chamber', 'Chamber')}>
+                · {chamberTemp}°C
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-bambu-gray/60">—</span>
+        )}
+      </td>
+
+      {/* AMS / Loaded Spools */}
+      <td className="px-4 py-3 align-middle">
+        {loadedTrays.length > 0 ? (
+          <div className="flex items-center gap-1 flex-wrap max-w-[220px]">
+            {loadedTrays.slice(0, 6).map((tr) => (
+              <span
+                key={tr.key}
+                title={`${tr.label}: ${tr.type}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[11px] text-white"
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
+                  style={{ backgroundColor: tr.colorHex }}
+                />
+                <span className="truncate max-w-[60px]">{tr.type}</span>
+              </span>
+            ))}
+            {loadedTrays.length > 6 && (
+              <span className="text-[11px] text-bambu-gray">+{loadedTrays.length - 6}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-bambu-gray/60">—</span>
+        )}
+      </td>
+
+      {/* Actions */}
+      <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+        <div className="inline-flex items-center justify-end gap-1">
+          {status?.connected && status.state === 'RUNNING' && hasPermission('printers:control') && (
+            <button
+              type="button"
+              onClick={() => setShowPauseConfirm(true)}
+              className="p-1.5 rounded text-amber-400 hover:bg-bambu-dark-tertiary transition-colors"
+              title={t('printers.pausePrint', 'Pause')}
+            >
+              <Pause className="w-4 h-4" />
+            </button>
+          )}
+          {status?.connected && status.state === 'PAUSE' && hasPermission('printers:control') && (
+            <button
+              type="button"
+              onClick={() => setShowResumeConfirm(true)}
+              className="p-1.5 rounded text-bambu-green hover:bg-bambu-dark-tertiary transition-colors"
+              title={t('printers.resumePrint', 'Resume')}
+            >
+              <Play className="w-4 h-4" />
+            </button>
+          )}
+          {status?.connected && isPrintingOrPaused && hasPermission('printers:control') && (
+            <button
+              type="button"
+              onClick={() => setShowStopConfirm(true)}
+              className="p-1.5 rounded text-red-400 hover:bg-bambu-dark-tertiary transition-colors"
+              title={t('printers.stopPrint', 'Stop')}
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (cameraViewMode === 'embedded') {
+                onOpenEmbeddedCamera(printer.id, printer.name);
+              } else {
+                openCameraWindow(printer.id);
+              }
+            }}
+            disabled={!status?.connected || !hasPermission('camera:view')}
+            className="p-1.5 rounded text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title={t('printers.openCameraWindow', 'Camera')}
+          >
+            <Video className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPrinterInfo(true)}
+            className="p-1.5 rounded text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
+            title={t('printers.printerInformation', 'Printer Info')}
+          >
+            <Info className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => connectMutation.mutate()}
+            className="p-1.5 rounded text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
+            title={t('printers.reconnect', 'Reconnect')}
+          >
+            <RefreshCw className={`w-4 h-4 ${connectMutation.isPending ? 'animate-spin' : ''}`} />
+          </button>
+          {hasPermission('printers:update') && (
+            <button
+              type="button"
+              onClick={() => setShowEditModal(true)}
+              className="p-1.5 rounded text-bambu-gray hover:text-white hover:bg-bambu-dark-tertiary transition-colors"
+              title={t('common.edit', 'Edit')}
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
+          {hasPermission('printers:delete') && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-1.5 rounded text-bambu-gray hover:text-red-400 hover:bg-bambu-dark-tertiary transition-colors"
+              title={t('common.delete', 'Delete')}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Modals rendered via portal so they never sit inside <tr> */}
+        {showEditModal &&
+          createPortal(
+            <EditPrinterModal printer={printer} onClose={() => setShowEditModal(false)} />,
+            document.body,
+          )}
+        {showPrinterInfo &&
+          createPortal(
+            <PrinterInfoModal
+              printer={printer}
+              status={status}
+              totalPrintHours={maintenanceInfo?.total_print_hours}
+              onClose={() => setShowPrinterInfo(false)}
+            />,
+            document.body,
+          )}
+        {showHMSModal &&
+          createPortal(
+            <HMSErrorModal
+              printerName={printer.name}
+              errors={status?.hms_errors || []}
+              onClose={() => setShowHMSModal(false)}
+              printerId={printer.id}
+              hasPermission={hasPermission}
+            />,
+            document.body,
+          )}
+        {showPauseConfirm &&
+          createPortal(
+            <ConfirmModal
+              title={t('printers.confirm.pauseTitle')}
+              message={t('printers.confirm.pauseMessage', { name: printer.name })}
+              confirmText={t('printers.confirm.pauseButton')}
+              variant="default"
+              onConfirm={() => {
+                pausePrintMutation.mutate();
+                setShowPauseConfirm(false);
+              }}
+              onCancel={() => setShowPauseConfirm(false)}
+            />,
+            document.body,
+          )}
+        {showResumeConfirm &&
+          createPortal(
+            <ConfirmModal
+              title={t('printers.confirm.resumeTitle')}
+              message={t('printers.confirm.resumeMessage', { name: printer.name })}
+              confirmText={t('printers.confirm.resumeButton')}
+              variant="default"
+              onConfirm={() => {
+                resumePrintMutation.mutate();
+                setShowResumeConfirm(false);
+              }}
+              onCancel={() => setShowResumeConfirm(false)}
+            />,
+            document.body,
+          )}
+        {showStopConfirm &&
+          createPortal(
+            <ConfirmModal
+              title={t('printers.confirm.stopTitle')}
+              message={t('printers.confirm.stopMessage', { name: printer.name })}
+              confirmText={t('printers.confirm.stopButton')}
+              variant="danger"
+              onConfirm={() => {
+                stopPrintMutation.mutate();
+                setShowStopConfirm(false);
+              }}
+              onCancel={() => setShowStopConfirm(false)}
+            />,
+            document.body,
+          )}
+        {showDeleteConfirm &&
+          createPortal(
+            <ConfirmModal
+              title={t('printers.deletePrinter', 'Delete Printer')}
+              message={t('printers.confirmDelete', { name: printer.name, defaultValue: `Delete printer "${printer.name}"?` })}
+              confirmText={t('common.delete', 'Delete')}
+              variant="danger"
+              onConfirm={() => {
+                deleteMutation.mutate();
+                setShowDeleteConfirm(false);
+              }}
+              onCancel={() => setShowDeleteConfirm(false)}
+            />,
+            document.body,
+          )}
+      </td>
+    </tr>
+  );
+}
+
+export function PrintersPage({
+  embedded = false,
+  defaultPageView = 'cards',
+}: {
+  embedded?: boolean;
+  defaultPageView?: 'cards' | 'list' | 'camwall';
+} = {}) {
   const { t } = useTranslation();
   const { resolvedMode, darkAccent, lightAccent } = useTheme();
   const activeAccent = resolvedMode === 'dark' ? darkAccent : lightAccent;
@@ -8868,9 +9418,14 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
     const saved = localStorage.getItem('printerCardSize');
     return saved ? parseInt(saved, 10) : 2; // Default to medium
   });
-  // Page view: 'cards' = printer cards (default), 'camwall' = grid of live camera tiles
-  const [pageView, setPageView] = useState<'cards' | 'camwall'>(() => {
-    return localStorage.getItem('printerPageView') === 'camwall' ? 'camwall' : 'cards';
+  // Page view: 'cards' = printer cards, 'list' = table/list view, 'camwall' = grid of live camera tiles
+  const pageViewStorageKey = embedded ? 'dashboardPrinterPageView' : 'printerPageView';
+  const [pageView, setPageView] = useState<'cards' | 'list' | 'camwall'>(() => {
+    const saved = localStorage.getItem(pageViewStorageKey);
+    if (saved === 'cards' || saved === 'list' || saved === 'camwall') {
+      return saved;
+    }
+    return defaultPageView;
   });
   // Cam-wall settings — per-user, no backend write (a Pi 4 install caps the
   // live count lower than a NUC; default 4 is the documented Pi 4 ceiling).
@@ -9683,28 +10238,43 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
         </button>
       </div>
 
-      {/* Page view toggle: Cards / Cam Wall */}
+      {/* Page view toggle: Cards / List / Cam Wall */}
       <div className={`flex h-8 items-center bg-bambu-dark rounded-lg border border-bambu-dark-tertiary ${inMenu ? 'w-full' : ''}`}>
         <button
           type="button"
           onClick={() => {
             setPageView('cards');
-            localStorage.setItem('printerPageView', 'cards');
+            localStorage.setItem(pageViewStorageKey, 'cards');
           }}
           className={`flex h-full items-center gap-1 rounded-l-lg px-2 text-xs font-medium transition-colors ${inMenu ? 'flex-1 justify-center' : ''} ${
             pageView === 'cards' ? 'bg-bambu-green text-white' : 'text-white hover:bg-bambu-dark-tertiary'
           }`}
-          title={t('printers.pageView.cards')}
+          title={t('printers.pageView.cards', 'Cards')}
           aria-pressed={pageView === 'cards'}
         >
           <LayoutGrid className="w-3.5 h-3.5" />
-          {inMenu && <span>{t('printers.pageView.cards')}</span>}
+          {inMenu && <span>{t('printers.pageView.cards', 'Cards')}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPageView('list');
+            localStorage.setItem(pageViewStorageKey, 'list');
+          }}
+          className={`flex h-full items-center gap-1 px-2 text-xs font-medium transition-colors ${inMenu ? 'flex-1 justify-center' : ''} ${
+            pageView === 'list' ? 'bg-bambu-green text-white' : 'text-white hover:bg-bambu-dark-tertiary'
+          }`}
+          title={t('printers.pageView.list', 'List')}
+          aria-pressed={pageView === 'list'}
+        >
+          <TableProperties className="w-3.5 h-3.5" />
+          {inMenu && <span>{t('printers.pageView.list', 'List')}</span>}
         </button>
         <button
           type="button"
           onClick={() => {
             setPageView('camwall');
-            localStorage.setItem('printerPageView', 'camwall');
+            localStorage.setItem(pageViewStorageKey, 'camwall');
           }}
           className={`flex h-full items-center gap-1 rounded-r-lg px-2 text-xs font-medium transition-colors ${inMenu ? 'flex-1 justify-center' : ''} ${
             pageView === 'camwall' ? 'bg-bambu-green text-white' : 'text-white hover:bg-bambu-dark-tertiary'
@@ -9733,7 +10303,7 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
       )}
 
       {/* Card size selector */}
-      <div className={`flex h-8 items-center bg-bambu-dark rounded-lg border border-bambu-dark-tertiary ${pageView === 'camwall' ? 'opacity-40 pointer-events-none' : ''} ${inMenu ? 'w-full' : ''}`}>
+      <div className={`flex h-8 items-center bg-bambu-dark rounded-lg border border-bambu-dark-tertiary ${pageView !== 'cards' ? 'opacity-40 pointer-events-none' : ''} ${inMenu ? 'w-full' : ''}`}>
         {cardSizeLabels.map((label, index) => {
           const size = index + 1;
           const isSelected = cardSize === size;
@@ -9851,10 +10421,19 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
       <div className="space-y-3 mb-6">
         <div>
           {embedded ? (
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2.5">
-              <PrinterIcon className="w-5 h-5 text-bambu-green" />
-              {t('printers.title', 'Printers')}
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2.5">
+                <PrinterIcon className="w-5 h-5 text-bambu-green" />
+                {t('printers.title', 'Printers')}
+              </h2>
+              <RouterLink
+                to="/printers"
+                className="text-xs text-bambu-green hover:underline flex items-center gap-1"
+              >
+                {t('printers.viewAllPrinters', 'All Printers')}
+                <ArrowRight className="w-3.5 h-3.5" />
+              </RouterLink>
+            </div>
           ) : (
             <h1 className="text-2xl font-bold text-white flex items-center gap-3">
               <PrinterIcon className="w-7 h-7 text-bambu-green" />
@@ -9972,6 +10551,109 @@ export function PrintersPage({ embedded = false }: { embedded?: boolean } = {}) 
             localStorage.setItem('camWallStatusMode', next);
           }}
         />
+      ) : pageView === 'list' ? (
+        /* List / Table view (Spools-style) */
+        <div className="bg-bambu-dark-secondary rounded-lg overflow-hidden border border-bambu-dark-tertiary">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-bambu-dark-tertiary bg-bambu-dark-tertiary/30">
+                  <th className="w-10 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer rounded border-bambu-dark-tertiary bg-bambu-dark text-bambu-green focus:ring-bambu-green"
+                      aria-label={t('printers.bulk.selectAll')}
+                      checked={
+                        sortedPrinters.length > 0 &&
+                        sortedPrinters.every((p) => selectedPrinterIds.has(p.id))
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          selectAll();
+                        } else {
+                          clearSelection();
+                        }
+                      }}
+                    />
+                  </th>
+                  {(
+                    [
+                      { id: 'name' as const, label: t('printers.sort.name', 'Printer'), sortable: true },
+                      { id: 'model' as const, label: t('printers.sort.model', 'Model'), sortable: true },
+                      { id: 'location' as const, label: t('printers.sort.location', 'Location'), sortable: true },
+                      { id: 'status' as const, label: t('printers.sort.status', 'Status'), sortable: true },
+                      { id: 'eta' as const, label: t('printers.currentJob', 'Current Job / ETA'), sortable: true },
+                    ]
+                  ).map((col) => {
+                    const isActive = sortBy === col.id;
+                    return (
+                      <th
+                        key={col.id}
+                        className={`text-left py-3 px-4 text-xs font-medium uppercase tracking-wide select-none cursor-pointer hover:text-bambu-green transition-colors ${
+                          isActive ? 'text-bambu-green' : 'text-bambu-gray'
+                        }`}
+                        onClick={() => {
+                          if (sortBy === col.id) {
+                            toggleSortDirection();
+                          } else {
+                            handleSortChange(col.id);
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {col.label}
+                          {isActive ? (
+                            sortAsc ? (
+                              <ArrowUp className="w-3 h-3" />
+                            ) : (
+                              <ArrowDown className="w-3 h-3" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-30" />
+                          )}
+                        </span>
+                      </th>
+                    );
+                  })}
+                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
+                    {t('printers.temperatures', 'Temps (N / B / C)')}
+                  </th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
+                    {t('printers.loadedSpools', 'AMS / Filament')}
+                  </th>
+                  <th className="text-right py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
+                    {t('common.actions', 'Actions')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPrinters.map((printer) => (
+                  <PrinterListRow
+                    key={printer.id}
+                    printer={printer}
+                    hideIfDisconnected={hideDisconnected}
+                    maintenanceInfo={maintenanceByPrinter[printer.id]}
+                    requirePlateClear={settings?.require_plate_clear === true}
+                    isSelected={selectedPrinterIds.has(printer.id)}
+                    onToggleSelect={toggleSelect}
+                    cameraViewMode={cameraViewMode}
+                    onOpenEmbeddedCamera={(id, name) =>
+                      setEmbeddedCameraPrinters((prev) => new Map(prev).set(id, { id, name }))
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 bg-bambu-dark-tertiary/50 border-t border-bambu-dark-tertiary text-xs text-bambu-gray">
+            <span>
+              {sortedPrinters.length}{' '}
+              {sortedPrinters.length === 1
+                ? t('common.printer', 'printer')
+                : t('printers.title', 'printers')}
+            </span>
+          </div>
+        </div>
       ) : groupedPrinters ? (
         /* Grouped view (location, status, or model) */
         <div className="space-y-6">

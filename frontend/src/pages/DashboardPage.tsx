@@ -503,7 +503,7 @@ export function DashboardPage() {
       {/* ── KPI Summary Strip ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <Card
-          onClick={() => document.getElementById('accessible-printers')?.scrollIntoView({ behavior: 'smooth' })}
+          onClick={() => navigate('/printers')}
           className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
         >
           <CardContent className="p-4 flex items-center justify-between">
