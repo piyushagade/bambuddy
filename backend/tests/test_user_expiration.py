@@ -570,4 +570,94 @@ async def test_library_folder_permissions_and_ownership(async_client, db_session
     assert shared_node["can_manage"] is False
 
 
+@pytest.mark.asyncio
+async def test_delete_group_with_delete_users_guardrails(
+    async_client: AsyncClient, db_session: AsyncSession
+):
+    """Deleting a group with delete_users=true deletes single-group students
+    while preserving multi-group students and admin users."""
+    _, token = await _create_admin_with_token(db_session)
+    admin_headers = {"Authorization": f"Bearer {token}"}
+
+    # Create two course cohort groups
+    g_fall = (
+        await async_client.post(
+            "/api/v1/groups/",
+            headers=admin_headers,
+            json={"name": "Fall 2026 Cohort", "permissions": ["library:read"]},
+        )
+    ).json()
+    g_spring = (
+        await async_client.post(
+            "/api/v1/groups/",
+            headers=admin_headers,
+            json={"name": "Spring 2027 Cohort", "permissions": ["library:read"]},
+        )
+    ).json()
+
+    # 1. Single-group student (only in Fall 2026 Cohort) -> should be deleted
+    u_single = (
+        await async_client.post(
+            "/api/v1/users/",
+            headers=admin_headers,
+            json={
+                "username": "single_cohort_student",
+                "password": "Password123!",
+                "group_ids": [g_fall["id"]],
+            },
+        )
+    ).json()
+
+    # 2. Multi-group student (in Fall 2026 Cohort AND Spring 2027 Cohort) -> should be preserved
+    u_multi = (
+        await async_client.post(
+            "/api/v1/users/",
+            headers=admin_headers,
+            json={
+                "username": "multi_cohort_student",
+                "password": "Password123!",
+                "group_ids": [g_fall["id"], g_spring["id"]],
+            },
+        )
+    ).json()
+
+    # 3. Admin user who is also in Fall 2026 Cohort -> should be preserved
+    u_admin2 = (
+        await async_client.post(
+            "/api/v1/users/",
+            headers=admin_headers,
+            json={
+                "username": "course_instructor_admin",
+                "password": "Password123!",
+                "role": "admin",
+                "group_ids": [g_fall["id"]],
+            },
+        )
+    ).json()
+
+    # Delete Fall 2026 Cohort with delete_users=true
+    del_resp = await async_client.delete(
+        f"/api/v1/groups/{g_fall['id']}?delete_users=true",
+        headers=admin_headers,
+    )
+    assert del_resp.status_code == 204
+
+    # Verify Fall 2026 Cohort is gone
+    get_group = await async_client.get(f"/api/v1/groups/{g_fall['id']}", headers=admin_headers)
+    assert get_group.status_code == 404
+
+    # Check remaining users
+    users_list = (await async_client.get("/api/v1/users/", headers=admin_headers)).json()
+    remaining_ids = {u["id"] for u in users_list}
+
+    assert u_single["id"] not in remaining_ids, "Single-cohort student should be deleted"
+    assert u_multi["id"] in remaining_ids, "Multi-cohort student should be preserved"
+    assert u_admin2["id"] in remaining_ids, "Admin user should never be deleted via group delete"
+
+    # Verify multi-cohort student still belongs to Spring 2027 Cohort
+    multi_after = next(u for u in users_list if u["id"] == u_multi["id"])
+    assert [g["id"] for g in multi_after["groups"]] == [g_spring["id"]]
+
+
+
 

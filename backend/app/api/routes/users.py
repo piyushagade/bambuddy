@@ -33,7 +33,7 @@ from backend.app.models.connected_app import ConnectedApp, ConnectedAppGrant
 from backend.app.models.enrollment_invite import EnrollmentInvite, _generate_invite_code
 from backend.app.models.finance import CostCenter, CostCenterMember
 from backend.app.models.group import Group
-from backend.app.models.library import LibraryFile
+from backend.app.models.library import LibraryFile, LibraryFolder, LibraryFolderPermission
 from backend.app.models.long_lived_token import LongLivedToken
 from backend.app.models.oidc_provider import UserOIDCLink
 from backend.app.models.print_batch import PrintBatch
@@ -976,6 +976,93 @@ async def get_user_items_count(
     }
 
 
+async def purge_user_account(
+    db: AsyncSession,
+    user: User,
+    *,
+    delete_items: bool = False,
+) -> list[int]:
+    """Delete a user account and clean up all dependent records (SQLite-safe).
+
+    Returns the list of ``LibraryFile.id``s whose photo directories should be
+    removed from disk after the transaction commits.
+    """
+    from sqlalchemy import update as _update
+
+    user_id = user.id
+    # Photo directories of the library rows about to go, resolved while the
+    # rows still exist to say which ids they belong to. Removed after the
+    # commit, so a failed delete leaves the pictures alone (#3077).
+    doomed_library_file_ids: list[int] = []
+    if delete_items:
+        doomed_library_file_ids = list(
+            (await db.execute(select(LibraryFile.id).where(LibraryFile.created_by_id == user_id))).scalars().all()
+        )
+        # Delete all items created by this user
+        await db.execute(delete(PrintArchive).where(PrintArchive.created_by_id == user_id))
+        await db.execute(delete(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id))
+        await db.execute(delete(LibraryFile).where(LibraryFile.created_by_id == user_id))
+        await db.execute(delete(PrintBatch).where(PrintBatch.created_by_id == user_id))
+    else:
+        # Explicitly set created_by_id to NULL for all items (ensures consistent behavior
+        # across different database backends, including SQLite without foreign key support).
+        # PrintBatch carries the same created_by_id FK with ondelete=SET NULL — admin-deleted
+        # users would otherwise leave dangling created_by_id on SQLite (#1295 review nit).
+        await db.execute(_update(PrintArchive).where(PrintArchive.created_by_id == user_id).values(created_by_id=None))
+        await db.execute(
+            _update(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id).values(created_by_id=None)
+        )
+        await db.execute(_update(LibraryFile).where(LibraryFile.created_by_id == user_id).values(created_by_id=None))
+        await db.execute(_update(PrintBatch).where(PrintBatch.created_by_id == user_id).values(created_by_id=None))
+
+    await db.execute(_update(LibraryFolder).where(LibraryFolder.created_by_id == user_id).values(created_by_id=None))
+    await db.execute(delete(LibraryFolderPermission).where(LibraryFolderPermission.user_id == user_id))
+    await db.execute(delete(CostCenterMember).where(CostCenterMember.user_id == user_id))
+    await db.execute(_update(EnrollmentInvite).where(EnrollmentInvite.created_by_id == user_id).values(created_by_id=None))
+
+    # Drop API keys owned by this user. The model declares ON DELETE CASCADE
+    # so Postgres handles this automatically, but SQLite ships with FK
+    # enforcement off (the project's existing pattern — same reason the
+    # blocks above set created_by_id = NULL by hand). Without an explicit
+    # DELETE here, deleting a user on SQLite would leave their API keys
+    # with a dangling user_id and ``_user_from_api_key`` would return None,
+    # silently degrading the keys to anonymous (and locking them out of
+    # /cloud/* — but the rest of the API would still accept them, which is
+    # exactly the orphan-key state the CASCADE was meant to prevent).
+    await db.execute(delete(APIKey).where(APIKey.user_id == user_id))
+
+    # Drop OIDC links, MFA state, and long-lived camera-stream tokens
+    # owned by this user. Same SQLite/FK pattern as APIKey above. Without
+    # these, deleting a user on SQLite leaves:
+    #   - UserOIDCLink: the OIDC callback finds the orphan link, fails to
+    #     resolve the (now missing) user, and falls through to
+    #     "account_inactive" instead of triggering auto_create (#1285).
+    #   - UserTOTP: MFA secrets persist in the DB after the owning user.
+    #   - UserOTPCode: pending email OTP codes linger.
+    #   - LongLivedToken: per-user camera-stream tokens whose secret_hash
+    #     is still valid — verify() would happily match them by lookup
+    #     prefix even though the user is gone.
+    await db.execute(delete(UserOIDCLink).where(UserOIDCLink.user_id == user_id))
+    await db.execute(delete(UserTOTP).where(UserTOTP.user_id == user_id))
+    await db.execute(delete(UserOTPCode).where(UserOTPCode.user_id == user_id))
+    await db.execute(delete(LongLivedToken).where(LongLivedToken.user_id == user_id))
+
+    # Connected apps, same SQLite/FK pattern. A leftover consent row would
+    # skip the consent screen for whoever is next given this user id, and a
+    # code issued in the last minute is keyed by username, not id.
+    await db.execute(delete(ConnectedAppGrant).where(ConnectedAppGrant.user_id == user_id))
+    await db.execute(
+        delete(AuthEphemeralToken).where(
+            AuthEphemeralToken.token_type == TokenType.CONNECT_CODE,
+            func.lower(AuthEphemeralToken.username) == user.username.lower(),
+        )
+    )
+    await db.execute(_update(ConnectedApp).where(ConnectedApp.created_by_id == user_id).values(created_by_id=None))
+
+    await db.delete(user)
+    return doomed_library_file_ids
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
@@ -1026,75 +1113,7 @@ async def delete_user(
             detail="Cannot delete your own account",
         )
 
-    # Photo directories of the library rows about to go, resolved while the
-    # rows still exist to say which ids they belong to. Removed after the
-    # commit, so a failed delete leaves the pictures alone (#3077).
-    doomed_library_file_ids: list[int] = []
-    if delete_items:
-        doomed_library_file_ids = list(
-            (await db.execute(select(LibraryFile.id).where(LibraryFile.created_by_id == user_id))).scalars().all()
-        )
-        # Delete all items created by this user
-        await db.execute(delete(PrintArchive).where(PrintArchive.created_by_id == user_id))
-        await db.execute(delete(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id))
-        await db.execute(delete(LibraryFile).where(LibraryFile.created_by_id == user_id))
-        await db.execute(delete(PrintBatch).where(PrintBatch.created_by_id == user_id))
-    else:
-        # Explicitly set created_by_id to NULL for all items (ensures consistent behavior
-        # across different database backends, including SQLite without foreign key support).
-        # PrintBatch carries the same created_by_id FK with ondelete=SET NULL — admin-deleted
-        # users would otherwise leave dangling created_by_id on SQLite (#1295 review nit).
-        from sqlalchemy import update
-
-        await db.execute(update(PrintArchive).where(PrintArchive.created_by_id == user_id).values(created_by_id=None))
-        await db.execute(
-            update(PrintQueueItem).where(PrintQueueItem.created_by_id == user_id).values(created_by_id=None)
-        )
-        await db.execute(update(LibraryFile).where(LibraryFile.created_by_id == user_id).values(created_by_id=None))
-        await db.execute(update(PrintBatch).where(PrintBatch.created_by_id == user_id).values(created_by_id=None))
-
-    # Drop API keys owned by this user. The model declares ON DELETE CASCADE
-    # so Postgres handles this automatically, but SQLite ships with FK
-    # enforcement off (the project's existing pattern — same reason the
-    # blocks above set created_by_id = NULL by hand). Without an explicit
-    # DELETE here, deleting a user on SQLite would leave their API keys
-    # with a dangling user_id and ``_user_from_api_key`` would return None,
-    # silently degrading the keys to anonymous (and locking them out of
-    # /cloud/* — but the rest of the API would still accept them, which is
-    # exactly the orphan-key state the CASCADE was meant to prevent).
-    await db.execute(delete(APIKey).where(APIKey.user_id == user_id))
-
-    # Drop OIDC links, MFA state, and long-lived camera-stream tokens
-    # owned by this user. Same SQLite/FK pattern as APIKey above. Without
-    # these, deleting a user on SQLite leaves:
-    #   - UserOIDCLink: the OIDC callback finds the orphan link, fails to
-    #     resolve the (now missing) user, and falls through to
-    #     "account_inactive" instead of triggering auto_create (#1285).
-    #   - UserTOTP: MFA secrets persist in the DB after the owning user.
-    #   - UserOTPCode: pending email OTP codes linger.
-    #   - LongLivedToken: per-user camera-stream tokens whose secret_hash
-    #     is still valid — verify() would happily match them by lookup
-    #     prefix even though the user is gone.
-    await db.execute(delete(UserOIDCLink).where(UserOIDCLink.user_id == user_id))
-    await db.execute(delete(UserTOTP).where(UserTOTP.user_id == user_id))
-    await db.execute(delete(UserOTPCode).where(UserOTPCode.user_id == user_id))
-    await db.execute(delete(LongLivedToken).where(LongLivedToken.user_id == user_id))
-
-    # Connected apps, same SQLite/FK pattern. A leftover consent row would
-    # skip the consent screen for whoever is next given this user id, and a
-    # code issued in the last minute is keyed by username, not id.
-    from sqlalchemy import update as _update
-
-    await db.execute(delete(ConnectedAppGrant).where(ConnectedAppGrant.user_id == user_id))
-    await db.execute(
-        delete(AuthEphemeralToken).where(
-            AuthEphemeralToken.token_type == TokenType.CONNECT_CODE,
-            func.lower(AuthEphemeralToken.username) == user.username.lower(),
-        )
-    )
-    await db.execute(_update(ConnectedApp).where(ConnectedApp.created_by_id == user_id).values(created_by_id=None))
-
-    await db.delete(user)
+    doomed_library_file_ids = await purge_user_account(db, user, delete_items=delete_items)
     await db.commit()
 
     for file_id in doomed_library_file_ids:

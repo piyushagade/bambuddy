@@ -4965,10 +4965,15 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
-  deleteGroup: (id: number) =>
-    request<void>(`/groups/${id}`, {
+  deleteGroup: (id: number, options?: { deleteUsers?: boolean; deleteUserItems?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.deleteUsers) params.set('delete_users', 'true');
+    if (options?.deleteUserItems) params.set('delete_user_items', 'true');
+    const qs = params.toString();
+    return request<void>(`/groups/${id}${qs ? `?${qs}` : ''}`, {
       method: 'DELETE',
-    }),
+    });
+  },
   addUserToGroup: (groupId: number, userId: number) =>
     request<void>(`/groups/${groupId}/users/${userId}`, {
       method: 'POST',

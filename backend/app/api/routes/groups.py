@@ -3,10 +3,11 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.api.routes.users import purge_user_account
 from backend.app.core.auth import RequireAdminIfAuthEnabled, RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import (
@@ -14,8 +15,11 @@ from backend.app.core.permissions import (
     PERMISSION_CATEGORIES,
     Permission,
 )
+from backend.app.models.enrollment_invite import EnrollmentInvite
 from backend.app.models.group import Group, user_groups
+from backend.app.models.library import LibraryFolderPermission
 from backend.app.models.user import User
+from backend.app.utils.library_paths import remove_library_photos_dir
 from backend.app.utils.local_time import to_naive_utc
 from backend.app.schemas.group import (
     GroupCreate,
@@ -262,12 +266,30 @@ async def update_group(
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(
     group_id: int,
+    delete_users: bool = Query(
+        False,
+        description="Also delete non-admin users who belong solely to this group",
+    ),
+    delete_user_items: bool = Query(
+        False,
+        description="When delete_users=True, also delete archives, queue items, and library files created by those users",
+    ),
     _admin: User | None = RequireAdminIfAuthEnabled(),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.GROUPS_DELETE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.GROUPS_DELETE),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a group (non-system groups only)."""
-    result = await db.execute(select(Group).where(Group.id == group_id))
+    """Delete a group (non-system groups only).
+
+    If ``delete_users=True``, users whose **sole** group membership is this
+    group (and who are neither admins nor the currently authenticated user)
+    are deleted along with the group. Users who also belong to other groups
+    are kept and simply removed from this group.
+    """
+    result = await db.execute(
+        select(Group)
+        .where(Group.id == group_id)
+        .options(selectinload(Group.users).selectinload(User.groups))
+    )
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(
@@ -281,8 +303,26 @@ async def delete_group(
             detail="Cannot delete system groups",
         )
 
+    doomed_library_file_ids: list[int] = []
+    if delete_users:
+        for member in list(group.users):
+            if member.is_admin:
+                continue
+            if current_user and member.id == current_user.id:
+                continue
+            other_groups = [g for g in member.groups if g.id != group.id]
+            if not other_groups:
+                file_ids = await purge_user_account(db, member, delete_items=delete_user_items)
+                doomed_library_file_ids.extend(file_ids)
+
+    await db.execute(delete(LibraryFolderPermission).where(LibraryFolderPermission.group_id == group_id))
+    await db.execute(update(EnrollmentInvite).where(EnrollmentInvite.group_id == group_id).values(group_id=None))
+
     await db.delete(group)
     await db.commit()
+
+    for file_id in doomed_library_file_ids:
+        remove_library_photos_dir(file_id)
 
 
 @router.post("/{group_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

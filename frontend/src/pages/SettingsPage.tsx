@@ -37,6 +37,7 @@ import { AddNotificationModal } from '../components/AddNotificationModal';
 import { NotificationTemplateEditor } from '../components/NotificationTemplateEditor';
 import { NotificationLogViewer } from '../components/NotificationLogViewer';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { PopupModal } from '../components/PopupModal';
 import { ApiKeyQRCodeModal } from '../components/ApiKeyQRCodeModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
 import { RosterImportModal, EnrollmentInvitesModal, RedeemInviteModal } from '../components/CohortOnboardingModals';
@@ -362,6 +363,8 @@ export function SettingsPage() {
 
   // Group management state
   const [deleteGroupId, setDeleteGroupId] = useState<number | null>(null);
+  const [deleteGroupUsers, setDeleteGroupUsers] = useState(false);
+  const [deleteGroupUserItems, setDeleteGroupUserItems] = useState(false);
 
   // Home Assistant test connection state
   const [haTestResult, setHaTestResult] = useState<{ success: boolean; message: string | null; error: string | null } | null>(null);
@@ -844,10 +847,22 @@ export function SettingsPage() {
   };
 
   const deleteGroupMutation = useMutation({
-    mutationFn: (id: number) => api.deleteGroup(id),
+    mutationFn: ({
+      id,
+      deleteUsers,
+      deleteUserItems,
+    }: {
+      id: number;
+      deleteUsers?: boolean;
+      deleteUserItems?: boolean;
+    }) => api.deleteGroup(id, { deleteUsers, deleteUserItems }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
       showToast(t('settings.toast.groupDeleted'));
+      setDeleteGroupId(null);
+      setDeleteGroupUsers(false);
+      setDeleteGroupUserItems(false);
     },
     onError: (error: Error) => {
       showToast(error.message, 'error');
@@ -7357,204 +7372,28 @@ export function SettingsPage() {
 
       {/* Create User Modal */}
       {showCreateUserModal && !advancedAuthStatus?.advanced_auth_enabled && (
-        <div
-          className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4"
-          onClick={() => {
+        <PopupModal
+          onClose={() => {
             setShowCreateUserModal(false);
+            setCreateUserTab('local');
             setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
           }}
-        >
-          <Card
-            className="w-full max-w-md"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-bambu-green" />
-                  <h2 className="text-lg font-semibold text-white">{t('settings.createUser')}</h2>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowCreateUserModal(false);
-                    setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                  }}
-                >
-                  <X className="w-5 h-5" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {ldapStatus?.ldap_enabled && (
-                <div
-                  className="mb-4 flex items-center gap-1 p-1 bg-bambu-dark-secondary rounded-lg"
-                  role="tablist"
-                  aria-label={t('users.modal.tabsAriaLabel')}
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={createUserTab === 'local'}
-                    onClick={() => setCreateUserTab('local')}
-                    className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
-                      createUserTab === 'local'
-                        ? 'bg-bambu-green/15 text-bambu-green'
-                        : 'text-bambu-gray hover:text-white'
-                    }`}
-                  >
-                    {t('users.modal.localTab')}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={createUserTab === 'ldap'}
-                    onClick={() => setCreateUserTab('ldap')}
-                    className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
-                      createUserTab === 'ldap'
-                        ? 'bg-bambu-green/15 text-bambu-green'
-                        : 'text-bambu-gray hover:text-white'
-                    }`}
-                  >
-                    {t('users.modal.ldapTab')}
-                  </button>
-                </div>
-              )}
-
-              {createUserTab === 'ldap' && ldapStatus?.ldap_enabled ? (
-                <>
-                  <LdapUserPicker
-                    onSuccess={(user) => {
-                      setShowCreateUserModal(false);
-                      setCreateUserTab('local');
-                      setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                      showToast(t('users.toast.ldapProvisioned', { username: user.username }));
-                    }}
-                  />
-                  <div className="mt-6 flex justify-end">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setShowCreateUserModal(false);
-                        setCreateUserTab('local');
-                        setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                      }}
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-              <>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">{t('settings.username')}</label>
-                  <input
-                    type="text"
-                    value={userFormData.username}
-                    onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('settings.enterUsername')}
-                    autoComplete="username"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">First Name</label>
-                    <input
-                      type="text"
-                      value={userFormData.first_name || ''}
-                      onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
-                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                      placeholder="First name"
-                      autoComplete="given-name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">Last Name</label>
-                    <input
-                      type="text"
-                      value={userFormData.last_name || ''}
-                      onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
-                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                      placeholder="Last name"
-                      autoComplete="family-name"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">{t('settings.password')}</label>
-                  <input
-                    type="password"
-                    value={userFormData.password}
-                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('settings.enterPassword')}
-                    autoComplete="new-password"
-                    minLength={8}
-                  />
-                  <p className="text-bambu-gray text-xs mt-1">{t('settings.passwordRequirements')}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">{t('settings.confirmPassword')}</label>
-                  <input
-                    type="password"
-                    value={userFormData.confirmPassword}
-                    onChange={(e) => setUserFormData({ ...userFormData, confirmPassword: e.target.value })}
-                    className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
-                      userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword
-                        ? 'border-red-500'
-                        : 'border-bambu-dark-tertiary'
-                    }`}
-                    placeholder={t('settings.confirmPasswordPlaceholder')}
-                    autoComplete="new-password"
-                    minLength={6}
-                  />
-                  {userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword && (
-                    <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">{t('settings.groups')}</label>
-                  <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg">
-                    {groupsData.map(group => (
-                      <label
-                        key={group.id}
-                        className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-bambu-dark-tertiary cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={userFormData.group_ids.includes(group.id)}
-                          onChange={() => toggleUserGroup(group.id)}
-                          className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
-                        />
-                        <span className="text-sm text-white">{group.name}</span>
-                        {group.is_system && (
-                          <span className="text-xs text-yellow-700 dark:text-yellow-400">{t('settings.systemBadge')}</span>
-                        )}
-                      </label>
-                    ))}
-                    {groupsData.length === 0 && (
-                      <p className="text-sm text-bambu-gray">{t('settings.noGroupsAvailable')}</p>
-                    )}
-                  </div>
-                </div>
-                <UserExpirationField
-                  value={userFormData.expires_at ?? ''}
-                  onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
-                />
-              </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateUserModal(false);
-                    setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                  }}
-                >
-                  {t('common.cancel')}
-                </Button>
+          maxWidth="md"
+          icon={<Users className="w-5 h-5 text-bambu-green" />}
+          title={t('settings.createUser')}
+          footer={
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowCreateUserModal(false);
+                  setCreateUserTab('local');
+                  setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              {!(createUserTab === 'ldap' && ldapStatus?.ldap_enabled) && (
                 <Button
                   onClick={handleCreateUser}
                   disabled={createUserMutation.isPending || !userFormData.username || !userFormData.password || userFormData.password !== userFormData.confirmPassword || checkPasswordComplexity(userFormData.password) !== null}
@@ -7571,12 +7410,155 @@ export function SettingsPage() {
                     </>
                   )}
                 </Button>
-              </div>
-              </>
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          }
+        >
+          {ldapStatus?.ldap_enabled && (
+            <div
+              className="mb-4 flex items-center gap-1 p-1 bg-bambu-dark-secondary rounded-lg"
+              role="tablist"
+              aria-label={t('users.modal.tabsAriaLabel')}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={createUserTab === 'local'}
+                onClick={() => setCreateUserTab('local')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                  createUserTab === 'local'
+                    ? 'bg-bambu-green/15 text-bambu-green'
+                    : 'text-bambu-gray hover:text-white'
+                }`}
+              >
+                {t('users.modal.localTab')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={createUserTab === 'ldap'}
+                onClick={() => setCreateUserTab('ldap')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                  createUserTab === 'ldap'
+                    ? 'bg-bambu-green/15 text-bambu-green'
+                    : 'text-bambu-gray hover:text-white'
+                }`}
+              >
+                {t('users.modal.ldapTab')}
+              </button>
+            </div>
+          )}
+
+          {createUserTab === 'ldap' && ldapStatus?.ldap_enabled ? (
+            <LdapUserPicker
+              onSuccess={(user) => {
+                setShowCreateUserModal(false);
+                setCreateUserTab('local');
+                setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                showToast(t('users.toast.ldapProvisioned', { username: user.username }));
+              }}
+            />
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">{t('settings.username')}</label>
+                <input
+                  type="text"
+                  value={userFormData.username}
+                  onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder={t('settings.enterUsername')}
+                  autoComplete="username"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">First Name</label>
+                  <input
+                    type="text"
+                    value={userFormData.first_name || ''}
+                    onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
+                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                    placeholder="First name"
+                    autoComplete="given-name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">Last Name</label>
+                  <input
+                    type="text"
+                    value={userFormData.last_name || ''}
+                    onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
+                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                    placeholder="Last name"
+                    autoComplete="family-name"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">{t('settings.password')}</label>
+                <input
+                  type="password"
+                  value={userFormData.password}
+                  onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder={t('settings.enterPassword')}
+                  autoComplete="new-password"
+                  minLength={8}
+                />
+                <p className="text-bambu-gray text-xs mt-1">{t('settings.passwordRequirements')}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">{t('settings.confirmPassword')}</label>
+                <input
+                  type="password"
+                  value={userFormData.confirmPassword}
+                  onChange={(e) => setUserFormData({ ...userFormData, confirmPassword: e.target.value })}
+                  className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
+                    userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword
+                      ? 'border-red-500'
+                      : 'border-bambu-dark-tertiary'
+                  }`}
+                  placeholder={t('settings.confirmPasswordPlaceholder')}
+                  autoComplete="new-password"
+                  minLength={6}
+                />
+                {userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword && (
+                  <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">{t('settings.groups')}</label>
+                <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg">
+                  {groupsData.map(group => (
+                    <label
+                      key={group.id}
+                      className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-bambu-dark-tertiary cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={userFormData.group_ids.includes(group.id)}
+                        onChange={() => toggleUserGroup(group.id)}
+                        className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+                      />
+                      <span className="text-sm text-white">{group.name}</span>
+                      {group.is_system && (
+                        <span className="text-xs text-yellow-700 dark:text-yellow-400">{t('settings.systemBadge')}</span>
+                      )}
+                    </label>
+                  ))}
+                  {groupsData.length === 0 && (
+                    <p className="text-sm text-bambu-gray">{t('settings.noGroupsAvailable')}</p>
+                  )}
+                </div>
+              </div>
+              <UserExpirationField
+                value={userFormData.expires_at ?? ''}
+                onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
+              />
+            </div>
+          )}
+        </PopupModal>
       )}
 
       {/* Create User Modal - Advanced Authentication */}
@@ -7603,344 +7585,394 @@ export function SettingsPage() {
 
       {/* Edit User Modal */}
       {showEditUserModal && editingUserId !== null && (
-        <div
-          className="fixed inset-0 bg-black flex items-center justify-center z-50 p-4"
-          onClick={() => {
+        <PopupModal
+          onClose={() => {
             setShowEditUserModal(false);
             setEditingUserId(null);
             setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
           }}
-        >
-          <Card
-            className="w-full max-w-md"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Edit2 className="w-5 h-5 text-bambu-green" />
-                  <h2 className="text-lg font-semibold text-white">{t('settings.editUser')}</h2>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowEditUserModal(false);
-                    setEditingUserId(null);
-                    setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                  }}
-                >
-                  <X className="w-5 h-5" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {/* Username Field */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    {t('settings.username')} {advancedAuthStatus?.advanced_auth_enabled && <span className="text-red-700 dark:text-red-400">*</span>}
-                  </label>
-                  <input
-                    type="text"
-                    value={userFormData.username}
-                    onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('settings.enterUsername')}
-                    autoComplete="username"
-                  />
-                </div>
-
-                {/* First Name & Last Name Fields */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">First Name</label>
-                    <input
-                      type="text"
-                      value={userFormData.first_name || ''}
-                      onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
-                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                      placeholder="First name"
-                      autoComplete="given-name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-2">Last Name</label>
-                    <input
-                      type="text"
-                      value={userFormData.last_name || ''}
-                      onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
-                      className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                      placeholder="Last name"
-                      autoComplete="family-name"
-                    />
-                  </div>
-                </div>
-
-                {/* Email Field */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    {t('users.form.email') || 'Email'} {advancedAuthStatus?.advanced_auth_enabled ? <span className="text-red-700 dark:text-red-400">*</span> : <span className="text-bambu-gray font-normal">({t('users.form.optional') || 'optional'})</span>}
-                  </label>
-                  <input
-                    type="email"
-                    value={userFormData.email}
-                    onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('users.form.emailPlaceholder') || 'user@example.com'}
-                    required={advancedAuthStatus?.advanced_auth_enabled}
-                  />
-                </div>
-
-                {/* Password Fields - only show when Advanced Auth is disabled */}
-                {!advancedAuthStatus?.advanced_auth_enabled && (
+          maxWidth="md"
+          icon={<Edit2 className="w-5 h-5 text-bambu-green" />}
+          title={t('settings.editUser')}
+          footer={
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowEditUserModal(false);
+                  setEditingUserId(null);
+                  setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
+                }}
+              >
+                {t('users.modal.cancel') || 'Cancel'}
+              </Button>
+              <Button
+                onClick={() => handleUpdateUser(editingUserId)}
+                disabled={
+                  updateUserMutation.isPending ||
+                  !userFormData.username ||
+                  (advancedAuthStatus?.advanced_auth_enabled && !userFormData.email) ||
+                  Boolean(!advancedAuthStatus?.advanced_auth_enabled && userFormData.password && (userFormData.password !== userFormData.confirmPassword || checkPasswordComplexity(userFormData.password) !== null))
+                }
+              >
+                {updateUserMutation.isPending ? (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-white mb-2">
-                        {t('users.form.password') || 'Password'} <span className="text-bambu-gray font-normal">({t('users.form.leaveBlankToKeep') || 'leave blank to keep current'})</span>
-                      </label>
-                      <input
-                        type="password"
-                        value={userFormData.password}
-                        onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value, confirmPassword: '' })}
-                        className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                        placeholder={t('settings.enterNewPassword')}
-                        autoComplete="new-password"
-                        minLength={8}
-                      />
-                      <p className="text-bambu-gray text-xs mt-1">{t('settings.passwordRequirements')}</p>
-                    </div>
-                    {userFormData.password && (
-                      <div>
-                        <label className="block text-sm font-medium text-white mb-2">{t('settings.confirmPassword')}</label>
-                        <input
-                          type="password"
-                          value={userFormData.confirmPassword}
-                          onChange={(e) => setUserFormData({ ...userFormData, confirmPassword: e.target.value })}
-                          className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
-                            userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword
-                              ? 'border-red-500'
-                              : 'border-bambu-dark-tertiary'
-                          }`}
-                          placeholder={t('settings.confirmNewPassword')}
-                          autoComplete="new-password"
-                          minLength={6}
-                        />
-                        {userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword && (
-                          <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
-                        )}
-                      </div>
-                    )}
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('users.modal.saving') || 'Saving...'}
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {t('users.modal.saveChanges') || 'Save Changes'}
                   </>
                 )}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            {/* Username Field */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                {t('settings.username')} {advancedAuthStatus?.advanced_auth_enabled && <span className="text-red-700 dark:text-red-400">*</span>}
+              </label>
+              <input
+                type="text"
+                value={userFormData.username}
+                onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
+                className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                placeholder={t('settings.enterUsername')}
+                autoComplete="username"
+              />
+            </div>
 
-                {/* Info box about auto-generated password when Advanced Auth is enabled */}
-                {advancedAuthStatus?.advanced_auth_enabled && (
-                  <div className="bg-bambu-dark-secondary/50 border border-bambu-green/20 rounded-lg p-3 space-y-3">
-                    <p className="text-sm text-bambu-gray">
-                      {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
-                    </p>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => editingUserId && resetPasswordMutation.mutate(editingUserId)}
-                      disabled={resetPasswordMutation.isPending || !userFormData.email}
-                      className="w-full"
-                    >
-                      {resetPasswordMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {t('users.form.resettingPassword') || 'Resetting Password...'}
-                        </>
-                      ) : (
-                        <>
-                          <RotateCcw className="w-4 h-4" />
-                          {t('users.form.resetPassword') || 'Reset Password'}
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
-
-                {/* Groups Field */}
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">{t('users.form.groups') || 'Groups'}</label>
-                  <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg">
-                    {groupsData.map(group => (
-                      <label
-                        key={group.id}
-                        className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-bambu-dark-tertiary cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={userFormData.group_ids.includes(group.id)}
-                          onChange={() => toggleUserGroup(group.id)}
-                          className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
-                        />
-                        <span className="text-sm text-white">{group.name}</span>
-                        {group.is_system && (
-                          <span className="text-xs text-yellow-700 dark:text-yellow-400">({t('users.system') || 'System'})</span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <UserExpirationField
-                  value={userFormData.expires_at ?? ''}
-                  onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
+            {/* First Name & Last Name Fields */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">First Name</label>
+                <input
+                  type="text"
+                  value={userFormData.first_name || ''}
+                  onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder="First name"
+                  autoComplete="given-name"
                 />
               </div>
-              <div className="mt-6 flex justify-end gap-3">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">Last Name</label>
+                <input
+                  type="text"
+                  value={userFormData.last_name || ''}
+                  onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
+                  className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                  placeholder="Last name"
+                  autoComplete="family-name"
+                />
+              </div>
+            </div>
+
+            {/* Email Field */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                {t('users.form.email') || 'Email'} {advancedAuthStatus?.advanced_auth_enabled ? <span className="text-red-700 dark:text-red-400">*</span> : <span className="text-bambu-gray font-normal">({t('users.form.optional') || 'optional'})</span>}
+              </label>
+              <input
+                type="email"
+                value={userFormData.email}
+                onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+                className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                placeholder={t('users.form.emailPlaceholder') || 'user@example.com'}
+                required={advancedAuthStatus?.advanced_auth_enabled}
+              />
+            </div>
+
+            {/* Password Fields - only show when Advanced Auth is disabled */}
+            {!advancedAuthStatus?.advanced_auth_enabled && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-white mb-2">
+                    {t('users.form.password') || 'Password'} <span className="text-bambu-gray font-normal">({t('users.form.leaveBlankToKeep') || 'leave blank to keep current'})</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value, confirmPassword: '' })}
+                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                    placeholder={t('settings.enterNewPassword')}
+                    autoComplete="new-password"
+                    minLength={8}
+                  />
+                  <p className="text-bambu-gray text-xs mt-1">{t('settings.passwordRequirements')}</p>
+                </div>
+                {userFormData.password && (
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-2">{t('settings.confirmPassword')}</label>
+                    <input
+                      type="password"
+                      value={userFormData.confirmPassword}
+                      onChange={(e) => setUserFormData({ ...userFormData, confirmPassword: e.target.value })}
+                      className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
+                        userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword
+                          ? 'border-red-500'
+                          : 'border-bambu-dark-tertiary'
+                      }`}
+                      placeholder={t('settings.confirmNewPassword')}
+                      autoComplete="new-password"
+                      minLength={6}
+                    />
+                    {userFormData.confirmPassword && userFormData.password !== userFormData.confirmPassword && (
+                      <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Info box about auto-generated password when Advanced Auth is enabled */}
+            {advancedAuthStatus?.advanced_auth_enabled && (
+              <div className="bg-bambu-dark-secondary/50 border border-bambu-green/20 rounded-lg p-3 space-y-3">
+                <p className="text-sm text-bambu-gray">
+                  {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
+                </p>
                 <Button
                   variant="secondary"
-                  onClick={() => {
-                    setShowEditUserModal(false);
-                    setEditingUserId(null);
-                    setUserFormData({ username: '', password: '', email: '', confirmPassword: '', role: 'user', group_ids: [] });
-                  }}
+                  size="sm"
+                  onClick={() => editingUserId && resetPasswordMutation.mutate(editingUserId)}
+                  disabled={resetPasswordMutation.isPending || !userFormData.email}
+                  className="w-full"
                 >
-                  {t('users.modal.cancel') || 'Cancel'}
-                </Button>
-                <Button
-                  onClick={() => handleUpdateUser(editingUserId)}
-                  disabled={
-                    updateUserMutation.isPending ||
-                    !userFormData.username ||
-                    (advancedAuthStatus?.advanced_auth_enabled && !userFormData.email) ||
-                    Boolean(!advancedAuthStatus?.advanced_auth_enabled && userFormData.password && (userFormData.password !== userFormData.confirmPassword || checkPasswordComplexity(userFormData.password) !== null))
-                  }
-                >
-                  {updateUserMutation.isPending ? (
+                  {resetPasswordMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {t('users.modal.saving') || 'Saving...'}
+                      {t('users.form.resettingPassword') || 'Resetting Password...'}
                     </>
                   ) : (
                     <>
-                      <Save className="w-4 h-4" />
-                      {t('users.modal.saveChanges') || 'Save Changes'}
+                      <RotateCcw className="w-4 h-4" />
+                      {t('users.form.resetPassword') || 'Reset Password'}
                     </>
                   )}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            )}
+
+            {/* Groups Field */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">{t('users.form.groups') || 'Groups'}</label>
+              <div className="space-y-2 max-h-40 overflow-y-auto p-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg">
+                {groupsData.map(group => (
+                  <label
+                    key={group.id}
+                    className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-bambu-dark-tertiary cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={userFormData.group_ids.includes(group.id)}
+                      onChange={() => toggleUserGroup(group.id)}
+                      className="w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+                    />
+                    <span className="text-sm text-white">{group.name}</span>
+                    {group.is_system && (
+                      <span className="text-xs text-yellow-700 dark:text-yellow-400">({t('users.system') || 'System'})</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <UserExpirationField
+              value={userFormData.expires_at ?? ''}
+              onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
+            />
+          </div>
+        </PopupModal>
       )}
 
       {/* Delete User Confirmation Modal */}
       {deleteUserId !== null && (
-        <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
-          onClick={() => {
+        <PopupModal
+          onClose={() => {
             setDeleteUserId(null);
             setDeleteUserItemCounts(null);
           }}
+          maxWidth="md"
+          bodyClassName="p-4 space-y-3"
+          icon={<Trash2 className="w-5 h-5 text-red-700 dark:text-red-400" />}
+          title={<span className="text-red-700 dark:text-red-400">{t('settings.deleteUserTitle')}</span>}
         >
-          <Card
-            className="w-full max-w-md"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
-            <CardHeader>
-              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
-                <Trash2 className="w-5 h-5" />
-                <h3 className="text-lg font-semibold">{t('settings.deleteUserTitle')}</h3>
+          {deleteUserLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-bambu-green border-t-transparent" />
+            </div>
+          ) : deleteUserItemCounts && (deleteUserItemCounts.archives + deleteUserItemCounts.queue_items + deleteUserItemCounts.library_files > 0) ? (
+            <>
+              <p className="text-white">{t('settings.userHasCreated')}</p>
+              <ul className="list-disc list-inside text-bambu-gray space-y-1">
+                {deleteUserItemCounts.archives > 0 && (
+                  <li>{deleteUserItemCounts.archives} archive{deleteUserItemCounts.archives !== 1 ? 's' : ''}</li>
+                )}
+                {deleteUserItemCounts.queue_items > 0 && (
+                  <li>{deleteUserItemCounts.queue_items} queue item{deleteUserItemCounts.queue_items !== 1 ? 's' : ''}</li>
+                )}
+                {deleteUserItemCounts.library_files > 0 && (
+                  <li>{deleteUserItemCounts.library_files} library file{deleteUserItemCounts.library_files !== 1 ? 's' : ''}</li>
+                )}
+              </ul>
+              <p className="text-bambu-gray text-sm">{t('settings.userItemsQuestion')}</p>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="danger"
+                  onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: true })}
+                  disabled={deleteUserMutation.isPending}
+                  className="justify-center"
+                >
+                  {t('settings.deleteUserAndItems')}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: false })}
+                  disabled={deleteUserMutation.isPending}
+                  className="justify-center"
+                >
+                  {t('settings.deleteUserKeepItems')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDeleteUserId(null);
+                    setDeleteUserItemCounts(null);
+                  }}
+                  disabled={deleteUserMutation.isPending}
+                  className="justify-center"
+                >
+                  {t('common.cancel')}
+                </Button>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {deleteUserLoading ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-bambu-green border-t-transparent" />
-                </div>
-              ) : deleteUserItemCounts && (deleteUserItemCounts.archives + deleteUserItemCounts.queue_items + deleteUserItemCounts.library_files > 0) ? (
-                <>
-                  <p className="text-white">{t('settings.userHasCreated')}</p>
-                  <ul className="list-disc list-inside text-bambu-gray space-y-1">
-                    {deleteUserItemCounts.archives > 0 && (
-                      <li>{deleteUserItemCounts.archives} archive{deleteUserItemCounts.archives !== 1 ? 's' : ''}</li>
-                    )}
-                    {deleteUserItemCounts.queue_items > 0 && (
-                      <li>{deleteUserItemCounts.queue_items} queue item{deleteUserItemCounts.queue_items !== 1 ? 's' : ''}</li>
-                    )}
-                    {deleteUserItemCounts.library_files > 0 && (
-                      <li>{deleteUserItemCounts.library_files} library file{deleteUserItemCounts.library_files !== 1 ? 's' : ''}</li>
-                    )}
-                  </ul>
-                  <p className="text-bambu-gray text-sm">{t('settings.userItemsQuestion')}</p>
-                  <div className="flex flex-col gap-2">
-                    <Button
-                      variant="danger"
-                      onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: true })}
-                      disabled={deleteUserMutation.isPending}
-                      className="justify-center"
-                    >
-                      {t('settings.deleteUserAndItems')}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: false })}
-                      disabled={deleteUserMutation.isPending}
-                      className="justify-center"
-                    >
-                      {t('settings.deleteUserKeepItems')}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setDeleteUserId(null);
-                        setDeleteUserItemCounts(null);
-                      }}
-                      disabled={deleteUserMutation.isPending}
-                      className="justify-center"
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-white">{t('settings.deleteUserConfirm')}</p>
-                  <p className="text-bambu-gray text-sm">{t('settings.actionCannotBeUndone')}</p>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setDeleteUserId(null);
-                        setDeleteUserItemCounts(null);
-                      }}
-                      disabled={deleteUserMutation.isPending}
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: false })}
-                      disabled={deleteUserMutation.isPending}
-                    >
-                      {t('settings.deleteUserTitle')}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            </>
+          ) : (
+            <>
+              <p className="text-white">{t('settings.deleteUserConfirm')}</p>
+              <p className="text-bambu-gray text-sm">{t('settings.actionCannotBeUndone')}</p>
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDeleteUserId(null);
+                    setDeleteUserItemCounts(null);
+                  }}
+                  disabled={deleteUserMutation.isPending}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => deleteUserMutation.mutate({ id: deleteUserId, deleteItems: false })}
+                  disabled={deleteUserMutation.isPending}
+                >
+                  {t('settings.deleteUserTitle')}
+                </Button>
+              </div>
+            </>
+          )}
+        </PopupModal>
       )}
 
       {/* Delete Group Confirmation Modal */}
-      {deleteGroupId !== null && (
-        <ConfirmModal
-          title={t('settings.deleteGroupTitle')}
-          message={t('settings.deleteGroupMessage')}
-          confirmText={t('settings.deleteGroup')}
-          variant="danger"
-          onConfirm={() => {
-            deleteGroupMutation.mutate(deleteGroupId);
-            setDeleteGroupId(null);
-          }}
-          onCancel={() => setDeleteGroupId(null)}
-        />
-      )}
+      {deleteGroupId !== null && (() => {
+        const targetGroup = groups?.find((g) => g.id === deleteGroupId);
+        const groupMembers = (users ?? []).filter((u) =>
+          (u.groups ?? []).some((g) => g.id === deleteGroupId)
+        );
+        const soleGroupMembers = groupMembers.filter(
+          (u) => !u.is_admin && u.id !== user?.id && (u.groups ?? []).length === 1
+        );
+        const protectedMemberCount = groupMembers.length - soleGroupMembers.length;
+
+        const closeDeleteGroupModal = () => {
+          setDeleteGroupId(null);
+          setDeleteGroupUsers(false);
+          setDeleteGroupUserItems(false);
+        };
+
+        return (
+          <PopupModal
+            onClose={closeDeleteGroupModal}
+            maxWidth="md"
+            title={t('settings.deleteGroupTitle')}
+            subtitle={targetGroup ? targetGroup.name : undefined}
+            bodyClassName="p-4 space-y-4"
+            footer={
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="ghost"
+                  onClick={closeDeleteGroupModal}
+                  disabled={deleteGroupMutation.isPending}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={deleteGroupMutation.isPending}
+                  onClick={() => {
+                    deleteGroupMutation.mutate({
+                      id: deleteGroupId,
+                      deleteUsers: deleteGroupUsers,
+                      deleteUserItems: deleteGroupUsers && deleteGroupUserItems,
+                    });
+                  }}
+                >
+                  {deleteGroupMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    t('settings.deleteGroup')
+                  )}
+                </Button>
+              </div>
+            }
+          >
+            <p className="text-sm text-white">{t('settings.deleteGroupMessage')}</p>
+
+            <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-2.5">
+              <label className="flex items-start gap-2.5 text-sm text-white cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={deleteGroupUsers}
+                  onChange={(e) => {
+                    setDeleteGroupUsers(e.target.checked);
+                    if (!e.target.checked) setDeleteGroupUserItems(false);
+                  }}
+                  className="mt-0.5 rounded border-bambu-dark-tertiary text-red-500 focus:ring-red-500"
+                />
+                <div className="space-y-1">
+                  <span className="font-medium block">
+                    Also delete users who belong solely to this group ({soleGroupMembers.length}{' '}
+                    {soleGroupMembers.length === 1 ? 'user' : 'users'})
+                  </span>
+                  <span className="text-xs text-bambu-gray block">
+                    {protectedMemberCount > 0
+                      ? `${protectedMemberCount} member(s) who also belong to other groups or are admins will be kept and only removed from this group.`
+                      : 'Users who also belong to other groups and admin accounts are never deleted.'}
+                  </span>
+                </div>
+              </label>
+
+              {deleteGroupUsers && (
+                <label className="flex items-start gap-2.5 text-xs text-bambu-gray hover:text-white cursor-pointer select-none pl-6 pt-1 border-t border-bambu-dark-tertiary">
+                  <input
+                    type="checkbox"
+                    checked={deleteGroupUserItems}
+                    onChange={(e) => setDeleteGroupUserItems(e.target.checked)}
+                    className="mt-0.5 rounded border-bambu-dark-tertiary text-red-500 focus:ring-red-500"
+                  />
+                  <span>
+                    Also delete print archives, queue items & library files created by these users
+                  </span>
+                </label>
+              )}
+            </div>
+          </PopupModal>
+        );
+      })()}
 
       {/* Backup Tab */}
       {activeTab === 'failure-detection' && (
@@ -7985,88 +8017,16 @@ export function SettingsPage() {
 
       {/* Change Password Modal */}
       {showChangePasswordModal && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-          onClick={() => {
+        <PopupModal
+          onClose={() => {
             setShowChangePasswordModal(false);
             setChangePasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
           }}
-        >
-          <Card
-            className="w-full max-w-md max-h-[90vh] flex flex-col"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
-            <CardHeader className="p-4 flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Key className="w-5 h-5 text-bambu-green" />
-                  <h2 className="text-lg font-semibold text-white">{t('settings.changePassword')}</h2>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowChangePasswordModal(false);
-                    setChangePasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                  }}
-                >
-                  <X className="w-5 h-5" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 overflow-y-auto flex-1">
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Current Password
-                  </label>
-                  <input
-                    type="password"
-                    value={changePasswordData.currentPassword}
-                    onChange={(e) => setChangePasswordData({ ...changePasswordData, currentPassword: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('settings.enterCurrentPassword')}
-                    autoComplete="current-password"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    New Password
-                  </label>
-                  <input
-                    type="password"
-                    value={changePasswordData.newPassword}
-                    onChange={(e) => setChangePasswordData({ ...changePasswordData, newPassword: e.target.value })}
-                    className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
-                    placeholder={t('settings.enterNewPasswordMin6')}
-                    autoComplete="new-password"
-                    minLength={6}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Confirm New Password
-                  </label>
-                  <input
-                    type="password"
-                    value={changePasswordData.confirmPassword}
-                    onChange={(e) => setChangePasswordData({ ...changePasswordData, confirmPassword: e.target.value })}
-                    className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
-                      changePasswordData.confirmPassword && changePasswordData.newPassword !== changePasswordData.confirmPassword
-                        ? 'border-red-500'
-                        : 'border-bambu-dark-tertiary'
-                    }`}
-                    placeholder={t('settings.confirmNewPassword')}
-                    autoComplete="new-password"
-                    minLength={6}
-                  />
-                  {changePasswordData.confirmPassword && changePasswordData.newPassword !== changePasswordData.confirmPassword && (
-                    <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-            <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">
+          maxWidth="md"
+          icon={<Key className="w-5 h-5 text-bambu-green" />}
+          title={t('settings.changePassword')}
+          footer={
+            <div className="flex justify-end gap-2">
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -8114,8 +8074,59 @@ export function SettingsPage() {
                 )}
               </Button>
             </div>
-          </Card>
-        </div>
+          }
+        >
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Current Password
+              </label>
+              <input
+                type="password"
+                value={changePasswordData.currentPassword}
+                onChange={(e) => setChangePasswordData({ ...changePasswordData, currentPassword: e.target.value })}
+                className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                placeholder={t('settings.enterCurrentPassword')}
+                autoComplete="current-password"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                New Password
+              </label>
+              <input
+                type="password"
+                value={changePasswordData.newPassword}
+                onChange={(e) => setChangePasswordData({ ...changePasswordData, newPassword: e.target.value })}
+                className="w-full px-4 py-3 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors"
+                placeholder={t('settings.enterNewPasswordMin6')}
+                autoComplete="new-password"
+                minLength={6}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                value={changePasswordData.confirmPassword}
+                onChange={(e) => setChangePasswordData({ ...changePasswordData, confirmPassword: e.target.value })}
+                className={`w-full px-4 py-3 bg-bambu-dark-secondary border rounded-lg text-white placeholder-bambu-gray focus:outline-none focus:ring-2 focus:ring-bambu-green/50 focus:border-bambu-green transition-colors ${
+                  changePasswordData.confirmPassword && changePasswordData.newPassword !== changePasswordData.confirmPassword
+                    ? 'border-red-500'
+                    : 'border-bambu-dark-tertiary'
+                }`}
+                placeholder={t('settings.confirmNewPassword')}
+                autoComplete="new-password"
+                minLength={6}
+              />
+              {changePasswordData.confirmPassword && changePasswordData.newPassword !== changePasswordData.confirmPassword && (
+                <p className="text-red-700 dark:text-red-400 text-xs mt-1">{t('settings.passwordsDoNotMatch')}</p>
+              )}
+            </div>
+          </div>
+        </PopupModal>
       )}
       {showRosterImportModal && (
         <RosterImportModal
