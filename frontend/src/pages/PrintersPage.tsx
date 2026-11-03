@@ -3654,7 +3654,7 @@ function PrinterCard({
       <>
         {includeRfid && (
           <button
-            className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded border border-bambu-dark-tertiary transition-colors truncate ${
+            className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-start gap-1.5 rounded border border-bambu-dark-tertiary transition-colors whitespace-nowrap ${
               hasPermission('printers:ams_rfid') && !printerBusy
                 ? 'bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white'
                 : 'bg-bambu-dark/50 text-bambu-gray/50 cursor-not-allowed'
@@ -3668,11 +3668,11 @@ function PrinterCard({
             title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:ams_rfid') ? t('printers.permission.noAmsRfid') : t('printers.rfid.reread')}
           >
             <RefreshCw className={`w-3 h-3 text-bambu-gray shrink-0 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span className="truncate">{t('printers.rfid.reread')}</span>
+            <span>{t('printers.rfid.reread')}</span>
           </button>
         )}
         <button
-          className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded border border-bambu-dark-tertiary transition-colors truncate ${
+          className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-start gap-1.5 rounded border border-bambu-dark-tertiary transition-colors whitespace-nowrap ${
             hasPermission('printers:control') && !printerBusy
               ? 'bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white'
               : 'bg-bambu-dark/50 text-bambu-gray/50 cursor-not-allowed'
@@ -3686,10 +3686,10 @@ function PrinterCard({
           title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:control') ? t('printers.permission.noControl') : t('printers.ams.load')}
         >
           <LogIn className="w-3 h-3 text-bambu-gray shrink-0" />
-          <span className="truncate">{t('printers.ams.load')}</span>
+          <span>{t('printers.ams.load')}</span>
         </button>
         <button
-          className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded border border-bambu-dark-tertiary transition-colors truncate ${
+          className={`px-2 py-1.5 text-[11px] font-medium flex items-center justify-start gap-1.5 rounded border border-bambu-dark-tertiary transition-colors whitespace-nowrap ${
             hasPermission('printers:control') && !printerBusy
               ? 'bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white'
               : 'bg-bambu-dark/50 text-bambu-gray/50 cursor-not-allowed'
@@ -3703,7 +3703,7 @@ function PrinterCard({
           title={printerBusy ? t('printers.bedJog.disabledWhilePrinting') : !hasPermission('printers:control') ? t('printers.permission.noControl') : t('printers.ams.unload')}
         >
           <LogOut className="w-3 h-3 text-bambu-gray shrink-0" />
-          <span className="truncate">{t('printers.ams.unload')}</span>
+          <span>{t('printers.ams.unload')}</span>
         </button>
       </>
     );

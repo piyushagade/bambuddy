@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Droplets, Copy, Check, Settings2, Package, Unlink } from 'lucide-react';
-import { isLightColor, resolveSpoolColorName } from '../utils/colors';
+import { resolveSpoolColorName } from '../utils/colors';
 import { buildFilamentBackground, parseStops } from './filamentSwatchHelpers';
 
 interface FilamentData {
@@ -274,14 +274,6 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
   // intact -- the contrast test still has a real answer there, and scrimming
   // every effect spool would put a black pill on cards that never needed one.
   const swatchNeedsScrim = swatchStops.length > 1;
-  // Which colour the contrast test should actually run against. Not always the
-  // slot hex any more: once the spool's swatch is painted, a single stop
-  // replaces the base entirely, and an effect-only spool paints the spool's own
-  // rgba rather than the slot's. Testing the slot hex in either case would pick
-  // the text colour for a background that is no longer on screen.
-  const contrastBaseHex = useSpoolSwatch
-    ? (swatchStops.length === 1 ? swatchStops[0] : assignedSwatch?.rgba ?? colorHex)
-    : colorHex;
 
   return (
     <div
@@ -314,64 +306,57 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
         >
           {/* Card container */}
           <div className="
-            w-56 bg-bambu-dark-secondary border border-bambu-dark-tertiary
+            w-64 bg-bambu-dark-secondary border border-bambu-dark-tertiary
             rounded-lg shadow-xl overflow-hidden
             backdrop-blur-sm
           ">
-            {/* Color swatch header - the hero element */}
-            <div
-              className="h-12 relative overflow-hidden"
-              style={
-                spoolSwatchStyle
-                  ? { ...spoolSwatchStyle, backgroundColor: colorHex || '#3d3d3d' }
-                  : { backgroundColor: colorHex || '#3d3d3d' }
-              }
-            >
-              {/* Subtle gradient overlay for depth */}
-              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent" />
-
-              {/* Color name on swatch */}
-              <div className="absolute inset-0 flex items-center justify-center px-10">
-                <span
-                  className={
-                    swatchNeedsScrim
-                      ? 'px-2 py-0.5 rounded bg-black/60 text-white font-semibold text-sm tracking-wide truncate'
-                      : `font-semibold text-sm tracking-wide truncate ${
-                          isLightColor(contrastBaseHex) ? 'text-black/80' : 'text-white/90'
-                        }`
-                  }
-                >
-                  {displayColorName}
-                </span>
-              </div>
-
-              {/* Vendor badge - solid background for visibility on any color */}
-              <div className={`
-                absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider
-                ${data.vendor === 'Bambu Lab'
-                  ? 'bg-black/60 text-white'
-                  : 'bg-black/50 text-white/90'}
-              `}>
-                {data.vendor === 'Bambu Lab' ? 'BBL' : 'GEN'}
-              </div>
-            </div>
-
             {/* Details section */}
             <div className="p-2.5 space-y-2">
-              {/* Combined Profile + K Factor row */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-white font-semibold truncate" title={data.profile}>
-                  {data.profile}
-                </span>
-                <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[10px] text-bambu-gray shrink-0"
-                  title={t('ams.kFactor')}
+              {/* Header row: Small square color swatch + Color Name / Profile / Badges */}
+              <div className="flex items-center gap-2.5">
+                <div
+                  data-testid="filament-swatch"
+                  className="w-9 h-9 rounded-lg border border-white/15 shrink-0 shadow-inner relative overflow-hidden"
+                  style={
+                    spoolSwatchStyle
+                      ? { ...spoolSwatchStyle, backgroundColor: colorHex || '#3d3d3d' }
+                      : { backgroundColor: colorHex || '#3d3d3d' }
+                  }
                 >
-                  <span>{t('ams.kFactorShort', 'K')}</span>
-                  <span className="font-mono font-semibold text-gray-200">
-                    {data.kFactor}
-                  </span>
-                </span>
+                  <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent" />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span
+                      className={
+                        swatchNeedsScrim
+                          ? 'px-1.5 py-0.5 rounded bg-black/60 text-white font-semibold text-xs truncate'
+                          : 'font-semibold text-xs text-white truncate'
+                      }
+                      title={displayColorName}
+                    >
+                      {displayColorName}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-bambu-dark border border-bambu-dark-tertiary text-bambu-gray shrink-0">
+                      {data.vendor === 'Bambu Lab' ? 'BBL' : 'GEN'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-1.5 mt-0.5">
+                    <span className="text-[11px] text-bambu-gray font-medium truncate" title={data.profile}>
+                      {data.profile}
+                    </span>
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[10px] text-bambu-gray shrink-0"
+                      title={t('ams.kFactor')}
+                    >
+                      <span>{t('ams.kFactorShort', 'K')}</span>
+                      <span className="font-mono font-semibold text-gray-200">
+                        {data.kFactor}
+                      </span>
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Fill Level */}
@@ -443,11 +428,11 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                         dismiss();
                         navigate(`/inventory?spool=${spoolman.linkedSpoolId}`);
                       }}
-                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary"
+                      className="w-full flex items-center justify-start gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                       title={t('inventory.openInInventory')}
                     >
-                      <Package className="w-3 h-3 text-bambu-gray" />
-                      {t('inventory.openInInventory')}
+                      <Package className="w-3 h-3 text-bambu-gray shrink-0" />
+                      <span>{t('inventory.openInInventory')}</span>
                     </button>
                   )}
                 </div>
@@ -483,11 +468,11 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                                 dismiss();
                                 navigate(`/inventory?spool=${inventory.assignedSpool!.id}`);
                               }}
-                              className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                              className="flex-1 flex items-center justify-start gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                               title={t('inventory.openInInventory')}
                             >
                               <Package className="w-3 h-3 text-bambu-gray shrink-0" />
-                              <span className="truncate">{t('inventory.openInInventory')}</span>
+                              <span>{t('inventory.openInInventory')}</span>
                             </button>
                           )}
                           {inventory.onUnassignSpool && (
@@ -497,7 +482,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                                 dismiss();
                                 inventory.onUnassignSpool?.();
                               }}
-                              className="flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-red-500/20 text-bambu-gray hover:text-red-300 border border-bambu-dark-tertiary hover:border-red-500/30 shrink-0"
+                              className="flex items-center justify-start gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-red-500/20 text-bambu-gray hover:text-red-300 border border-bambu-dark-tertiary hover:border-red-500/30 shrink-0 whitespace-nowrap"
                               title={t('inventory.unassignSpool')}
                             >
                               <Unlink className="w-3 h-3 shrink-0" />
@@ -515,12 +500,12 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                         inventory.onAssignSpool?.();
                       }}
                       disabled={!!inventory.isAssigned}
-                      className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark border border-bambu-dark-tertiary text-gray-200 ${
+                      className={`w-full flex items-center justify-start gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark border border-bambu-dark-tertiary text-gray-200 whitespace-nowrap ${
                         inventory.isAssigned ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bambu-dark-tertiary hover:text-white'
                       }`}
                     >
-                      <Package className="w-3.5 h-3.5 text-bambu-gray" />
-                      {t('inventory.assignSpool')}
+                      <Package className="w-3.5 h-3.5 text-bambu-gray shrink-0" />
+                      <span>{t('inventory.assignSpool')}</span>
                     </button>
                   ) : null}
                 </div>
@@ -536,11 +521,11 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                         dismiss();
                         configureSlot.onConfigure?.();
                       }}
-                      className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                      className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-start gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                       title={t('ams.configureSlot')}
                     >
                       <Settings2 className="w-3 h-3 text-bambu-gray shrink-0" />
-                      <span className="truncate">{t('ams.configure')}</span>
+                      <span>{t('ams.configure')}</span>
                     </button>
                   )}
                   {actions}
@@ -700,7 +685,7 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
           onMouseLeave={handleMouseLeave}
         >
           <div className="
-            w-52 bg-bambu-dark-secondary border border-bambu-dark-tertiary
+            w-60 bg-bambu-dark-secondary border border-bambu-dark-tertiary
             rounded-lg shadow-lg overflow-hidden
           ">
             <div className="px-2.5 py-1.5 text-xs text-bambu-gray font-medium whitespace-nowrap">
@@ -712,10 +697,10 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
                 {onAssignSpool && (
                   <button
                     onClick={(e) => { e.stopPropagation(); dismiss(); onAssignSpool(); }}
-                    className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary"
+                    className="w-full flex items-center justify-start gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                   >
-                    <Package className="w-3.5 h-3.5 text-bambu-gray" />
-                    {t('inventory.assignSpool')}
+                    <Package className="w-3.5 h-3.5 text-bambu-gray shrink-0" />
+                    <span>{t('inventory.assignSpool')}</span>
                   </button>
                 )}
                 {(configureSlot?.enabled || actions) && (
@@ -727,11 +712,11 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
                           dismiss();
                           configureSlot.onConfigure?.();
                         }}
-                        className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                        className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-start gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                         title={t('ams.configureSlot')}
                       >
                         <Settings2 className="w-3 h-3 text-bambu-gray shrink-0" />
-                        <span className="truncate">{t('ams.configure')}</span>
+                        <span>{t('ams.configure')}</span>
                       </button>
                     )}
                     {actions}

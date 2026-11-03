@@ -762,8 +762,8 @@ describe('FilamentHoverCard — assigned spool swatch (#2967)', () => {
   // the colour and the name. Queried off `document` rather than the render
   // container because the card is portaled into document.body.
   function header(): HTMLElement {
-    const el = document.querySelector('.h-12') as HTMLElement | null;
-    expect(el, 'header block not found').not.toBeNull();
+    const el = document.querySelector('[data-testid="filament-swatch"]') as HTMLElement | null;
+    expect(el, 'swatch block not found').not.toBeNull();
     return el as HTMLElement;
   }
 
