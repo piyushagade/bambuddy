@@ -272,216 +272,245 @@ export function ColorSection({
   };
 
   return (
-    <div className="space-y-3">
-      {/* Color preview banner — shows gradient + effect overlay. */}
-      <div
-        className="h-10 rounded-lg border border-bambu-dark-tertiary"
-        style={previewBackground}
-        data-testid="color-preview-banner"
-      />
-
-      {/* Recently Used Colors */}
-      {recentColors.length > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-bambu-gray shrink-0">
-            <Clock className="w-3 h-3" />
-            <span>{t('inventory.recentColors')}</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {recentColors.map(color => (
-              <button
-                key={color.hex}
-                type="button"
-                onClick={() => selectColor(color.hex, color.name)}
-                className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 ${
-                  isSelected(color.hex)
-                    ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
-                    : 'border-bambu-dark-tertiary'
-                }`}
-                style={swatchStyle(color.hex)}
-                title={color.name}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Color Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray/50 pointer-events-none" />
-        <input
-          type="text"
-          className="w-full pl-9 pr-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
-          placeholder={t('inventory.searchColors')}
-          value={colorSearch}
-          onChange={(e) => setColorSearch(e.target.value)}
-        />
-      </div>
-
-      {/* Color Swatches */}
-      {showCatalogSection ? (
-        /* Catalog colors matching selected brand/material */
-        <div className="space-y-1.5">
-          <span className="text-xs text-bambu-gray">
-            {colorSearch ? t('inventory.searchResults') : `${formData.brand}${formData.material ? ` ${formData.material}` : ''}`}
-          </span>
-          <div className="flex flex-wrap gap-1.5">
-            {catalogSearchResults.map(color => (
-              <button
-                key={`${color.hex}-${color.name}-${color.manufacturer ?? ''}`}
-                type="button"
-                onClick={() => selectColor(color.hex, color.name, color.extra_colors, color.effect_type)}
-                className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 hover:z-20 relative group ${
-                  isSelected(color.hex)
-                    ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
-                    : 'border-bambu-dark-tertiary'
-                }`}
-                style={swatchStyle(color.hex)}
-                title={
-                  color.manufacturer && color.material
-                    ? `${color.name} (${color.manufacturer} — ${color.material})`
-                    : color.manufacturer
-                    ? `${color.name} (${color.manufacturer})`
-                    : color.name
-                }
-              >
-                <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg text-white">
-                  {color.manufacturer && color.material
-                    ? `${color.name} (${color.manufacturer} — ${color.material})`
-                    : color.manufacturer
-                    ? `${color.name} (${color.manufacturer})`
-                    : color.name}
+    <div className="space-y-4">
+      {/* Main 2-column layout:
+          Left column: Compact color preview card + Color Name + Hex Color
+          Right column: Color Search + Recent Colors + Swatch Palette */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+        {/* Left Column: Selected Color Preview & Manual Inputs */}
+        <div className="space-y-3">
+          {/* Compact Color Preview Card */}
+          <div className="flex items-center gap-3 p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+            <div
+              className="w-24 h-10 rounded-md border border-bambu-dark-tertiary shrink-0 shadow-inner"
+              style={previewBackground}
+              data-testid="color-preview-banner"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-white truncate">
+                {formData.color_name || t('inventory.colorNamePlaceholder')}
+              </div>
+              <div className="flex items-center gap-2 text-xs font-mono text-bambu-gray">
+                <span>
+                  <span className="text-bambu-gray/60 select-none">#</span>
+                  <span>{isTransparent ? currentRgba : currentHex}</span>
                 </span>
-              </button>
-            ))}
-            {catalogSearchResults.length === 0 && (
-              <p className="text-sm text-bambu-gray py-1">{t('inventory.noColorsFound')}</p>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* Fallback: hardcoded color palette (no brand/material selected or no catalog matches) */
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-bambu-gray">
-            <span>{colorSearch ? t('inventory.searchResults') : (showAllColors ? t('inventory.allColors') : t('inventory.commonColors'))}</span>
-            {!colorSearch && (
-              <button
-                type="button"
-                onClick={() => setShowAllColors(!showAllColors)}
-                className="flex items-center gap-1 hover:text-white transition-colors"
-              >
-                {showAllColors ? (
-                  <>{t('inventory.showLess')} <ChevronUp className="w-3 h-3" /></>
-                ) : (
-                  <>{t('inventory.showAll')} <ChevronDown className="w-3 h-3" /></>
+                {formData.effect_type && (
+                  <span className="px-1.5 py-0.5 rounded bg-bambu-dark-secondary border border-bambu-dark-tertiary text-[11px] font-sans text-bambu-gray capitalize">
+                    {formData.effect_type}
+                  </span>
                 )}
-              </button>
-            )}
+              </div>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {filteredFallbackColors.map(color => (
-              <button
-                key={color.hex}
-                type="button"
-                onClick={() => selectColor(color.hex, color.name)}
-                className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 hover:z-20 relative group ${
-                  isSelected(color.hex)
-                    ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
-                    : 'border-bambu-dark-tertiary'
-                }`}
-                style={swatchStyle(color.hex)}
-                title={color.name}
-              >
-                <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg text-white">
-                  {color.name}
-                </span>
-              </button>
-            ))}
-            {filteredFallbackColors.length === 0 && (
-              <p className="text-sm text-bambu-gray py-1">{t('inventory.noColorsFound')}</p>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* Manual Color Input */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-bambu-gray mb-1">{t('inventory.colorName')}</label>
-          <input
-            type="text"
-            className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
-            placeholder={t('inventory.colorNamePlaceholder')}
-            value={formData.color_name}
-            onChange={(e) => updateField('color_name', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-bambu-gray mb-1">{t('inventory.hexColor')}</label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-bambu-gray">#</span>
+          {/* Manual Color Input (Color Name & Hex Color) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-bambu-gray mb-1">{t('inventory.colorName')}</label>
               <input
                 type="text"
-                className="w-full pl-7 pr-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm font-mono uppercase focus:outline-none focus:border-bambu-green"
-                placeholder="RRGGBB"
-                value={hexDraft.toUpperCase()}
-                onChange={(e) => {
-                  // Sanitize: drop `#`, non-hex chars, uppercase. Accept up to
-                  // 8 chars so power users can type an alpha byte (e.g.
-                  // `00000000` for transparent / `00FF00FF` for opaque) —
-                  // #1545. The Clear preset button covers the common case; the
-                  // input handles arbitrary alphas. Draft holds 0–8 chars; we
-                  // commit when the value is a complete 6-char (alpha defaults
-                  // to FF) or 8-char hex, preserving the #1055/#1407
-                  // invariants.
-                  const sanitized = e.target.value
-                    .replace('#', '')
-                    .replace(/[^0-9A-Fa-f]/g, '')
-                    .toUpperCase();
-                  const next = sanitized.length > 8 ? sanitized.substring(0, 8) : sanitized;
-                  setHexDraft(next);
-                  if (next.length === 6) {
-                    updateField('rgba', next + 'FF');
-                  } else if (next.length === 8) {
-                    updateField('rgba', next);
-                  }
-                }}
-                onBlur={() => {
-                  // User left the field with a partial value — pad RGB to 6
-                  // chars (alpha defaults to FF) and commit so the form state
-                  // always carries a valid rgba when submitted. 7-char drafts
-                  // (RGB + 1 alpha digit) pad the alpha nibble to 0 to reach
-                  // a complete 8-char hex.
-                  if (hexDraft.length === 7) {
-                    const padded = hexDraft + '0';
-                    setHexDraft(padded);
-                    updateField('rgba', padded);
-                  } else if (hexDraft.length > 0 && hexDraft.length < 6) {
-                    const padded = hexDraft.padEnd(6, '0');
-                    setHexDraft(padded);
-                    updateField('rgba', padded + 'FF');
-                  }
-                }}
+                className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
+                placeholder={t('inventory.colorNamePlaceholder')}
+                value={formData.color_name}
+                onChange={(e) => updateField('color_name', e.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-bambu-gray mb-1">{t('inventory.hexColor')}</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-bambu-gray">#</span>
+                  <input
+                    type="text"
+                    className="w-full pl-7 pr-2 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm font-mono uppercase focus:outline-none focus:border-bambu-green"
+                    placeholder="RRGGBB"
+                    value={hexDraft.toUpperCase()}
+                    onChange={(e) => {
+                      // Sanitize: drop `#`, non-hex chars, uppercase. Accept up to
+                      // 8 chars so power users can type an alpha byte (e.g.
+                      // `00000000` for transparent / `00FF00FF` for opaque) —
+                      // #1545. The Clear preset button covers the common case; the
+                      // input handles arbitrary alphas. Draft holds 0–8 chars; we
+                      // commit when the value is a complete 6-char (alpha defaults
+                      // to FF) or 8-char hex, preserving the #1055/#1407
+                      // invariants.
+                      const sanitized = e.target.value
+                        .replace('#', '')
+                        .replace(/[^0-9A-Fa-f]/g, '')
+                        .toUpperCase();
+                      const next = sanitized.length > 8 ? sanitized.substring(0, 8) : sanitized;
+                      setHexDraft(next);
+                      if (next.length === 6) {
+                        updateField('rgba', next + 'FF');
+                      } else if (next.length === 8) {
+                        updateField('rgba', next);
+                      }
+                    }}
+                    onBlur={() => {
+                      // User left the field with a partial value — pad RGB to 6
+                      // chars (alpha defaults to FF) and commit so the form state
+                      // always carries a valid rgba when submitted. 7-char drafts
+                      // (RGB + 1 alpha digit) pad the alpha nibble to 0 to reach
+                      // a complete 8-char hex.
+                      if (hexDraft.length === 7) {
+                        const padded = hexDraft + '0';
+                        setHexDraft(padded);
+                        updateField('rgba', padded);
+                      } else if (hexDraft.length > 0 && hexDraft.length < 6) {
+                        const padded = hexDraft.padEnd(6, '0');
+                        setHexDraft(padded);
+                        updateField('rgba', padded + 'FF');
+                      }
+                    }}
+                  />
+                </div>
+                <input
+                  type="color"
+                  className="w-10 h-[38px] rounded-lg cursor-pointer border border-bambu-dark-tertiary shrink-0 bg-transparent"
+                  value={`#${currentHex}`}
+                  onChange={(e) => {
+                    const hex = e.target.value.replace('#', '').toUpperCase();
+                    updateField('rgba', hex + 'FF');
+                  }}
+                  title={t('inventory.pickColor')}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Color Search & Swatch Palettes */}
+        <div className="space-y-2.5 p-3 rounded-lg bg-bambu-dark/40 border border-bambu-dark-tertiary">
+          {/* Color Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bambu-gray/50 pointer-events-none" />
             <input
-              type="color"
-              className="w-11 h-[38px] rounded-lg cursor-pointer border border-bambu-dark-tertiary shrink-0 bg-transparent"
-              value={`#${currentHex}`}
-              onChange={(e) => {
-                const hex = e.target.value.replace('#', '').toUpperCase();
-                updateField('rgba', hex + 'FF');
-              }}
-              title={t('inventory.pickColor')}
+              type="text"
+              className="w-full pl-9 pr-3 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm placeholder:text-bambu-gray/50 focus:outline-none focus:border-bambu-green"
+              placeholder={t('inventory.searchColors')}
+              value={colorSearch}
+              onChange={(e) => setColorSearch(e.target.value)}
             />
           </div>
+
+          {/* Recently Used Colors */}
+          {recentColors.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs text-bambu-gray shrink-0">
+                <Clock className="w-3 h-3" />
+                <span>{t('inventory.recentColors')}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {recentColors.map(color => (
+                  <button
+                    key={color.hex}
+                    type="button"
+                    onClick={() => selectColor(color.hex, color.name)}
+                    className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 ${
+                      isSelected(color.hex)
+                        ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
+                        : 'border-bambu-dark-tertiary'
+                    }`}
+                    style={swatchStyle(color.hex)}
+                    title={color.name}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Color Swatches */}
+          {showCatalogSection ? (
+            /* Catalog colors matching selected brand/material */
+            <div className="space-y-1.5">
+              <span className="text-xs text-bambu-gray">
+                {colorSearch ? t('inventory.searchResults') : `${formData.brand}${formData.material ? ` ${formData.material}` : ''}`}
+              </span>
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                {catalogSearchResults.map(color => (
+                  <button
+                    key={`${color.hex}-${color.name}-${color.manufacturer ?? ''}`}
+                    type="button"
+                    onClick={() => selectColor(color.hex, color.name, color.extra_colors, color.effect_type)}
+                    className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 hover:z-20 relative group ${
+                      isSelected(color.hex)
+                        ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
+                        : 'border-bambu-dark-tertiary'
+                    }`}
+                    style={swatchStyle(color.hex)}
+                    title={
+                      color.manufacturer && color.material
+                        ? `${color.name} (${color.manufacturer} — ${color.material})`
+                        : color.manufacturer
+                        ? `${color.name} (${color.manufacturer})`
+                        : color.name
+                    }
+                  >
+                    <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg text-white">
+                      {color.manufacturer && color.material
+                        ? `${color.name} (${color.manufacturer} — ${color.material})`
+                        : color.manufacturer
+                        ? `${color.name} (${color.manufacturer})`
+                        : color.name}
+                    </span>
+                  </button>
+                ))}
+                {catalogSearchResults.length === 0 && (
+                  <p className="text-sm text-bambu-gray py-1">{t('inventory.noColorsFound')}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Fallback: hardcoded color palette (no brand/material selected or no catalog matches) */
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-bambu-gray">
+                <span>{colorSearch ? t('inventory.searchResults') : (showAllColors ? t('inventory.allColors') : t('inventory.commonColors'))}</span>
+                {!colorSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllColors(!showAllColors)}
+                    className="flex items-center gap-1 hover:text-white transition-colors"
+                  >
+                    {showAllColors ? (
+                      <>{t('inventory.showLess')} <ChevronUp className="w-3 h-3" /></>
+                    ) : (
+                      <>{t('inventory.showAll')} <ChevronDown className="w-3 h-3" /></>
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {filteredFallbackColors.map(color => (
+                  <button
+                    key={color.hex}
+                    type="button"
+                    onClick={() => selectColor(color.hex, color.name)}
+                    className={`w-6 h-6 rounded border-2 transition-all hover:scale-110 hover:z-20 relative group ${
+                      isSelected(color.hex)
+                        ? 'border-bambu-green ring-1 ring-bambu-green/30 scale-110'
+                        : 'border-bambu-dark-tertiary'
+                    }`}
+                    style={swatchStyle(color.hex)}
+                    title={color.name}
+                  >
+                    <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg text-white">
+                      {color.name}
+                    </span>
+                  </button>
+                ))}
+                {filteredFallbackColors.length === 0 && (
+                  <p className="text-sm text-bambu-gray py-1">{t('inventory.noColorsFound')}</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* #1154: Multi-colour gradient stops + visual effect. Optional —
           empty values keep the spool rendering as a solid swatch. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-bambu-dark-tertiary/50">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-bambu-dark-tertiary/50">
         <div>
           <label className="block text-sm font-medium text-bambu-gray mb-1">
             {t('inventory.extraColorsLabel')}
