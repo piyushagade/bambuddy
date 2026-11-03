@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -159,7 +159,6 @@ export function MakerworldPage() {
     | { images: Array<{ name: string; url: string }>; index: number }
     | null
   >(null);
-  const resolvedSectionRef = useRef<HTMLDivElement | null>(null);
   // All successful imports done during this resolved-model session, keyed
   // by the plate's ``profileId``. Used to render inline 'View in Library'
   // / 'Open in slicer' buttons directly on each imported plate row so the
@@ -230,14 +229,6 @@ export function MakerworldPage() {
       setResolved(data);
       // Fresh resolve — clear any success card from a previous model.
       setImportsByProfile({});
-      // When resolving from a search result card further down the page,
-      // browser scroll anchoring keeps the viewport on the search grid while
-      // the resolved preview mounts above it. Scroll the preview into view.
-      window.requestAnimationFrame(() => {
-        if (typeof resolvedSectionRef.current?.scrollIntoView === 'function') {
-          resolvedSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
     },
     onError: (err: Error) => showToast(err.message || t('makerworld.errors.resolveFailed'), 'error'),
   });
@@ -361,6 +352,28 @@ export function MakerworldPage() {
     () => new Set(searchResultsQuery.data?.already_imported_model_ids ?? []),
     [searchResultsQuery.data?.already_imported_model_ids],
   );
+
+  const isBusyImporting =
+    importMutation.isPending || sliceMutation.isPending || bulkProgress !== null;
+
+  const closeResolvedModal = () => {
+    if (isBusyImporting) return;
+    setResolved(null);
+    setImportsByProfile({});
+  };
+
+  // Close the resolved model modal on Escape when no child modal is open.
+  useEffect(() => {
+    if (!resolved || lightbox || pendingDelete || sliceModalSource || isBusyImporting) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setResolved(null);
+        setImportsByProfile({});
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [resolved, lightbox, pendingDelete, sliceModalSource, isBusyImporting]);
 
   // Keyboard navigation for the lightbox (Escape closes, arrows navigate).
   useEffect(() => {
@@ -548,364 +561,370 @@ export function MakerworldPage() {
       </Card>
 
       {resolved && (
-        <div ref={resolvedSectionRef} className="scroll-mt-6">
-        <Card>
-          <CardContent>
-            <div className="flex gap-4 py-2">
-              {coverUrl && (
-                <img
-                  src={proxyCdn(coverUrl)}
-                  alt={title}
-                  className="w-32 h-32 object-cover rounded"
-                  loading="lazy"
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-xl font-semibold truncate">{title || t('makerworld.untitledModel')}</h3>
-                  {searchQuery && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setResolved(null);
-                        setImportsByProfile({});
-                      }}
-                      title={t('makerworld.closePreview')}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-40"
+          onClick={closeResolvedModal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title || t('makerworld.untitledModel')}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[90vh] overflow-y-auto space-y-4 rounded-xl bg-gray-50 dark:bg-bambu-dark p-4 md:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Card>
+              <CardContent>
+                <div className="flex gap-4 py-2">
+                  {coverUrl && (
+                    <img
+                      src={proxyCdn(coverUrl)}
+                      alt={title}
+                      className="w-32 h-32 object-cover rounded shrink-0"
+                      loading="lazy"
+                    />
                   )}
-                </div>
-                {creator && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {t('makerworld.byCreator', { name: pickString(creator, 'name') })}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  {downloadCount !== null && (
-                    <span>{t('makerworld.downloadsCount', { count: downloadCount })}</span>
-                  )}
-                  {license && <span>{t('makerworld.licensePrefix')}: {license}</span>}
-                  {alreadyImported && (
-                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                      <Check className="w-3 h-3" /> {t('makerworld.alreadyImported')}
-                    </span>
-                  )}
-                </div>
-                {summaryHtml && (
-                  <div
-                    className="mt-3 text-sm prose prose-sm max-w-none dark:prose-invert line-clamp-3"
-                    // Two-stage processing:
-                    //   1. ``proxyCdnUrlsInHtml`` rewrites <img src="…bblmw.com…">
-                    //      so CSP allows the image load.
-                    //   2. ``DOMPurify.sanitize`` strips scripts, event handlers,
-                    //      javascript: URLs, and other XSS vectors. MakerWorld
-                    //      summaries are user-authored and cannot be trusted.
-                    dangerouslySetInnerHTML={{
-                      __html: DOMPurify.sanitize(proxyCdnUrlsInHtml(summaryHtml)),
-                    }}
-                  />
-                )}
-                {resolved && (
-                  <a
-                    href={`https://makerworld.com/models/${resolved.model_id}${resolved.profile_id ? `#profileId-${resolved.profile_id}` : ''}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1 text-xs text-brand-500 hover:underline"
-                  >
-                    <ExternalLink className="w-3 h-3" /> {t('makerworld.openOnMakerworld')}
-                  </a>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        </div>
-      )}
-
-      {resolved && instances.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">{t('makerworld.platesHeader', { count: instances.length })}</h2>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-xs text-gray-600 dark:text-gray-400">
-                  {t('makerworld.importTo')}
-                </label>
-                <select
-                  value={selectedFolderId ?? ''}
-                  onChange={(e) => setSelectedFolderId(e.target.value ? Number(e.target.value) : null)}
-                  className="text-sm px-2 py-1 border rounded bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700"
-                  disabled={bulkProgress !== null}
-                >
-                  <option value="">{t('makerworld.folderAuto')}</option>
-                  {(foldersQuery.data ?? [])
-                    .filter((f) => !(f.is_external && f.external_readonly))
-                    .flatMap((f) => flattenFolderTree(f))
-                    .map(({ folder, depth }) => (
-                      <option key={folder.id} value={folder.id}>
-                        {`${'— '.repeat(depth)}${folder.name}`}
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={
-                    !canImport ||
-                    !canDownload ||
-                    bulkProgress !== null ||
-                    importMutation.isPending ||
-                    sliceMutation.isPending
-                  }
-                  onClick={handleImportAll}
-                >
-                  {bulkProgress !== null ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span className="ml-2">
-                        {t('makerworld.importAllProgress', { current: bulkProgress.current, total: bulkProgress.total })}
-                        {importElapsed > 0 && ` · ${importPhaseLabel} · ${importElapsed}s`}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      <span className="ml-2">{t('makerworld.importAll')}</span>
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3">
-              {instances.map((inst, idx) => {
-                const instanceId = pickNumber(inst, 'id');
-                const profileId = pickNumber(inst, 'profileId');
-                const instanceTitle = pickString(inst, 'title');
-                const cover = pickString(inst, 'cover');
-                const materialCnt = pickNumber(inst, 'materialCnt');
-                const needAms = inst?.['needAms'] === true;
-                const downloadsOnInstance = pickNumber(inst, 'downloadCount');
-                // Primary printer the file was sliced for (devProductName,
-                // e.g. "A1") + the alt-compatibility list MakerWorld marks.
-                // Both come from the design endpoint's per-instance
-                // extention.modelInfo, merged into the instance by the
-                // backend resolve route. The "compat" list is informational
-                // — Bambuddy can't actually re-slice across printers, but
-                // the user gets to see what they're picking.
-                const compat = (inst?.['compatibility'] as { devProductName?: string } | null) ?? null;
-                const others = (inst?.['otherCompatibility'] as Array<{ devProductName?: string }> | null) ?? null;
-                const primaryPrinter = compat?.devProductName ?? null;
-                const otherPrinters: string[] = Array.isArray(others)
-                  ? others.map((o) => o?.devProductName ?? '').filter(Boolean)
-                  : [];
-                if (instanceId == null) return null;
-                const isImporting = importMutation.isPending && importMutation.variables?.instanceId === instanceId;
-                const isPrinting = sliceMutation.isPending && sliceMutation.variables?.instanceId === instanceId;
-                const imported = profileId !== null ? importsByProfile[profileId] : undefined;
-                return (
-                  <div
-                    key={instanceId}
-                    className="flex flex-col gap-2 p-3 border rounded border-gray-200 dark:border-gray-700"
-                  >
-                    <div className="flex gap-3 items-center">
-                      {(() => {
-                        const gallery = getInstanceImages(inst);
-                        const canOpen = gallery.length > 0;
-                        return (
-                          <button
-                            type="button"
-                            disabled={!canOpen}
-                            onClick={() => canOpen && setLightbox({ images: gallery, index: 0 })}
-                            className="relative w-16 h-16 shrink-0 rounded overflow-hidden group"
-                            aria-label={t('makerworld.openGallery')}
-                          >
-                            {cover ? (
-                              <img
-                                src={proxyCdn(cover)}
-                                alt=""
-                                className="w-16 h-16 object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800" />
-                            )}
-                            {gallery.length > 1 && (
-                              <span className="absolute bottom-0.5 right-0.5 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
-                                <Images className="w-2.5 h-2.5" />
-                                {gallery.length}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })()}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          {instanceTitle || t('makerworld.plateDefaultName', { n: idx + 1 })}
-                        </p>
-                        <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {primaryPrinter && (
-                            <span className="font-medium text-gray-700 dark:text-gray-300">
-                              {t('makerworld.slicedFor', { printer: primaryPrinter, defaultValue: 'Sliced for {{printer}}' })}
-                            </span>
-                          )}
-                          {materialCnt !== null && (
-                            <span>{t('makerworld.materialCount', { count: materialCnt })}</span>
-                          )}
-                          {needAms && <span>{t('makerworld.amsRequired')}</span>}
-                          {downloadsOnInstance !== null && (
-                            <span>{t('makerworld.downloadsCount', { count: downloadsOnInstance })}</span>
-                          )}
-                        </div>
-                        {otherPrinters.length > 0 && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1" title={otherPrinters.join(', ')}>
-                            {t('makerworld.alsoCompatible', {
-                              printers: otherPrinters.slice(0, 6).join(', ') + (otherPrinters.length > 6 ? '…' : ''),
-                              defaultValue: 'Also marked compatible: {{printers}}',
-                            })}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!canImport || !canDownload || isImporting || isPrinting || bulkProgress !== null}
-                          onClick={() => importMutation.mutate({ instanceId, profileId })}
-                          title={!canDownload ? t('makerworld.signInRequiredTitle') : undefined}
-                        >
-                          {isImporting ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              <span className="ml-2">
-                                {importPhaseLabel}
-                                {importElapsed > 0 && ` · ${importElapsed}s`}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <Download className="w-4 h-4" />
-                              <span className="ml-2">{t('makerworld.importToLibrary')}</span>
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={!canImport || !canDownload || isImporting || isPrinting || bulkProgress !== null}
-                          onClick={() => sliceMutation.mutate({ instanceId, profileId })}
-                          title={!canDownload ? t('makerworld.signInRequiredTitle') : undefined}
-                        >
-                          {isPrinting ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              <span className="ml-2">
-                                {importPhaseLabel}
-                                {importElapsed > 0 && ` · ${importElapsed}s`}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <ExternalLink className="w-4 h-4" />
-                              <span className="ml-2">
-                                {t('makerworld.sliceIn', { slicer: preferredSlicerName })}
-                              </span>
-                            </>
-                          )}
-                        </Button>
-                      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-xl font-semibold truncate">{title || t('makerworld.untitledModel')}</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isBusyImporting}
+                        onClick={closeResolvedModal}
+                        title={t('makerworld.closePreview')}
+                        aria-label={t('makerworld.closePreview')}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
                     </div>
-                    {imported && (
-                      <div className="flex items-center gap-2 pl-20 text-xs">
-                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span className="text-emerald-700 dark:text-emerald-300">
-                          {imported.was_existing
-                            ? t('makerworld.lastImportAlreadyInLibrary')
-                            : t('makerworld.lastImportSuccess')}
+                    {creator && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        {t('makerworld.byCreator', { name: pickString(creator, 'name') })}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      {downloadCount !== null && (
+                        <span>{t('makerworld.downloadsCount', { count: downloadCount })}</span>
+                      )}
+                      {license && <span>{t('makerworld.licensePrefix')}: {license}</span>}
+                      {alreadyImported && (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                          <Check className="w-3 h-3" /> {t('makerworld.alreadyImported')}
                         </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            const target = imported.folder_id
-                              ? `/files?folder=${imported.folder_id}`
-                              : '/files';
-                            window.location.assign(target);
-                          }}
-                        >
-                          <FolderOpen className="w-3.5 h-3.5" />
-                          <span className="ml-1.5">{t('makerworld.viewInLibrary')}</span>
-                        </Button>
-                        {useSlicerApi ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openSliceForLibraryFile(imported.library_file_id, imported.filename)}
-                          >
-                            <Cog className="w-3.5 h-3.5" />
-                            <span className="ml-1.5">{t('slice.action', 'Slice')}</span>
-                          </Button>
+                      )}
+                    </div>
+                    {summaryHtml && (
+                      <div
+                        className="mt-3 text-sm prose prose-sm max-w-none dark:prose-invert max-h-48 overflow-y-auto pr-1"
+                        // Two-stage processing:
+                        //   1. ``proxyCdnUrlsInHtml`` rewrites <img src="…bblmw.com…">
+                        //      so CSP allows the image load.
+                        //   2. ``DOMPurify.sanitize`` strips scripts, event handlers,
+                        //      javascript: URLs, and other XSS vectors. MakerWorld
+                        //      summaries are user-authored and cannot be trusted.
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(proxyCdnUrlsInHtml(summaryHtml)),
+                        }}
+                      />
+                    )}
+                    <a
+                      href={`https://makerworld.com/models/${resolved.model_id}${resolved.profile_id ? `#profileId-${resolved.profile_id}` : ''}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1 text-xs text-brand-500 hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" /> {t('makerworld.openOnMakerworld')}
+                    </a>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {instances.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-lg font-semibold">{t('makerworld.platesHeader', { count: instances.length })}</h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-xs text-gray-600 dark:text-gray-400">
+                        {t('makerworld.importTo')}
+                      </label>
+                      <select
+                        value={selectedFolderId ?? ''}
+                        onChange={(e) => setSelectedFolderId(e.target.value ? Number(e.target.value) : null)}
+                        className="text-sm px-2 py-1 border rounded bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                        disabled={bulkProgress !== null}
+                      >
+                        <option value="">{t('makerworld.folderAuto')}</option>
+                        {(foldersQuery.data ?? [])
+                          .filter((f) => !(f.is_external && f.external_readonly))
+                          .flatMap((f) => flattenFolderTree(f))
+                          .map(({ folder, depth }) => (
+                            <option key={folder.id} value={folder.id}>
+                              {`${'— '.repeat(depth)}${folder.name}`}
+                            </option>
+                          ))}
+                      </select>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={
+                          !canImport ||
+                          !canDownload ||
+                          bulkProgress !== null ||
+                          importMutation.isPending ||
+                          sliceMutation.isPending
+                        }
+                        onClick={handleImportAll}
+                      >
+                        {bulkProgress !== null ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="ml-2">
+                              {t('makerworld.importAllProgress', { current: bulkProgress.current, total: bulkProgress.total })}
+                              {importElapsed > 0 && ` · ${importPhaseLabel} · ${importElapsed}s`}
+                            </span>
+                          </>
                         ) : (
                           <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleOpenInSlicer(imported.library_file_id, imported.filename, 'bambu_studio')
-                              }
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              <span className="ml-1.5">{t('makerworld.openInBambuStudio')}</span>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleOpenInSlicer(imported.library_file_id, imported.filename, 'orcaslicer')
-                              }
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              <span className="ml-1.5">{t('makerworld.openInOrcaSlicer')}</span>
-                            </Button>
+                            <Download className="w-4 h-4" />
+                            <span className="ml-2">{t('makerworld.importAll')}</span>
                           </>
                         )}
-                        <div className="ml-auto">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={
-                              deleteImportMutation.isPending &&
-                              deleteImportMutation.variables?.profileId === profileId
-                            }
-                            onClick={() => {
-                              if (profileId === null) return;
-                              setPendingDelete({
-                                libraryFileId: imported.library_file_id,
-                                profileId,
-                                filename: imported.filename,
-                              });
-                            }}
-                            title={t('makerworld.deleteImport')}
-                          >
-                            {deleteImportMutation.isPending &&
-                            deleteImportMutation.variables?.profileId === profileId ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
+                      </Button>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3">
+                    {instances.map((inst, idx) => {
+                      const instanceId = pickNumber(inst, 'id');
+                      const profileId = pickNumber(inst, 'profileId');
+                      const instanceTitle = pickString(inst, 'title');
+                      const cover = pickString(inst, 'cover');
+                      const materialCnt = pickNumber(inst, 'materialCnt');
+                      const needAms = inst?.['needAms'] === true;
+                      const downloadsOnInstance = pickNumber(inst, 'downloadCount');
+                      // Primary printer the file was sliced for (devProductName,
+                      // e.g. "A1") + the alt-compatibility list MakerWorld marks.
+                      // Both come from the design endpoint's per-instance
+                      // extention.modelInfo, merged into the instance by the
+                      // backend resolve route. The "compat" list is informational
+                      // — Bambuddy can't actually re-slice across printers, but
+                      // the user gets to see what they're picking.
+                      const compat = (inst?.['compatibility'] as { devProductName?: string } | null) ?? null;
+                      const others = (inst?.['otherCompatibility'] as Array<{ devProductName?: string }> | null) ?? null;
+                      const primaryPrinter = compat?.devProductName ?? null;
+                      const otherPrinters: string[] = Array.isArray(others)
+                        ? others.map((o) => o?.devProductName ?? '').filter(Boolean)
+                        : [];
+                      if (instanceId == null) return null;
+                      const isImporting = importMutation.isPending && importMutation.variables?.instanceId === instanceId;
+                      const isPrinting = sliceMutation.isPending && sliceMutation.variables?.instanceId === instanceId;
+                      const imported = profileId !== null ? importsByProfile[profileId] : undefined;
+                      return (
+                        <div
+                          key={instanceId}
+                          className="flex flex-col gap-2 p-3 border rounded border-gray-200 dark:border-gray-700"
+                        >
+                          <div className="flex gap-3 items-center">
+                            {(() => {
+                              const gallery = getInstanceImages(inst);
+                              const canOpen = gallery.length > 0;
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={!canOpen}
+                                  onClick={() => canOpen && setLightbox({ images: gallery, index: 0 })}
+                                  className="relative w-16 h-16 shrink-0 rounded overflow-hidden group"
+                                  aria-label={t('makerworld.openGallery')}
+                                >
+                                  {cover ? (
+                                    <img
+                                      src={proxyCdn(cover)}
+                                      alt=""
+                                      className="w-16 h-16 object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800" />
+                                  )}
+                                  {gallery.length > 1 && (
+                                    <span className="absolute bottom-0.5 right-0.5 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                                      <Images className="w-2.5 h-2.5" />
+                                      {gallery.length}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })()}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">
+                                {instanceTitle || t('makerworld.plateDefaultName', { n: idx + 1 })}
+                              </p>
+                              <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {primaryPrinter && (
+                                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                                    {t('makerworld.slicedFor', { printer: primaryPrinter, defaultValue: 'Sliced for {{printer}}' })}
+                                  </span>
+                                )}
+                                {materialCnt !== null && (
+                                  <span>{t('makerworld.materialCount', { count: materialCnt })}</span>
+                                )}
+                                {needAms && <span>{t('makerworld.amsRequired')}</span>}
+                                {downloadsOnInstance !== null && (
+                                  <span>{t('makerworld.downloadsCount', { count: downloadsOnInstance })}</span>
+                                )}
+                              </div>
+                              {otherPrinters.length > 0 && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1" title={otherPrinters.join(', ')}>
+                                  {t('makerworld.alsoCompatible', {
+                                    printers: otherPrinters.slice(0, 6).join(', ') + (otherPrinters.length > 6 ? '…' : ''),
+                                    defaultValue: 'Also marked compatible: {{printers}}',
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!canImport || !canDownload || isImporting || isPrinting || bulkProgress !== null}
+                                onClick={() => importMutation.mutate({ instanceId, profileId })}
+                                title={!canDownload ? t('makerworld.signInRequiredTitle') : undefined}
+                              >
+                                {isImporting ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span className="ml-2">
+                                      {importPhaseLabel}
+                                      {importElapsed > 0 && ` · ${importElapsed}s`}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download className="w-4 h-4" />
+                                    <span className="ml-2">{t('makerworld.importToLibrary')}</span>
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={!canImport || !canDownload || isImporting || isPrinting || bulkProgress !== null}
+                                onClick={() => sliceMutation.mutate({ instanceId, profileId })}
+                                title={!canDownload ? t('makerworld.signInRequiredTitle') : undefined}
+                              >
+                                {isPrinting ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span className="ml-2">
+                                      {importPhaseLabel}
+                                      {importElapsed > 0 && ` · ${importElapsed}s`}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ExternalLink className="w-4 h-4" />
+                                    <span className="ml-2">
+                                      {t('makerworld.sliceIn', { slicer: preferredSlicerName })}
+                                    </span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                          {imported && (
+                            <div className="flex items-center gap-2 pl-20 text-xs">
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span className="text-emerald-700 dark:text-emerald-300">
+                                {imported.was_existing
+                                  ? t('makerworld.lastImportAlreadyInLibrary')
+                                  : t('makerworld.lastImportSuccess')}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const target = imported.folder_id
+                                    ? `/files?folder=${imported.folder_id}`
+                                    : '/files';
+                                  window.location.assign(target);
+                                }}
+                              >
+                                <FolderOpen className="w-3.5 h-3.5" />
+                                <span className="ml-1.5">{t('makerworld.viewInLibrary')}</span>
+                              </Button>
+                              {useSlicerApi ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => openSliceForLibraryFile(imported.library_file_id, imported.filename)}
+                                >
+                                  <Cog className="w-3.5 h-3.5" />
+                                  <span className="ml-1.5">{t('slice.action', 'Slice')}</span>
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleOpenInSlicer(imported.library_file_id, imported.filename, 'bambu_studio')
+                                    }
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span className="ml-1.5">{t('makerworld.openInBambuStudio')}</span>
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleOpenInSlicer(imported.library_file_id, imported.filename, 'orcaslicer')
+                                    }
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span className="ml-1.5">{t('makerworld.openInOrcaSlicer')}</span>
+                                  </Button>
+                                </>
+                              )}
+                              <div className="ml-auto">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={
+                                    deleteImportMutation.isPending &&
+                                    deleteImportMutation.variables?.profileId === profileId
+                                  }
+                                  onClick={() => {
+                                    if (profileId === null) return;
+                                    setPendingDelete({
+                                      libraryFileId: imported.library_file_id,
+                                      profileId,
+                                      filename: imported.filename,
+                                    });
+                                  }}
+                                  title={t('makerworld.deleteImport')}
+                                >
+                                  {deleteImportMutation.isPending &&
+                                  deleteImportMutation.variables?.profileId === profileId ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       )}
 
       {searchQuery && (

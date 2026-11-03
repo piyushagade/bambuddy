@@ -421,9 +421,17 @@ describe('MakerworldPage', () => {
       expect(capturedOrderBy).toBe('downloadCount');
     });
 
-    // Clicking a search result card resolves that model's plates
+    // Clicking a search result card resolves that model's plates in a popup modal
     await userEvent.click(screen.getByText('Seed Starter'));
+    expect(await screen.findByRole('dialog', { name: 'Seed Starter' })).toBeInTheDocument();
     expect(await screen.findByText('9 cells')).toBeInTheDocument();
     expect(screen.getByText('12 cells')).toBeInTheDocument();
+
+    // Closing the modal dismisses the model preview while keeping search results
+    await userEvent.click(screen.getByRole('button', { name: /Close preview/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Seed Starter' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Benchy Bambu Pla Basic')).toBeInTheDocument();
   });
 });
