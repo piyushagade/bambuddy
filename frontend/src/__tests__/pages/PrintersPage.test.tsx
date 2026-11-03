@@ -647,7 +647,7 @@ describe('PrintersPage', () => {
       expect(screen.queryByRole('button', { name: 'Mark plate as cleared' })).not.toBeInTheDocument();
     });
 
-    it('hides plate status and action when plate-clear confirmation is disabled', async () => {
+    it('still shows plate clear status and action when awaiting_plate_clear is true even if require_plate_clear is false', async () => {
       server.use(
         http.get('/api/v1/settings/', () => {
           return HttpResponse.json({
@@ -680,13 +680,10 @@ describe('PrintersPage', () => {
       render(<PrintersPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('X1 Carbon')).toBeInTheDocument();
+        expect(screen.getAllByText('Plate not Clear').length).toBeGreaterThan(0);
       });
 
-      expect(screen.queryByText('Plate not Clear')).not.toBeInTheDocument();
-      expect(screen.queryByText('Plate Clear')).not.toBeInTheDocument();
-      expect(screen.queryByText('Plate in Use')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Mark plate as cleared' })).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Mark plate as cleared' }).length).toBeGreaterThan(0);
     });
   });
 

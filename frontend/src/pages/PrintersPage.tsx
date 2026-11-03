@@ -2607,7 +2607,7 @@ function PrinterCard({
   });
   const lastPrint = lastPrints?.[0];
   const isPrintingOrPaused = status?.state === 'RUNNING' || status?.state === 'PAUSE';
-  const needsPlateClear = requirePlateClear && status?.awaiting_plate_clear === true;
+  const needsPlateClear = status?.awaiting_plate_clear === true;
   // Post-print outcome confirmation on the card (#1898): while the plate-clear
   // gate is up and the just-finished print asked for a verdict, offer
   // Good/Reject right where the operator releases the plate. Releasing the
@@ -2642,17 +2642,18 @@ function PrinterCard({
     // Connected-only because the pill's only render site sits inside the live-status
     // panel. For a powered-down printer the plate-clear button itself carries the
     // state — see the standalone slot below the status block (#2864).
-    if (!requirePlateClear || !status?.connected) return null;
+    if (!status?.connected) return null;
+    if (!isPrintingOrPaused && status.awaiting_plate_clear) {
+      return {
+        label: t('printers.plateStatus.notCleared'),
+        className: 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
+      };
+    }
+    if (!requirePlateClear) return null;
     if (isPrintingOrPaused) {
       return {
         label: t('printers.plateStatus.inUse'),
         className: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400',
-      };
-    }
-    if (status.awaiting_plate_clear) {
-      return {
-        label: t('printers.plateStatus.notCleared'),
-        className: 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
       };
     }
     return {
@@ -4210,6 +4211,23 @@ function PrinterCard({
                   >
                     {status.door_open ? <DoorOpen className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" /> : <DoorClosed className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />}
                   </span>
+                )}
+
+                {/* Clear Plate Flag Badge — shown in header grid whenever awaiting_plate_clear is up */}
+                {showClearPlateButton && (
+                  <button
+                    type="button"
+                    onClick={() => clearPlateMutation.mutate()}
+                    disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
+                    className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+                    title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : `${t('printers.plateStatus.notCleared')} — ${t('printers.plateStatus.markCleared')}`}
+                  >
+                    {clearPlateMutation.isPending ? (
+                      <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
+                    ) : (
+                      <PlateClearedIcon className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
+                    )}
+                  </button>
                 )}
               </div>
             )}
@@ -8942,7 +8960,7 @@ function PrinterListRow({
   const hmsErrors = status?.connected && status.hms_errors ? filterKnownHMSErrors(status.hms_errors) : [];
   const stateBucket = classifyPrinterStatus(status);
   const isPrintingOrPaused = status?.state === 'RUNNING' || status?.state === 'PAUSE';
-  const showClearPlate = Boolean(requirePlateClear && status?.awaiting_plate_clear && !isPrintingOrPaused);
+  const showClearPlate = Boolean(status?.awaiting_plate_clear && !isPrintingOrPaused);
   const isRestricted =
     (printer.allowed_group_ids?.length ?? 0) > 0 ||
     (printer.allowed_user_ids?.length ?? 0) > 0;

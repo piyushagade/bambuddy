@@ -132,12 +132,6 @@ export function DashboardPage() {
   });
   const currencySymbol = getCurrencySymbol(uiFlags?.currency ?? 'USD');
 
-  const { data: uiPreferences } = useQuery({
-    queryKey: ['ui-preferences'],
-    queryFn: api.getUiPreferences,
-  });
-  const requirePlateClear = uiPreferences?.require_plate_clear === true;
-
   const canReadPrinters = hasPermission('printers:read');
   const { data: printers = [] } = useQuery({
     queryKey: ['printers'],
@@ -333,10 +327,10 @@ export function DashboardPage() {
       if (!st) return false;
       const hasHmsError = (st.hms_errors?.length ?? 0) > 0;
       const isPaused = st.state === 'PAUSE';
-      const needsClear = requirePlateClear && !!st.awaiting_plate_clear;
+      const needsClear = !!st.awaiting_plate_clear;
       return hasHmsError || isPaused || needsClear;
     });
-  }, [printers, statusByPrinterId, requirePlateClear]);
+  }, [printers, statusByPrinterId]);
 
   // Low stock spools
   const lowStockSpools = useMemo(() => {
@@ -885,7 +879,7 @@ export function DashboardPage() {
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-white truncate">{p.name}</p>
                               <p className="text-[11px] text-amber-400 truncate">
-                                {requirePlateClear && st?.awaiting_plate_clear
+                                {st?.awaiting_plate_clear
                                   ? t('dashboard.printers.awaitingPlateClear', 'Awaiting plate clear')
                                   : hmsCount > 0
                                     ? `${hmsCount} HMS alert(s)`
@@ -894,7 +888,7 @@ export function DashboardPage() {
                                       : ''}
                               </p>
                             </div>
-                            {requirePlateClear && st?.awaiting_plate_clear && hasPermission('printers:clear_plate') ? (
+                            {st?.awaiting_plate_clear && hasPermission('printers:clear_plate') ? (
                               <button
                                 type="button"
                                 onClick={() => clearPlateMutation.mutate(p.id)}
