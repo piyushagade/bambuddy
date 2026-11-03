@@ -354,6 +354,7 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
         "UFID,Last Name,First Name,Email,Subject,Catalog Number,College,Major / Minor,Level,Status,Grading Basis,Term,Career,Institution,Class Number,Credits (Units),Grade,Writing Req,Writing Req Grade,Date Added\n"
         "62640601,Arceo Zamora,David,davidarceozamora@ufl.edu,ABE,4042C,Engineering,Engineering - Biological Engineering,Fifth Year Senior,Enrolled,Letter Grade,2268,UGRD,UFLOR,17491,2,,,,2026-03-30\n"
         "68511827,Areas Mayorga,Sofia Eugenia,sareasmayorga@ufl.edu,ABE,4042C,Engineering,Engineering - Biological Engineering,Fifth Year Senior,Enrolled,Letter Grade,2268,UGRD,UFLOR,17491,2,,,,2026-04-02\n"
+        "12345678,Li,Bo,bo@ufl.edu,ABE,4042C,Engineering,Engineering - Biological Engineering,Fifth Year Senior,Enrolled,Letter Grade,2268,UGRD,UFLOR,17491,2,,,,2026-04-02\n"
     )
     resp = await async_client.post(
         "/api/v1/users/roster-import",
@@ -362,9 +363,9 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
     )
     assert resp.status_code in (200, 201), resp.text
     body = resp.json()
-    assert body["created_count"] == 2
+    assert body["created_count"] == 3
     usernames = {u["username"] for u in body["users"]}
-    assert usernames == {"davidarceozamora", "sareasmayorga"}
+    assert usernames == {"davidarceozamora", "sareasmayorga", "bo"}
 
     # Verify group 'F26 - ABE4042C' was auto-created and assigned, along with first_name and last_name
     first_user = next(u for u in body["users"] if u["username"] == "davidarceozamora")
@@ -377,15 +378,23 @@ async def test_uf_classroll_csv_import_email_prefix_and_ufid_password(
     assert "F26 - ABE4042C" in group_names
     assert first_user["expires_at"].startswith("2026-12-15T23:59:00")
 
-    # Verify student can log in with email prefix as username and UFID as password
+    # Verify student can log in with email prefix as username and (first 4 of username + last 4 of UFID) as password
     login_resp = await async_client.post(
         "/api/v1/auth/login",
-        json={"username": "davidarceozamora", "password": "62640601"},
+        json={"username": "davidarceozamora", "password": "davi0601"},
     )
     assert login_resp.status_code == 200, login_resp.text
     assert login_resp.json()["user"]["username"] == "davidarceozamora"
     assert login_resp.json()["user"]["first_name"] == "David"
     assert login_resp.json()["user"]["last_name"] == "Arceo Zamora"
+
+    # Verify short username (< 4 chars) is right-padded with '.' to 4 chars + last 4 of UFID ("bo..5678")
+    short_login_resp = await async_client.post(
+        "/api/v1/auth/login",
+        json={"username": "bo", "password": "bo..5678"},
+    )
+    assert short_login_resp.status_code == 200, short_login_resp.text
+    assert short_login_resp.json()["user"]["username"] == "bo"
 
 
 @pytest.mark.asyncio

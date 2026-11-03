@@ -559,8 +559,13 @@ async def import_roster_csv(
             email_q = select(User).where(User.email == email).options(selectinload(User.groups))
             user = (await db.execute(email_q)).scalar_one_or_none()
 
+        clean_ufid = ufid_str.replace("-", "").strip()
+        derived_ufid_password = (
+            f"{username[:4].ljust(4, '.')}{clean_ufid[-4:]}" if clean_ufid else ""
+        )
+
         if user is None:
-            initial_password = ufid_str if ufid_str else generate_secure_password()
+            initial_password = derived_ufid_password if derived_ufid_password else generate_secure_password()
             user = User(
                 username=username,
                 first_name=first_name_str or None,
@@ -587,8 +592,8 @@ async def import_roster_csv(
                 user.last_name = last_name_str
             if email and not user.email:
                 user.email = email
-            if ufid_str and user.password_changed_at is None:
-                user.password_hash = get_password_hash(ufid_str)
+            if derived_ufid_password and user.password_changed_at is None:
+                user.password_hash = get_password_hash(derived_ufid_password)
             if row_exp is not None:
                 if user.expires_at is None or row_exp > user.expires_at:
                     user.expires_at = row_exp

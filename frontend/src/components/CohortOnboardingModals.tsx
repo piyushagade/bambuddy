@@ -95,7 +95,9 @@ export function RosterImportModal({ groups, onClose }: RosterImportModalProps) {
         <strong className="text-white">username</strong> (prefix of their{' '}
         <code className="text-white">Email</code> before <code className="text-white">@</code>) are
         populated automatically, their initial <strong className="text-white">password</strong> is set to
-        their <code className="text-white">UFID</code>, and their course group (e.g.{' '}
+        the first 4 characters of their username (padded with <code className="text-white">.</code> if
+        shorter than 4 characters) followed by the last 4 digits of their{' '}
+        <code className="text-white">UFID</code>, and their course group (e.g.{' '}
         <code className="text-white">F26 - ABE4042C</code>) and semester expiration are created
         automatically.
       </p>
