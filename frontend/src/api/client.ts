@@ -1763,6 +1763,20 @@ export interface MakerworldRecentImport {
   created_at: string;
 }
 
+export type MakerworldSearchOrderBy =
+  | 'score'
+  | 'downloadCount'
+  | 'likeCount'
+  | 'printCount'
+  | 'hotScore'
+  | 'createTime';
+
+export interface MakerworldSearchResponse {
+  total: number;
+  hits: Array<Record<string, unknown>>;
+  already_imported_model_ids: number[];
+}
+
 export interface SlicerSetting {
   setting_id: string;
   name: string;
@@ -6308,9 +6322,19 @@ export const api = {
     );
   },
 
-  // MakerWorld URL-paste import flow.
+  // MakerWorld search + URL-paste import flow.
   getMakerworldStatus: () =>
     request<MakerworldStatus>('/makerworld/status'),
+  searchMakerworldModels: (
+    q: string,
+    opts?: { limit?: number; offset?: number; orderBy?: MakerworldSearchOrderBy },
+  ) => {
+    const params = new URLSearchParams({ q });
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+    if (opts?.orderBy) params.set('order_by', opts.orderBy);
+    return request<MakerworldSearchResponse>(`/makerworld/search?${params.toString()}`);
+  },
   resolveMakerworldUrl: (url: string) =>
     request<MakerworldResolvedModel>('/makerworld/resolve', {
       method: 'POST',

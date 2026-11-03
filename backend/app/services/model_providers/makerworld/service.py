@@ -56,6 +56,7 @@ from backend.app.services.model_providers.makerworld.http import (
     _REFUSED_THUMBNAIL_MIMES,
     MAKERWORLD_API_BASE,
     MAKERWORLD_CDN_HOSTS,
+    MAKERWORLD_SEARCH_API_BASE,
     _download_s3_urllib,
     _extract_upstream_error,
 )
@@ -277,8 +278,14 @@ class MakerWorldService(ProviderService):
 
     # ---------------------------------------------------------------- endpoints
 
-    async def _get_json(self, path: str) -> dict[str, Any]:
-        """GET ``{MAKERWORLD_API_BASE}{path}`` returning the decoded JSON body.
+    async def _get_json(
+        self,
+        path: str,
+        *,
+        base_url: str = MAKERWORLD_API_BASE,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """GET ``{base_url}{path}`` returning the decoded JSON body.
 
         Raises ``MakerWorld{Auth,Forbidden,NotFound,Unavailable}Error`` based
         on status. Retries once on 418 (Cloudflare bot-detection) with a
@@ -286,11 +293,14 @@ class MakerWorldService(ProviderService):
         a subsequent call; hammering beyond one retry provokes a stronger
         block, so we stop there and surface a useful error.
         """
-        url = f"{MAKERWORLD_API_BASE}{path}"
+        url = f"{base_url}{path}"
+        request_kwargs: dict[str, Any] = {"headers": self._headers(), "timeout": 30.0}
+        if params is not None:
+            request_kwargs["params"] = params
 
         for attempt in range(2):
             try:
-                response = await self._client.get(url, headers=self._headers(), timeout=30.0)
+                response = await self._client.get(url, **request_kwargs)
             except httpx.TimeoutException as exc:
                 raise MakerWorldUnavailableError(f"MakerWorld request timed out: {exc}") from exc
             except httpx.HTTPError as exc:
@@ -392,6 +402,38 @@ class MakerWorldService(ProviderService):
         instanceId). Works anonymously.
         """
         return await self._get_json(f"/profile/{int(profile_id)}")
+
+    async def search_designs(
+        self,
+        keyword: str,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        order_by: str | None = None,
+    ) -> dict[str, Any]:
+        """Search MakerWorld models via ``/v1/search-service/select/design2``.
+
+        Works anonymously. Normalises MakerWorld's ``{"total": N, "hits": null}``
+        empty-result shape so ``hits`` is always a list of dicts.
+        """
+        params: dict[str, Any] = {
+            "keyword": keyword,
+            "limit": int(limit),
+            "offset": int(offset),
+        }
+        if order_by and order_by != "score":
+            params["orderBy"] = order_by
+
+        envelope = await self._get_json(
+            "/select/design2",
+            base_url=MAKERWORLD_SEARCH_API_BASE,
+            params=params,
+        )
+        raw_hits = envelope.get("hits") or []
+        hits = [h for h in raw_hits if isinstance(h, dict)] if isinstance(raw_hits, list) else []
+        raw_total = envelope.get("total")
+        total = int(raw_total) if isinstance(raw_total, int) and raw_total >= 0 else len(hits)
+        return {"total": total, "hits": hits}
 
     async def get_profile_download(self, profile_id: int, model_id: str) -> dict[str, Any]:
         """Fetch the signed 3MF download URL for a specific MakerWorld profile.

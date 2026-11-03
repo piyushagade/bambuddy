@@ -6,13 +6,17 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   Clock,
   Disc3,
+  DollarSign,
   Edit2,
   FileText,
   FolderKanban,
   FolderOpen,
+  HardDrive,
+  KeyRound,
   Layers,
   LayoutDashboard,
   ListOrdered,
@@ -69,6 +73,18 @@ function formatHour(hour: number | null | undefined): string {
   if (hour === null || hour === undefined) return '';
   const normalized = ((hour % 24) + 24) % 24;
   return `${String(normalized).padStart(2, '0')}:00`;
+}
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let val = bytes;
+  let unitIdx = 0;
+  while (val >= 1024 && unitIdx < units.length - 1) {
+    val /= 1024;
+    unitIdx++;
+  }
+  return `${val >= 10 || unitIdx === 0 ? Math.round(val) : val.toFixed(1)} ${units[unitIdx]}`;
 }
 
 function getAmsSlotLabel(amsId: number, trayId: number): string {
@@ -211,6 +227,43 @@ export function DashboardPage() {
     queryKey: ['system-info'],
     queryFn: api.getSystemInfo,
     enabled: canReadSystem && effectiveAdminMode,
+    staleTime: 60 * 1000,
+  });
+
+  const canReadUsers = hasPermission('users:read');
+  const { data: adminUsers = [], isLoading: usersLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: api.getUsers,
+    enabled: canReadUsers && effectiveAdminMode,
+    staleTime: 60 * 1000,
+  });
+
+  const canReadGroups = hasPermission('groups:read');
+  const { data: adminGroups = [], isLoading: groupsLoading } = useQuery({
+    queryKey: ['groups'],
+    queryFn: api.getGroups,
+    enabled: canReadGroups && effectiveAdminMode,
+    staleTime: 60 * 1000,
+  });
+
+  const { data: enrollmentInvites = [] } = useQuery({
+    queryKey: ['enrollment-invites'],
+    queryFn: api.getEnrollmentInvites,
+    enabled: canReadGroups && effectiveAdminMode,
+    staleTime: 60 * 1000,
+  });
+
+  const { data: costCenters = [] } = useQuery({
+    queryKey: ['cost-centers', 'admin-dashboard'],
+    queryFn: () => api.listCostCenters(true),
+    enabled: effectiveAdminMode,
+    staleTime: 60 * 1000,
+  });
+
+  const { data: archiveStats } = useQuery({
+    queryKey: ['archive-stats', 'admin-dashboard'],
+    queryFn: api.getArchiveStats,
+    enabled: canReadArchives && effectiveAdminMode,
     staleTime: 60 * 1000,
   });
 
@@ -430,6 +483,29 @@ export function DashboardPage() {
     };
   }, [authEnabled, user, queueItems]);
 
+  // Admin user & invite metrics
+  const adminUserMetrics = useMemo(() => {
+    const activeUsers = adminUsers.filter((u) => u.is_active && !u.is_expired);
+    const expiredUsers = adminUsers.filter((u) => u.is_expired || !u.is_active);
+    const uncertifiedUsers = adminUsers.filter(
+      (u) => u.require_safety_certification && u.is_certification_expired,
+    );
+    const activeInvites = enrollmentInvites.filter((inv) => inv.is_active && inv.is_redeemable);
+    return {
+      totalUsers: adminUsers.length,
+      activeCount: activeUsers.length,
+      expiredCount: expiredUsers.length,
+      uncertifiedCount: uncertifiedUsers.length,
+      attentionUsers: adminUsers.filter(
+        (u) =>
+          u.is_expired ||
+          !u.is_active ||
+          (u.require_safety_certification && u.is_certification_expired),
+      ),
+      activeInvites,
+    };
+  }, [adminUsers, enrollmentInvites]);
+
   const greetingName = user?.first_name || user?.username || t('dashboard.maker', 'Maker');
 
   return (
@@ -457,9 +533,17 @@ export function DashboardPage() {
             </span>
           </div>
           <p className="text-sm text-bambu-gray mt-1">
-            {t('dashboard.welcomeSubtitle', 'Welcome back, {{name}} — manage your printers, projects, files, and spools in one place.', {
-              name: greetingName,
-            })}
+            {effectiveAdminMode
+              ? t(
+                  'dashboard.adminWelcomeSubtitle',
+                  'Welcome back, {{name}} — govern user groups & quotas, approve jobs, monitor budgets, and oversee system health.',
+                  { name: greetingName },
+                )
+              : t(
+                  'dashboard.welcomeSubtitle',
+                  'Welcome back, {{name}} — manage your printers, projects, files, and spools in one place.',
+                  { name: greetingName },
+                )}
           </p>
         </div>
 
@@ -494,262 +578,190 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* ── KPI Summary Strip ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <Card
-          onClick={() => navigate('/printers')}
-          className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
-        >
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {t('dashboard.kpi.printers', 'Printers')}
-              </p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-bold text-white">{printerStats.total}</span>
-                <span className="text-xs text-bambu-gray">
-                  {t('dashboard.kpi.printingIdle', '{{printing}} printing · {{idle}} idle', {
-                    printing: printerStats.printing,
-                    idle: printerStats.idle,
-                  })}
-                </span>
-              </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
-              <PrinterIcon className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
+      {effectiveAdminMode ? (
+        /* ════════════════════════════════════════════════════════════════════════
+           ADMIN DASHBOARD VIEW (No Printers, Spools, Queue, Projects, or Files)
+           ════════════════════════════════════════════════════════════════════════ */
+        <div className="space-y-6">
+          {/* ── 1. Admin KPI Summary Strip ───────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <Card
+              onClick={() => navigate('/settings?tab=users')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.admin.kpi.usersGroups', 'Users & Groups')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">
+                      {adminUserMetrics.activeCount}
+                    </span>
+                    <span className="text-xs text-bambu-gray">
+                      {t('dashboard.admin.kpi.groupsCount', '{{groups}} groups · {{invites}} invites', {
+                        groups: adminGroups.length,
+                        invites: adminUserMetrics.activeInvites.length,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <Users className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card
-          onClick={() => navigate('/projects')}
-          className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
-        >
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {t('dashboard.kpi.projectsAndFiles', 'Projects & Files')}
-              </p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-bold text-white">{projects.length}</span>
-                <span className="text-xs text-bambu-gray">
-                  {t('dashboard.kpi.filesCount', '{{count}} library files', {
-                    count: libraryFiles.length,
-                  })}
-                </span>
-              </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
-              <FolderKanban className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
+            <Card
+              onClick={() => navigate('/queue')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.admin.kpi.approvalsAlerts', 'Approvals & Alerts')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">
+                      {pendingApprovalItems.length}
+                    </span>
+                    <span
+                      className={`text-xs ${
+                        printersNeedingAttention.length + maintenanceAlerts.length > 0
+                          ? 'text-amber-400'
+                          : 'text-bambu-gray'
+                      }`}
+                    >
+                      {t('dashboard.admin.kpi.alertsCount', '{{count}} farm alerts', {
+                        count:
+                          printersNeedingAttention.length +
+                          maintenanceAlerts.length +
+                          lowStockSpools.length,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card
-          onClick={() => navigate('/inventory')}
-          className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
-        >
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {t('dashboard.kpi.spools', 'Spools')}
-              </p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-bold text-white">{spools.length}</span>
-                <span className="text-xs text-bambu-gray">
-                  {t('dashboard.kpi.materialsCount', '{{count}} materials', {
-                    count: spoolMaterials.length,
-                  })}
-                </span>
-              </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
-              <Disc3 className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
+            <Card
+              onClick={() => navigate('/stats')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.admin.kpi.farmThroughput', 'Farm Reliability')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">
+                      {archiveStats && archiveStats.total_prints > 0
+                        ? `${Math.round((archiveStats.successful_prints / archiveStats.total_prints) * 100)}%`
+                        : '—'}
+                    </span>
+                    <span className="text-xs text-bambu-gray">
+                      {archiveStats
+                        ? `${archiveStats.total_prints} prints · ${Math.round(archiveStats.total_print_time_hours)}h`
+                        : t('dashboard.admin.kpi.viewStats', 'View analytics')}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card
-          onClick={() => navigate('/queue')}
-          className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
-        >
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
-                {effectiveAdminMode
-                  ? t('dashboard.kpi.farmQueue', 'Active Farm Queue')
-                  : t('dashboard.kpi.myQueue', 'My Active Jobs')}
-              </p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-bold text-white">{activeQueueItems.length}</span>
-                {pendingApprovalItems.length > 0 && effectiveAdminMode ? (
-                  <span className="text-xs text-amber-400">
-                    {t('dashboard.kpi.awaitingApproval', '{{count}} awaiting approval', {
-                      count: pendingApprovalItems.length,
-                    })}
-                  </span>
-                ) : (
-                  <span className="text-xs text-bambu-gray">
-                    {t('dashboard.kpi.recentPrintsCount', '{{count}} recent prints', {
-                      count: recentArchives.length,
-                    })}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
-              <ListOrdered className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ── Maker Quotas / Access & Certification Banner ───────────────────── */}
-      {quotaSummary && (quotaSummary.activeGroups.length > 0 || user?.require_safety_certification) && (
-        <div className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="text-xs font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
-              <UserCheck className="w-4 h-4 text-bambu-gray" />
-              {t('dashboard.quotas.yourAccess', 'Your Access & Quotas:')}
-            </span>
-            {quotaSummary.activeGroups.map((g) => (
-              <span
-                key={g.id}
-                className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-bambu-dark text-gray-200 border border-bambu-dark-tertiary"
-              >
-                {g.name}
-              </span>
-            ))}
-            {user?.require_safety_certification && (
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
-                  user.is_certification_expired
-                    ? 'bg-red-500/15 text-red-400 border-red-500/30'
-                    : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                }`}
-              >
-                {user.is_certification_expired ? (
-                  <>
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    {t('dashboard.quotas.certExpired', 'Safety Certification Expired')}
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {t('dashboard.quotas.certValid', 'Safety Certified')}
-                  </>
-                )}
-              </span>
-            )}
+            <Card
+              onClick={() => navigate('/system')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.admin.kpi.systemHealth', 'System & Storage')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">
+                      {systemInfo?.storage?.disk_percent_used != null
+                        ? `${Math.round(systemInfo.storage.disk_percent_used)}%`
+                        : '—'}
+                    </span>
+                    <span className="text-xs text-bambu-gray">
+                      {systemInfo?.storage
+                        ? `${formatBytes(systemInfo.storage.disk_free_bytes)} free`
+                        : systemInfo?.app?.version
+                          ? `v${systemInfo.app.version}`
+                          : t('nav.system', 'System')}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <Server className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 text-xs text-bambu-gray">
-            {quotaSummary.maxActiveQueueItems !== null && (
-              <span>
-                {t('dashboard.quotas.queueSlots', 'Queue Slots:')}{' '}
-                <strong className="text-white">
-                  {quotaSummary.myActiveQueueCount} / {quotaSummary.maxActiveQueueItems}
-                </strong>
-              </span>
-            )}
-            {quotaSummary.maxDurationMinutes !== null && (
-              <span>
-                {t('dashboard.quotas.maxPrintTime', 'Max Print Time:')}{' '}
-                <strong className="text-white">
-                  {formatDurationMinutes(quotaSummary.maxDurationMinutes)}
-                </strong>
-              </span>
-            )}
-            {quotaSummary.maxFilamentGrams !== null && (
-              <span>
-                {t('dashboard.quotas.maxFilament', 'Max Filament/Job:')}{' '}
-                <strong className="text-white">{quotaSummary.maxFilamentGrams}g</strong>
-              </span>
-            )}
-            {quotaSummary.allowedHours && (
-              <span>
-                {t('dashboard.quotas.allowedHours', 'Hours:')}{' '}
-                <strong className="text-white">{quotaSummary.allowedHours}</strong>
-              </span>
-            )}
-            {quotaSummary.requiresApproval && !isAdmin && (
-              <span className="text-amber-400 font-medium">
-                {t('dashboard.quotas.requiresApproval', 'Jobs require TA/Admin approval')}
-              </span>
-            )}
-            {quotaSummary.earliestExpiry && (
-              <span>
-                {t('dashboard.quotas.accessExpires', 'Access Until:')}{' '}
-                <strong className="text-white">
-                  {parseUTCDate(quotaSummary.earliestExpiry)?.toLocaleDateString() ??
-                    quotaSummary.earliestExpiry}
-                </strong>
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Admin Tools & Action Center (Admin Mode Only) ──────────────────── */}
-      {effectiveAdminMode && (
-        <div className="space-y-4">
-          {/* Quick Admin Tools Bar */}
-          <Card className="border-amber-500/30 bg-gradient-to-r from-bambu-dark-secondary via-bambu-dark-secondary to-amber-500/5">
-            <CardContent className="p-4 flex flex-col gap-3">
+          {/* ── 2. Quick Admin Actions Bar ───────────────────────────────────── */}
+          <Card className="border-bambu-dark-tertiary">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-400">
+                <div className="p-2.5 rounded-xl bg-bambu-dark border border-bambu-dark-tertiary text-amber-400">
                   <Shield className="w-5 h-5" />
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-white">
-                    {t('dashboard.admin.quickToolsTitle', 'Admin Tools & Farm Administration')}
+                    {t('dashboard.admin.quickToolsTitle', 'Administrative Actions')}
                   </h2>
                   <p className="text-xs text-bambu-gray">
                     {t(
                       'dashboard.admin.quickToolsSubtitle',
-                      'Manage printer access restrictions, user groups, spool inventory, and farm health.',
+                      'Configure user permissions, group quotas, cost centers, maintenance schedules, and system settings.',
                     )}
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {hasPermission('printers:create') && (
-                  <Button
-                    size="sm"
-                    onClick={() => setShowAddPrinterModal(true)}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    {t('printers.addPrinter', 'Add Printer')}
-                  </Button>
-                )}
-                {hasPermission('inventory:create') && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setSpoolModalState({ open: true, mode: 'create', spool: null })}
-                  >
-                    <Disc3 className="w-3.5 h-3.5 text-purple-400" />
-                    {t('dashboard.admin.addSpool', 'Add Spool')}
-                  </Button>
-                )}
                 {hasAnyPermission('users:read', 'groups:read') && (
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => navigate('/settings?tab=users')}
                   >
-                    <Users className="w-3.5 h-3.5 text-blue-400" />
+                    <Users className="w-3.5 h-3.5 text-bambu-gray" />
                     {t('dashboard.admin.manageUsersGroups', 'Users & Groups')}
                   </Button>
                 )}
+                {hasPermission('groups:create') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => navigate('/groups/new')}
+                  >
+                    <Plus className="w-3.5 h-3.5 text-bambu-gray" />
+                    {t('dashboard.admin.newGroup', 'New Group')}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigate('/finance')}
+                >
+                  <DollarSign className="w-3.5 h-3.5 text-bambu-gray" />
+                  {t('dashboard.admin.costCenters', 'Cost Centers')}
+                </Button>
                 {hasPermission('maintenance:read') && (
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => navigate('/maintenance')}
                   >
-                    <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                    <Wrench className="w-3.5 h-3.5 text-bambu-gray" />
                     {t('nav.maintenance', 'Maintenance')}
                     {maintenanceAlerts.length > 0 && (
                       <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300">
@@ -758,55 +770,89 @@ export function DashboardPage() {
                     )}
                   </Button>
                 )}
-                {hasPermission('settings:read') && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => navigate('/settings')}
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    {t('nav.settings', 'Settings')}
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigate('/stats')}
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-bambu-gray" />
+                  {t('nav.stats', 'Analytics')}
+                </Button>
                 {hasPermission('system:read') && (
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => navigate('/system')}
                   >
-                    <Server className="w-3.5 h-3.5 text-emerald-400" />
-                    {systemInfo?.storage?.disk_percent_used != null
-                      ? `${t('nav.system', 'System')} (${Math.round(systemInfo.storage.disk_percent_used)}% disk)`
-                      : t('nav.system', 'System')}
+                    <Server className="w-3.5 h-3.5 text-bambu-gray" />
+                    {t('nav.system', 'System')}
+                  </Button>
+                )}
+                {hasPermission('settings:read') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => navigate('/settings')}
+                  >
+                    <Settings className="w-3.5 h-3.5 text-bambu-gray" />
+                    {t('nav.settings', 'Settings')}
+                  </Button>
+                )}
+                {hasPermission('printers:create') && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setShowAddPrinterModal(true)}
+                  >
+                    <Plus className="w-3.5 h-3.5 text-bambu-gray" />
+                    {t('printers.addPrinter', 'Add Printer')}
                   </Button>
                 )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Admin Action Center (Pending Approvals, Printer Alerts, Low Stock) */}
-          {(pendingApprovalItems.length > 0 ||
-            printersNeedingAttention.length > 0 ||
-            lowStockSpools.length > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Pending Job Approvals */}
-              <Card className="border-bambu-dark-tertiary">
-                <CardContent className="p-4 space-y-3">
+          {/* ── 3. Admin 2x2 Management Grid ─────────────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            {/* Panel 1: Approvals & Farm Triage */}
+            <Card className="border-bambu-dark-tertiary">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-bambu-gray shrink-0" />
+                    {t('dashboard.admin.triageTitle', 'Approvals & Farm Triage')}
+                  </h2>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-bambu-dark border border-bambu-dark-tertiary text-bambu-gray">
+                    {pendingApprovalItems.length +
+                      printersNeedingAttention.length +
+                      maintenanceAlerts.length +
+                      adminUserMetrics.attentionUsers.length}{' '}
+                    {t('dashboard.admin.items', 'items')}
+                  </span>
+                </div>
+
+                {/* Section A: Pending Print Job Approvals */}
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      {t('dashboard.admin.pendingApprovals', 'Pending Job Approvals')}
-                    </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-medium">
-                      {pendingApprovalItems.length}
-                    </span>
+                    <p className="text-[11px] font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      {t('dashboard.admin.pendingApprovals', 'Pending Job Approvals')} (
+                      {pendingApprovalItems.length})
+                    </p>
+                    <Link
+                      to="/queue"
+                      className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1"
+                    >
+                      {t('dashboard.activity.openQueue', 'Queue')}
+                      <ArrowRight className="w-3 h-3" />
+                    </Link>
                   </div>
                   {pendingApprovalItems.length === 0 ? (
-                    <p className="text-xs text-bambu-gray py-3">
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary text-xs text-bambu-gray">
                       {t('dashboard.admin.noPendingApprovals', 'No print jobs waiting for approval.')}
-                    </p>
+                    </div>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                       {pendingApprovalItems.map((item) => (
                         <div
                           key={item.id}
@@ -847,34 +893,33 @@ export function DashboardPage() {
                       ))}
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Printers Needing Attention */}
-              <Card className="border-bambu-dark-tertiary">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-red-400" />
-                      {t('dashboard.admin.printersAttention', 'Printers Needing Attention')}
-                    </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium">
-                      {printersNeedingAttention.length}
-                    </span>
-                  </div>
-                  {printersNeedingAttention.length === 0 ? (
-                    <p className="text-xs text-bambu-gray py-3">
-                      {t('dashboard.admin.allPrintersHealthy', 'All connected printers are healthy.')}
-                    </p>
+                {/* Section B: Hardware, Plate Clear & Low-Stock Alerts */}
+                <div className="pt-2 border-t border-bambu-dark-tertiary space-y-2">
+                  <p className="text-[11px] font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    {t('dashboard.admin.operationalAlerts', 'Operational & Access Alerts')}
+                  </p>
+
+                  {printersNeedingAttention.length === 0 &&
+                  lowStockSpools.length === 0 &&
+                  adminUserMetrics.attentionUsers.length === 0 ? (
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary text-xs text-bambu-gray">
+                      {t(
+                        'dashboard.admin.noOperationalAlerts',
+                        'No hardware alerts, low-stock spools, or expired user certifications.',
+                      )}
+                    </div>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                       {printersNeedingAttention.map((p) => {
                         const st = statusByPrinterId[p.id];
                         const hmsCount = st?.hms_errors?.length ?? 0;
                         return (
                           <div
-                            key={p.id}
-                            className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                            key={`printer-alert-${p.id}`}
+                            className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
                           >
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-white truncate">{p.name}</p>
@@ -893,72 +938,71 @@ export function DashboardPage() {
                                 type="button"
                                 onClick={() => clearPlateMutation.mutate(p.id)}
                                 disabled={clearPlateMutation.isPending}
-                                className="px-2.5 py-1 rounded-lg text-xs font-medium bg-bambu-green/15 text-bambu-green hover:bg-bambu-green hover:text-black transition-colors shrink-0"
+                                className="px-2.5 py-1 rounded-md text-xs font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 border border-bambu-dark-tertiary transition-colors shrink-0"
                               >
                                 {t('dashboard.printers.clearPlate', 'Clear Plate')}
                               </button>
                             ) : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  document
-                                    .getElementById('accessible-printers')
-                                    ?.scrollIntoView({ behavior: 'smooth' })
-                                }
-                                className="text-xs text-bambu-green hover:underline shrink-0"
+                              <Link
+                                to="/printers"
+                                className="text-xs text-bambu-gray hover:text-white shrink-0"
                               >
                                 {t('common.view', 'View')}
-                              </button>
+                              </Link>
                             )}
                           </div>
                         );
                       })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
-              {/* Low-Stock Spools */}
-              <Card className="border-bambu-dark-tertiary">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                      <Disc3 className="w-4 h-4 text-purple-400" />
-                      {t('dashboard.admin.lowStockSpools', 'Low-Stock Spools')}
-                    </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-medium">
-                      {lowStockSpools.length}
-                    </span>
-                  </div>
-                  {lowStockSpools.length === 0 ? (
-                    <p className="text-xs text-bambu-gray py-3">
-                      {t('dashboard.admin.noLowStock', 'All spools are above low-stock thresholds.')}
-                    </p>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {lowStockSpools.slice(0, 6).map((s) => {
+                      {adminUserMetrics.attentionUsers.slice(0, 4).map((u) => (
+                        <div
+                          key={`user-alert-${u.id}`}
+                          className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-white truncate">
+                              {u.first_name || u.last_name
+                                ? `${u.first_name || ''} ${u.last_name || ''}`.trim()
+                                : u.username}
+                            </p>
+                            <p className="text-[11px] text-amber-400 truncate">
+                              {u.is_expired
+                                ? 'Account access expired'
+                                : !u.is_active
+                                  ? 'Account disabled'
+                                  : 'Safety certification expired'}
+                            </p>
+                          </div>
+                          <Link
+                            to="/settings?tab=users"
+                            className="text-xs text-bambu-gray hover:text-white shrink-0"
+                          >
+                            {t('common.manage', 'Manage')}
+                          </Link>
+                        </div>
+                      ))}
+
+                      {lowStockSpools.slice(0, 4).map((s) => {
                         const labelW = s.label_weight || 1000;
                         const rem = Math.max(0, Math.round(labelW - (s.weight_used || 0)));
                         return (
                           <div
-                            key={s.id}
-                            className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                            key={`spool-alert-${s.id}`}
+                            className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <span
-                                className="w-3.5 h-3.5 rounded-full border border-white/20 shrink-0"
+                                className="w-3 h-3 rounded-sm border border-white/20 shrink-0"
                                 style={{
                                   backgroundColor: s.rgba ? `#${s.rgba.slice(0, 6)}` : '#888888',
                                 }}
                               />
                               <div className="min-w-0">
                                 <p className="text-xs font-medium text-white truncate">
-                                  {[s.brand, s.material, s.subtype, s.color_name]
-                                    .filter(Boolean)
-                                    .join(' ')}
+                                  {[s.brand, s.material, s.color_name].filter(Boolean).join(' ')}
                                 </p>
                                 <p className="text-[11px] text-red-400">
-                                  {rem}g / {labelW}g remaining
+                                  Low stock: {rem}g / {labelW}g
                                 </p>
                               </div>
                             </div>
@@ -967,7 +1011,7 @@ export function DashboardPage() {
                               onClick={() =>
                                 setSpoolModalState({ open: true, mode: 'edit', spool: s })
                               }
-                              className="text-xs text-bambu-green hover:underline shrink-0"
+                              className="text-xs text-bambu-gray hover:text-white shrink-0"
                             >
                               {t('common.edit', 'Edit')}
                             </button>
@@ -976,15 +1020,586 @@ export function DashboardPage() {
                       })}
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </div>
-      )}
+                </div>
+              </CardContent>
+            </Card>
 
-      {/* ── Printers Section (Point #3 — Full Printer Cards & Controls) ── */}
-      <PrintersPage embedded />
+            {/* Panel 2: User Groups, Quotas & Enrollment Invites */}
+            <Card className="border-bambu-dark-tertiary">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-bambu-gray shrink-0" />
+                    {t('dashboard.admin.groupsAndAccess', 'User Groups, Quotas & Invites')}
+                  </h2>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {hasPermission('groups:create') && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => navigate('/groups/new')}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        {t('dashboard.admin.newGroup', 'New Group')}
+                      </Button>
+                    )}
+                    <Link
+                      to="/settings?tab=users"
+                      className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1"
+                    >
+                      {t('common.viewAll', 'All')}
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+
+                {groupsLoading || usersLoading ? (
+                  <div className="py-4 flex justify-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+                  </div>
+                ) : adminGroups.length === 0 ? (
+                  <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary text-xs text-bambu-gray">
+                    {t('dashboard.admin.noGroups', 'No user groups configured yet.')}
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {adminGroups.map((g) => (
+                      <Link
+                        key={g.id}
+                        to={`/groups/${g.id}`}
+                        className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary hover:border-white/20 transition-all flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold text-white truncate">{g.name}</p>
+                            <span className="text-[11px] text-bambu-gray">
+                              {g.user_count} {g.user_count === 1 ? 'member' : 'members'}
+                            </span>
+                            {g.is_expired && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-red-500/15 text-red-400">
+                                Expired
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-bambu-gray mt-0.5">
+                            {g.max_print_duration_minutes ? (
+                              <span>Max {formatDurationMinutes(g.max_print_duration_minutes)}</span>
+                            ) : (
+                              <span>No time limit</span>
+                            )}
+                            {g.max_filament_grams_per_job ? (
+                              <span>· Max {g.max_filament_grams_per_job}g/job</span>
+                            ) : null}
+                            {g.max_active_queue_items ? (
+                              <span>· {g.max_active_queue_items} queue slots</span>
+                            ) : null}
+                            {g.requires_approval && (
+                              <span className="text-amber-400">· Requires approval</span>
+                            )}
+                          </div>
+                        </div>
+                        <ArrowRight className="w-3.5 h-3.5 text-bambu-gray shrink-0" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+
+                {/* Active Enrollment Invites */}
+                <div className="pt-2 border-t border-bambu-dark-tertiary space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-bambu-gray" />
+                      {t('dashboard.admin.enrollmentInvites', 'Active Enrollment Invites')} (
+                      {adminUserMetrics.activeInvites.length})
+                    </p>
+                    <Link
+                      to="/settings?tab=users"
+                      className="text-xs text-bambu-gray hover:text-white transition-colors"
+                    >
+                      {t('dashboard.admin.manageInvites', 'Manage Invites')}
+                    </Link>
+                  </div>
+                  {adminUserMetrics.activeInvites.length === 0 ? (
+                    <p className="text-xs text-bambu-gray">
+                      {t('dashboard.admin.noActiveInvites', 'No active self-enrollment invite codes.')}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {adminUserMetrics.activeInvites.slice(0, 4).map((inv) => (
+                        <div
+                          key={inv.id}
+                          className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-mono font-semibold text-white truncate">
+                              {inv.code}
+                            </p>
+                            <p className="text-[11px] text-bambu-gray truncate">
+                              {inv.group_name || inv.name || 'Enrollment'}
+                            </p>
+                          </div>
+                          <span className="text-[11px] text-bambu-gray shrink-0">
+                            {inv.uses_count}
+                            {inv.max_uses ? `/${inv.max_uses}` : ''} used
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Panel 3: Cost Centers, Budgets & Farm Analytics */}
+            <Card className="border-bambu-dark-tertiary">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-bambu-gray shrink-0" />
+                    {t('dashboard.admin.costCentersAndStats', 'Cost Centers & Farm Output')}
+                  </h2>
+                  <Link
+                    to="/finance"
+                    className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    {t('dashboard.admin.openFinance', 'Finance & Budgets')}
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+
+                {/* Farm Analytics Summary Row */}
+                {archiveStats && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+                      <p className="text-[11px] text-bambu-gray">Total Prints</p>
+                      <p className="text-sm font-bold text-white mt-0.5">
+                        {archiveStats.total_prints}
+                      </p>
+                      <p className="text-[10px] text-emerald-400">
+                        {archiveStats.successful_prints} completed · {archiveStats.failed_prints}{' '}
+                        failed
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+                      <p className="text-[11px] text-bambu-gray">Print Hours</p>
+                      <p className="text-sm font-bold text-white mt-0.5">
+                        {Math.round(archiveStats.total_print_time_hours)}h
+                      </p>
+                      <p className="text-[10px] text-bambu-gray">Cumulative time</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+                      <p className="text-[11px] text-bambu-gray">Filament Used</p>
+                      <p className="text-sm font-bold text-white mt-0.5">
+                        {(archiveStats.total_filament_grams / 1000).toFixed(1)} kg
+                      </p>
+                      <p className="text-[10px] text-bambu-gray">
+                        {Math.round(archiveStats.total_filament_grams)}g total
+                      </p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary">
+                      <p className="text-[11px] text-bambu-gray">Material Cost</p>
+                      <p className="text-sm font-bold text-white mt-0.5">
+                        {currencySymbol}
+                        {archiveStats.total_cost.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] text-bambu-gray">
+                        {archiveStats.total_energy_kwh.toFixed(1)} kWh energy
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cost Centers List */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.admin.costCentersList', 'Cost Centers & Budgets')} (
+                    {costCenters.length})
+                  </p>
+                  {costCenters.length === 0 ? (
+                    <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary flex items-center justify-between gap-2">
+                      <span className="text-xs text-bambu-gray">
+                        {t('dashboard.admin.noCostCenters', 'No cost centers configured yet.')}
+                      </span>
+                      <Button size="sm" variant="secondary" onClick={() => navigate('/finance')}>
+                        {t('dashboard.admin.configureFinance', 'Configure')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {costCenters.slice(0, 5).map((cc) => {
+                        const budget = cc.budget ?? 0;
+                        const spent = cc.total_spent ?? 0;
+                        const pct =
+                          budget > 0 ? Math.min(100, Math.round((spent / budget) * 100)) : 0;
+                        return (
+                          <div
+                            key={cc.id}
+                            className="p-2.5 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs font-semibold text-white truncate">
+                                  {cc.name}
+                                </span>
+                                {cc.code && (
+                                  <span className="text-[11px] font-mono text-bambu-gray">
+                                    ({cc.code})
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs text-gray-200 shrink-0">
+                                {currencySymbol}
+                                {spent.toFixed(2)}
+                                {budget > 0 ? ` / ${currencySymbol}${budget.toFixed(2)}` : ''}
+                              </span>
+                            </div>
+                            {budget > 0 && (
+                              <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    pct >= 90
+                                      ? 'bg-red-400'
+                                      : pct >= 75
+                                        ? 'bg-amber-400'
+                                        : 'bg-bambu-green'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Panel 4: System Health, Storage & Fleet Maintenance Schedule */}
+            <Card className="border-bambu-dark-tertiary">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <HardDrive className="w-4 h-4 text-bambu-gray shrink-0" />
+                    {t('dashboard.admin.systemAndMaintenance', 'System Storage & Maintenance')}
+                  </h2>
+                  <Link
+                    to="/system"
+                    className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    {t('nav.system', 'System Info')}
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+
+                {/* Storage & System Metrics */}
+                {systemInfo ? (
+                  <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-2.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-bambu-gray">
+                        Disk Usage ({formatBytes(systemInfo.storage.disk_used_bytes)} /{' '}
+                        {formatBytes(systemInfo.storage.disk_total_bytes)})
+                      </span>
+                      <span className="font-semibold text-white">
+                        {Math.round(systemInfo.storage.disk_percent_used)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 bg-bambu-dark-tertiary rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          systemInfo.storage.disk_percent_used >= 90
+                            ? 'bg-red-400'
+                            : systemInfo.storage.disk_percent_used >= 75
+                              ? 'bg-amber-400'
+                              : 'bg-bambu-green'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, Math.round(systemInfo.storage.disk_percent_used))}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] text-bambu-gray">
+                      <div>
+                        <span className="block text-gray-400">Archives</span>
+                        <strong className="text-white">
+                          {formatBytes(systemInfo.storage.archive_bytes)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="block text-gray-400">Database</span>
+                        <strong className="text-white">
+                          {formatBytes(systemInfo.storage.database_bytes)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="block text-gray-400">Uptime</span>
+                        <strong className="text-white">
+                          {systemInfo.system?.uptime_formatted || '—'}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary text-xs text-bambu-gray">
+                    {t('dashboard.admin.loadingSystem', 'System metrics unavailable.')}
+                  </div>
+                )}
+
+                {/* Fleet Maintenance Schedule Overview */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5 text-bambu-gray" />
+                      {t('dashboard.admin.maintenanceOverview', 'Printer Maintenance Schedule')}
+                    </p>
+                    <Link
+                      to="/maintenance"
+                      className="text-xs text-bambu-gray hover:text-white transition-colors flex items-center gap-1"
+                    >
+                      {t('nav.maintenance', 'Maintenance')}
+                      <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+
+                  {maintenanceOverview.length === 0 ? (
+                    <p className="text-xs text-bambu-gray">
+                      {t('dashboard.admin.noMaintenanceData', 'No maintenance schedules tracked.')}
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                      {maintenanceOverview.map((m) => (
+                        <Link
+                          key={m.printer_id}
+                          to="/maintenance"
+                          className="p-2 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary hover:border-white/20 transition-all flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-white truncate">
+                              {m.printer_name}
+                            </p>
+                            <p className="text-[11px] text-bambu-gray">
+                              {Math.round(m.total_print_hours)}h total print time
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {m.due_count > 0 ? (
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-red-500/15 text-red-400">
+                                {m.due_count} overdue
+                              </span>
+                            ) : m.warning_count > 0 ? (
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/15 text-amber-400">
+                                {m.warning_count} due soon
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-400">
+                                OK
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        /* ════════════════════════════════════════════════════════════════════════
+           MAKER DASHBOARD VIEW (Printers, Projects, Files, Spools, Queue)
+           ════════════════════════════════════════════════════════════════════════ */
+        <>
+          {/* ── Maker KPI Summary Strip ──────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <Card
+              onClick={() => navigate('/printers')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.kpi.printers', 'Printers')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">{printerStats.total}</span>
+                    <span className="text-xs text-bambu-gray">
+                      {t('dashboard.kpi.printingIdle', '{{printing}} printing · {{idle}} idle', {
+                        printing: printerStats.printing,
+                        idle: printerStats.idle,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <PrinterIcon className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              onClick={() => navigate('/projects')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.kpi.projectsAndFiles', 'Projects & Files')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">{projects.length}</span>
+                    <span className="text-xs text-bambu-gray">
+                      {t('dashboard.kpi.filesCount', '{{count}} library files', {
+                        count: libraryFiles.length,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <FolderKanban className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              onClick={() => navigate('/inventory')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.kpi.spools', 'Spools')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">{spools.length}</span>
+                    <span className="text-xs text-bambu-gray">
+                      {t('dashboard.kpi.materialsCount', '{{count}} materials', {
+                        count: spoolMaterials.length,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <Disc3 className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              onClick={() => navigate('/queue')}
+              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+            >
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider">
+                    {t('dashboard.kpi.myQueue', 'My Active Jobs')}
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-2xl font-bold text-white">{activeQueueItems.length}</span>
+                    <span className="text-xs text-bambu-gray">
+                      {t('dashboard.kpi.recentPrintsCount', '{{count}} recent prints', {
+                        count: recentArchives.length,
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-bambu-dark-secondary border border-bambu-dark-tertiary text-gray-300">
+                  <ListOrdered className="w-5 h-5" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ── Maker Quotas / Access & Certification Banner ───────────────────── */}
+          {quotaSummary &&
+            (quotaSummary.activeGroups.length > 0 || user?.require_safety_certification) && (
+              <div className="bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-xs font-semibold text-bambu-gray uppercase tracking-wider flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-bambu-gray" />
+                    {t('dashboard.quotas.yourAccess', 'Your Access & Quotas:')}
+                  </span>
+                  {quotaSummary.activeGroups.map((g) => (
+                    <span
+                      key={g.id}
+                      className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-bambu-dark text-gray-200 border border-bambu-dark-tertiary"
+                    >
+                      {g.name}
+                    </span>
+                  ))}
+                  {user?.require_safety_certification && (
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
+                        user.is_certification_expired
+                          ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                          : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      }`}
+                    >
+                      {user.is_certification_expired ? (
+                        <>
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          {t('dashboard.quotas.certExpired', 'Safety Certification Expired')}
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          {t('dashboard.quotas.certValid', 'Safety Certified')}
+                        </>
+                      )}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 text-xs text-bambu-gray">
+                  {quotaSummary.maxActiveQueueItems !== null && (
+                    <span>
+                      {t('dashboard.quotas.queueSlots', 'Queue Slots:')}{' '}
+                      <strong className="text-white">
+                        {quotaSummary.myActiveQueueCount} / {quotaSummary.maxActiveQueueItems}
+                      </strong>
+                    </span>
+                  )}
+                  {quotaSummary.maxDurationMinutes !== null && (
+                    <span>
+                      {t('dashboard.quotas.maxPrintTime', 'Max Print Time:')}{' '}
+                      <strong className="text-white">
+                        {formatDurationMinutes(quotaSummary.maxDurationMinutes)}
+                      </strong>
+                    </span>
+                  )}
+                  {quotaSummary.maxFilamentGrams !== null && (
+                    <span>
+                      {t('dashboard.quotas.maxFilament', 'Max Filament/Job:')}{' '}
+                      <strong className="text-white">{quotaSummary.maxFilamentGrams}g</strong>
+                    </span>
+                  )}
+                  {quotaSummary.allowedHours && (
+                    <span>
+                      {t('dashboard.quotas.allowedHours', 'Hours:')}{' '}
+                      <strong className="text-white">{quotaSummary.allowedHours}</strong>
+                    </span>
+                  )}
+                  {quotaSummary.requiresApproval && !isAdmin && (
+                    <span className="text-amber-400 font-medium">
+                      {t('dashboard.quotas.requiresApproval', 'Jobs require TA/Admin approval')}
+                    </span>
+                  )}
+                  {quotaSummary.earliestExpiry && (
+                    <span>
+                      {t('dashboard.quotas.accessExpires', 'Access Until:')}{' '}
+                      <strong className="text-white">
+                        {parseUTCDate(quotaSummary.earliestExpiry)?.toLocaleDateString() ??
+                          quotaSummary.earliestExpiry}
+                      </strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+          {/* ── Printers Section (Maker View Only) ── */}
+          <PrintersPage embedded />
 
       {/* ── Compact 2x2 Control Grid: Projects, Files, Spools, Queue & Recent Prints ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -1518,6 +2133,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
 
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
       {showAddPrinterModal && (

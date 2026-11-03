@@ -25,6 +25,7 @@ from backend.app.services.model_providers.makerworld.errors import MakerWorldUna
 # (the website ``makerworld.com`` is, and plain httpx requests there get
 # fingerprinted as bot traffic and served "Please log in").
 MAKERWORLD_API_BASE = "https://api.bambulab.com/v1/design-service"
+MAKERWORLD_SEARCH_API_BASE = "https://api.bambulab.com/v1/search-service"
 
 # Besides MakerWorld's own CDN, Bambu Cloud also issues AWS S3 presigned
 # URLs (e.g. ``s3.us-west-2.amazonaws.com``) from the iot-service download

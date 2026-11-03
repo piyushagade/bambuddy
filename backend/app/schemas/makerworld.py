@@ -123,3 +123,17 @@ class MakerWorldStatus(BaseModel):
         default=False,
         description="A token is stored but Bambu has rejected it — the user must sign in to Bambu Cloud again.",
     )
+
+
+class MakerWorldSearchResponse(BaseModel):
+    """Result of GET /makerworld/search."""
+
+    total: int = Field(default=0, description="Total matching designs reported by MakerWorld")
+    hits: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Design summary objects from MakerWorld's search service",
+    )
+    already_imported_model_ids: list[int] = Field(
+        default_factory=list,
+        description="MakerWorld design IDs from the current hits page that are already in the library",
+    )

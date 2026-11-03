@@ -1,13 +1,11 @@
 """MakerWorld integration routes.
 
-User pastes a model URL (MakerWorld or other supported host) → Bambuddy resolves
-it → shows plate list → one-click import/print. The URL-paste flow covers the
-actual discovery pattern (Reddit/YouTube/shared links) without needing to
-replicate the host's whole search UI.
+User searches for models or pastes a model URL (MakerWorld or other supported
+host) → Bambuddy resolves it → shows plate list → one-click import/print.
 
-Search/browse endpoints are intentionally NOT exposed: the public-facing
-``design/search`` endpoint returns empty results from server-originated
-requests (see memory/makerworld-integration.md for the investigation).
+Keyword search routes through ``api.bambulab.com/v1/search-service/select/design2``
+(the legacy ``design-service/design/search`` endpoint returns empty results from
+server-originated requests).
 
 These are still the *MakerWorld* routes: they consult the shared seams where
 one exists — URL routing via :class:`ModelProviderRegistry`, permissions and
@@ -26,7 +24,7 @@ from urllib.parse import unquote
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes.cloud import resolve_api_key_cloud_owner
@@ -47,6 +45,7 @@ from backend.app.schemas.makerworld import (
     MakerWorldRecentImport,
     MakerWorldResolvedModel,
     MakerWorldResolveRequest,
+    MakerWorldSearchResponse,
     MakerWorldStatus,
 )
 from backend.app.services.model_providers import makerworld_provider, registry
@@ -232,6 +231,86 @@ async def get_status(
         # the latter is a human-readable reason that providers may also set
         # for non-credential failures (network, rate limit).
         sign_in_expired=status.credential_rejected,
+    )
+
+
+_ALLOWED_SEARCH_ORDER_BY = frozenset(
+    {
+        "score",
+        "downloadCount",
+        "likeCount",
+        "printCount",
+        "hotScore",
+        "createTime",
+    }
+)
+
+
+@router.get("/search", response_model=MakerWorldSearchResponse)
+async def search_models(
+    q: str = Query(..., description="Search keyword(s)"),
+    limit: int = Query(default=20, ge=1, le=50, description="Maximum results to return (1–50)"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    order_by: str = Query(
+        default="score",
+        description="Sort field: score, downloadCount, likeCount, printCount, hotScore, createTime",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = RequirePermissionIfAuthEnabled(makerworld_provider.view_permission),
+    api_key_cloud_owner: User | None = Depends(resolve_api_key_cloud_owner),
+):
+    """Search MakerWorld models by keyword.
+
+    Hits ``api.bambulab.com/v1/search-service/select/design2`` and annotates
+    which returned model IDs already exist in the library so the search grid
+    can show an 'Already in library' badge without N extra resolve calls.
+    """
+    keyword = q.strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="Search query cannot be empty")
+    if order_by not in _ALLOWED_SEARCH_ORDER_BY:
+        raise HTTPException(status_code=400, detail=f"Unsupported order_by value: {order_by!r}")
+
+    service = await _build_service(db, makerworld_provider, current_user, api_key_cloud_owner)
+    try:
+        result = await service.search_designs(  # type: ignore[attr-defined]
+            keyword,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+        )
+    except ProviderError as exc:
+        raise _map_service_error(exc) from exc
+    finally:
+        await service.close()
+
+    hits = result.get("hits") or []
+    total = int(result.get("total") or 0)
+
+    already_imported_model_ids: list[int] = []
+    hit_ids = [hid for h in hits if isinstance(h, dict) and isinstance((hid := h.get("id")), int)]
+    if hit_ids:
+        existing_q = await db.execute(
+            select(LibraryFile.source_url).where(
+                or_(*(makerworld_provider.source_url_filter(LibraryFile.source_url, str(hid)) for hid in hit_ids)),
+                LibraryFile.deleted_at.is_(None),
+            )
+        )
+        matched_ids: set[int] = set()
+        for (src_url,) in existing_q.all():
+            if not src_url:
+                continue
+            try:
+                ref = makerworld_provider.parse_url(src_url)
+                matched_ids.add(int(ref.external_id))
+            except (ProviderError, ValueError):
+                continue
+        already_imported_model_ids = [hid for hid in hit_ids if hid in matched_ids]
+
+    return MakerWorldSearchResponse(
+        total=total,
+        hits=hits,
+        already_imported_model_ids=already_imported_model_ids,
     )
 
 
