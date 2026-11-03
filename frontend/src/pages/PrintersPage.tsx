@@ -9006,7 +9006,7 @@ function PrinterListRow({
     : null;
 
   // Collect loaded AMS / External trays for compact swatch pills
-  const loadedTrays: Array<{ key: string; label: string; type: string; colorHex: string }> = [];
+  const loadedTrays: Array<{ key: string; label: string; type: string; fullType: string; colorHex: string }> = [];
   if (status?.ams) {
     for (const ams of status.ams) {
       const unitLabel = getAmsLabel(ams.id, ams.tray?.length ?? 4);
@@ -9016,19 +9016,35 @@ function PrinterListRow({
           loadedTrays.push({
             key: `ams-${ams.id}-${tray.id}`,
             label: `${unitLabel} #${tray.id + 1}`,
-            type: tray.tray_sub_brands || tray.tray_type,
+            type: tray.tray_type,
+            fullType: tray.tray_sub_brands || tray.tray_type,
             colorHex: hex,
           });
         }
       }
     }
   }
-  if (status?.vt_tray?.tray_type) {
+  if (status?.vt_trays && status.vt_trays.length > 0) {
+    for (const vt of status.vt_trays) {
+      if (vt.tray_type) {
+        const hex = parseFilamentColor(vt.tray_color) || '#888888';
+        const sideLabel = vt.id === 254 ? 'Ext L' : vt.id === 255 ? 'Ext R' : t('printers.externalSpool', 'Ext');
+        loadedTrays.push({
+          key: `vt-tray-${vt.id}`,
+          label: sideLabel,
+          type: vt.tray_type,
+          fullType: vt.tray_sub_brands || vt.tray_type,
+          colorHex: hex,
+        });
+      }
+    }
+  } else if (status?.vt_tray?.tray_type) {
     const hex = parseFilamentColor(status.vt_tray.tray_color) || '#888888';
     loadedTrays.push({
       key: 'vt-tray',
       label: t('printers.externalSpool', 'Ext'),
-      type: status.vt_tray.tray_sub_brands || status.vt_tray.tray_type,
+      type: status.vt_tray.tray_type,
+      fullType: status.vt_tray.tray_sub_brands || status.vt_tray.tray_type,
       colorHex: hex,
     });
   }
@@ -9200,22 +9216,22 @@ function PrinterListRow({
       {/* AMS / Loaded Spools */}
       <td className="px-4 py-3 align-middle">
         {loadedTrays.length > 0 ? (
-          <div className="flex items-center gap-1 flex-wrap max-w-[220px]">
-            {loadedTrays.slice(0, 6).map((tr) => (
+          <div className="inline-grid grid-cols-4 gap-1 items-center">
+            {loadedTrays.slice(0, 8).map((tr) => (
               <span
                 key={tr.key}
-                title={`${tr.label}: ${tr.type}`}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[11px] text-white"
+                title={`${tr.label}: ${tr.fullType}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[11px] leading-tight text-white whitespace-nowrap"
               >
                 <span
-                  className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
+                  className="w-2 h-2 rounded-full border border-white/20 shrink-0"
                   style={{ backgroundColor: tr.colorHex }}
                 />
-                <span className="truncate max-w-[60px]">{tr.type}</span>
+                <span className="truncate max-w-[42px]">{tr.type}</span>
               </span>
             ))}
-            {loadedTrays.length > 6 && (
-              <span className="text-[11px] text-bambu-gray">+{loadedTrays.length - 6}</span>
+            {loadedTrays.length > 8 && (
+              <span className="text-[11px] text-bambu-gray">+{loadedTrays.length - 8}</span>
             )}
           </div>
         ) : (
