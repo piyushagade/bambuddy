@@ -314,7 +314,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
         >
           {/* Card container */}
           <div className="
-            w-52 bg-bambu-dark-secondary border border-bambu-dark-tertiary
+            w-56 bg-bambu-dark-secondary border border-bambu-dark-tertiary
             rounded-lg shadow-xl overflow-hidden
             backdrop-blur-sm
           ">
@@ -331,12 +331,12 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
               <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent" />
 
               {/* Color name on swatch */}
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center justify-center px-10">
                 <span
                   className={
                     swatchNeedsScrim
-                      ? 'px-2 py-0.5 rounded bg-black/60 text-white font-semibold text-sm tracking-wide'
-                      : `font-semibold text-sm tracking-wide ${
+                      ? 'px-2 py-0.5 rounded bg-black/60 text-white font-semibold text-sm tracking-wide truncate'
+                      : `font-semibold text-sm tracking-wide truncate ${
                           isLightColor(contrastBaseHex) ? 'text-black/80' : 'text-white/90'
                         }`
                   }
@@ -357,24 +357,20 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
             </div>
 
             {/* Details section */}
-            <div className="p-3 space-y-2.5">
-              {/* Profile name */}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-bambu-gray font-medium">
-                  {t('ams.profile')}
-                </span>
-                <span className="text-xs text-white font-semibold truncate max-w-[120px]">
+            <div className="p-2.5 space-y-2">
+              {/* Combined Profile + K Factor row */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-white font-semibold truncate" title={data.profile}>
                   {data.profile}
                 </span>
-              </div>
-
-              {/* K Factor */}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-bambu-gray font-medium">
-                  {t('ams.kFactor')}
-                </span>
-                <span className="text-xs text-bambu-green font-mono font-bold">
-                  {data.kFactor}
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bambu-dark border border-bambu-dark-tertiary text-[10px] text-bambu-gray shrink-0"
+                  title={t('ams.kFactor')}
+                >
+                  <span>{t('ams.kFactorShort', 'K')}</span>
+                  <span className="font-mono font-semibold text-gray-200">
+                    {data.kFactor}
+                  </span>
                 </span>
               </div>
 
@@ -388,7 +384,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                   <span className="text-xs text-white font-semibold flex items-center gap-1">
                     <span>{data.fillLevel !== null ? `${data.fillLevel}%` : '—'}</span>
                     {assignedRemainingWeight !== null && data.fillLevel !== null && (
-                      <span className="text-[9px] text-bambu-gray font-normal">• {assignedRemainingWeight}g</span>
+                      <span className="text-[10px] text-bambu-gray font-normal">• {assignedRemainingWeight}g</span>
                     )}
                   </span>
                 </div>
@@ -410,7 +406,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
 
               {/* Spoolman section - only show if enabled */}
               {spoolman?.enabled && (
-                <div className="pt-2 mt-2 border-t border-bambu-dark-tertiary space-y-2">
+                <div className="pt-1.5 border-t border-bambu-dark-tertiary space-y-1.5">
                   {/* Tray UUID with copy button */}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] uppercase tracking-wider text-bambu-gray font-medium">
@@ -429,7 +425,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                           {data.trayUuid.slice(0, 8)}...
                         </span>
                         {copied ? (
-                          <Check className="w-3 h-3 text-bambu-green" />
+                          <Check className="w-3 h-3 text-emerald-400" />
                         ) : (
                           <Copy className="w-3 h-3" />
                         )}
@@ -441,88 +437,76 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
 
                   {/* Open in inventory button (when already linked to a Spoolman spool) */}
                   {spoolman.linkedSpoolId && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dismiss();
-                          navigate(`/inventory?spool=${spoolman.linkedSpoolId}`);
-                        }}
-                        className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-green/20 hover:bg-bambu-green/40 text-bambu-green"
-                        title={t('inventory.openInInventory')}
-                      >
-                        <Package className="w-3.5 h-3.5" />
-                        {t('inventory.openInInventory')}
-                      </button>
-
-                    </>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismiss();
+                        navigate(`/inventory?spool=${spoolman.linkedSpoolId}`);
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary"
+                      title={t('inventory.openInInventory')}
+                    >
+                      <Package className="w-3 h-3 text-bambu-gray" />
+                      {t('inventory.openInInventory')}
+                    </button>
                   )}
-
-                  {/* Link/Unlink action buttons intentionally NOT rendered
-                      here. The inventory section below already provides
-                      Assign/Unassign for slot-binding (the primary user
-                      flow in Spoolman mode). Showing the spoolman tag-link
-                      buttons in addition surfaced two red Unlink-icon
-                      buttons for what users perceive as the same action,
-                      regardless of whether the labels said "Unlink Spool"
-                      vs "Unassign Spool". Tag-linking remains available
-                      via dedicated UI (LinkSpoolModal can be opened from
-                      Spoolman settings / inventory page). */}
                 </div>
               )}
 
-              {/* Inventory section — shown for every vendor including
-                  Bambu Lab (#1133). The earlier "non-Bambu only" gate
-                  prevented users from manually assigning a Bambu spool
-                  in inventory to an AMS slot when they didn't want to
-                  re-scan via SpoolBuddy NFC. */}
+              {/* Inventory section — shown for every vendor including Bambu Lab (#1133) */}
               {inventory && (
-                <div className="pt-2 mt-2 border-t border-bambu-dark-tertiary space-y-2">
+                <div className="pt-1.5 border-t border-bambu-dark-tertiary">
                   {inventory.assignedSpool ? (
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <Package className="w-3 h-3 text-bambu-green" />
-                        <span className="text-[10px] uppercase tracking-wider text-bambu-gray font-medium">
-                          {t('inventory.assigned')}
+                    <div className="rounded-md bg-bambu-dark/70 border border-bambu-dark-tertiary p-1.5 space-y-1.5">
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Package className="w-3 h-3 text-bambu-gray shrink-0" />
+                          <span className="sr-only">{t('inventory.assigned')}</span>
+                          <p className="text-[11px] font-medium text-gray-200 truncate">
+                            {inventory.assignedSpool.brand ? `${inventory.assignedSpool.brand} ` : ''}
+                            {inventory.assignedSpool.material}
+                            {inventory.assignedSpool.subtype ? ` ${inventory.assignedSpool.subtype}` : ''}
+                            {assignedRowColorName ? ` - ${assignedRowColorName}` : ''}
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-mono text-bambu-gray shrink-0">
+                          #{inventory.assignedSpool.id}
                         </span>
                       </div>
-                      <div className="flex items-baseline gap-1.5 min-w-0 mb-1">
-                        <p className="text-xs text-white truncate">
-                          {inventory.assignedSpool.brand ? `${inventory.assignedSpool.brand} ` : ''}
-                          {inventory.assignedSpool.material}
-                          {inventory.assignedSpool.subtype ? ` ${inventory.assignedSpool.subtype}` : ''}
-                          {assignedRowColorName ? ` - ${assignedRowColorName}` : ''}
-                        </p>
-                        <span className="text-[10px] font-mono text-bambu-gray shrink-0">#{inventory.assignedSpool.id}</span>
-                      </div>
-                      {(!spoolman?.linkedSpoolId || inventory.assignedSpool!.id !== spoolman.linkedSpoolId) && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            dismiss();
-                            navigate(`/inventory?spool=${inventory.assignedSpool!.id}`);
-                          }}
-                          className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-green/20 hover:bg-bambu-green/40 text-bambu-green"
-                          title={t('inventory.openInInventory')}
-                        >
-                          <Package className="w-3.5 h-3.5" />
-                          {t('inventory.openInInventory')}
-                        </button>
+                      {((!spoolman?.linkedSpoolId || inventory.assignedSpool.id !== spoolman.linkedSpoolId) ||
+                        inventory.onUnassignSpool) && (
+                        <div className="flex items-center gap-1">
+                          {(!spoolman?.linkedSpoolId || inventory.assignedSpool.id !== spoolman.linkedSpoolId) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dismiss();
+                                navigate(`/inventory?spool=${inventory.assignedSpool!.id}`);
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                              title={t('inventory.openInInventory')}
+                            >
+                              <Package className="w-3 h-3 text-bambu-gray shrink-0" />
+                              <span className="truncate">{t('inventory.openInInventory')}</span>
+                            </button>
+                          )}
+                          {inventory.onUnassignSpool && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dismiss();
+                                inventory.onUnassignSpool?.();
+                              }}
+                              className="flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-red-500/20 text-bambu-gray hover:text-red-300 border border-bambu-dark-tertiary hover:border-red-500/30 shrink-0"
+                              title={t('inventory.unassignSpool')}
+                            >
+                              <Unlink className="w-3 h-3 shrink-0" />
+                              <span>{t('inventory.unassignSpool')}</span>
+                            </button>
+                          )}
+                        </div>
                       )}
-                      {inventory.onUnassignSpool && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            dismiss();
-                            inventory.onUnassignSpool?.();
-                          }}
-                          className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/40 text-red-700 dark:text-red-400"
-                        >
-                          <Unlink className="w-3.5 h-3.5" />
-                          {t('inventory.unassignSpool')}
-                        </button>
-                      )}
-                    </>
+                    </div>
                   ) : inventory.onAssignSpool ? (
                     <button
                       onClick={inventory.isAssigned ? undefined : (e) => {
@@ -531,36 +515,34 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                         inventory.onAssignSpool?.();
                       }}
                       disabled={!!inventory.isAssigned}
-                      className={`w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 text-bambu-blue ${
-                        inventory.isAssigned ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bambu-blue/40'
+                      className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark border border-bambu-dark-tertiary text-gray-200 ${
+                        inventory.isAssigned ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bambu-dark-tertiary hover:text-white'
                       }`}
                     >
-                      <Package className="w-3.5 h-3.5" />
+                      <Package className="w-3.5 h-3.5 text-bambu-gray" />
                       {t('inventory.assignSpool')}
                     </button>
                   ) : null}
                 </div>
               )}
 
-              {/* Configure slot section - always show if enabled */}
-              {configureSlot?.enabled && (
-                <div className={`${spoolman?.enabled && data.trayUuid ? '' : 'pt-2 mt-2 border-t border-bambu-dark-tertiary'}`}>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dismiss();
-                      configureSlot.onConfigure?.();
-                    }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 hover:bg-bambu-blue/40 text-bambu-blue"
-                    title={t('ams.configureSlot')}
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    {t('ams.configure')}
-                  </button>
-                </div>
-              )}
-              {actions && (
-                <div className="pt-2 mt-2 border-t border-bambu-dark-tertiary space-y-1">
+              {/* Unified Slot & Hardware Actions Grid (Configure, Re-read RFID, Load, Unload) */}
+              {(configureSlot?.enabled || actions) && (
+                <div className="pt-1.5 border-t border-bambu-dark-tertiary grid grid-cols-2 gap-1 [&>*:last-child:nth-child(odd)]:col-span-2">
+                  {configureSlot?.enabled && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismiss();
+                        configureSlot.onConfigure?.();
+                      }}
+                      className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                      title={t('ams.configureSlot')}
+                    >
+                      <Settings2 className="w-3 h-3 text-bambu-gray shrink-0" />
+                      <span className="truncate">{t('ams.configure')}</span>
+                    </button>
+                  )}
                   {actions}
                 </div>
               )}
@@ -718,45 +700,40 @@ export function EmptySlotHoverCard({ children, className = '', configureSlot, on
           onMouseLeave={handleMouseLeave}
         >
           <div className="
-            bg-bambu-dark-secondary border border-bambu-dark-tertiary
-            rounded-md shadow-lg overflow-hidden
+            w-52 bg-bambu-dark-secondary border border-bambu-dark-tertiary
+            rounded-lg shadow-lg overflow-hidden
           ">
-            <div className="px-3 py-1.5 text-xs text-bambu-gray whitespace-nowrap">
+            <div className="px-2.5 py-1.5 text-xs text-bambu-gray font-medium whitespace-nowrap">
               {kind === 'reset' ? t('ams.emptySlotReset') : t('ams.emptySlot')}
             </div>
-            {/* Configure slot button */}
             {(configureSlot?.enabled || onAssignSpool || actions) && (
-              <div className="px-2 pb-2 space-y-1">
-                {/* Assign before Configure, matching the filled-slot card
-                    above (#2791).  The two cards are separate render paths
-                    and had drifted into opposite orders, so the menu
-                    reshuffled itself depending on whether the slot happened
-                    to hold filament. */}
+              <div className="px-2 pb-2 space-y-1.5">
+                {/* Assign before Configure, matching the filled-slot card above (#2791). */}
                 {onAssignSpool && (
                   <button
                     onClick={(e) => { e.stopPropagation(); dismiss(); onAssignSpool(); }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 hover:bg-bambu-blue/40 text-bambu-blue"
+                    className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary"
                   >
-                    <Package className="w-3.5 h-3.5" />
+                    <Package className="w-3.5 h-3.5 text-bambu-gray" />
                     {t('inventory.assignSpool')}
                   </button>
                 )}
-                {configureSlot?.enabled && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dismiss();
-                      configureSlot.onConfigure?.();
-                    }}
-                    className="w-full flex items-center justify-start gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors bg-bambu-blue/20 hover:bg-bambu-blue/40 text-bambu-blue"
-                    title={t('ams.configureSlot')}
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    {t('ams.configure')}
-                  </button>
-                )}
-                {actions && (
-                  <div className="pt-1 mt-1 border-t border-bambu-dark-tertiary space-y-1">
+                {(configureSlot?.enabled || actions) && (
+                  <div className="grid grid-cols-2 gap-1 [&>*:last-child:nth-child(odd)]:col-span-2">
+                    {configureSlot?.enabled && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dismiss();
+                          configureSlot.onConfigure?.();
+                        }}
+                        className="px-2 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1.5 rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary truncate"
+                        title={t('ams.configureSlot')}
+                      >
+                        <Settings2 className="w-3 h-3 text-bambu-gray shrink-0" />
+                        <span className="truncate">{t('ams.configure')}</span>
+                      </button>
+                    )}
                     {actions}
                   </div>
                 )}
