@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -159,11 +159,7 @@ export function MakerworldPage() {
     | { images: Array<{ name: string; url: string }>; index: number }
     | null
   >(null);
-  // Which URL the current ``resolved`` state was fetched for. When the user
-  // edits ``urlInput`` away from this, we clear ``resolved`` — otherwise the
-  // stale preview stays on screen and the Import button would submit the
-  // *previous* model_id, dedupe'ing against the wrong row.
-  const [resolvedForUrl, setResolvedForUrl] = useState<string>('');
+  const resolvedSectionRef = useRef<HTMLDivElement | null>(null);
   // All successful imports done during this resolved-model session, keyed
   // by the plate's ``profileId``. Used to render inline 'View in Library'
   // / 'Open in slicer' buttons directly on each imported plate row so the
@@ -232,24 +228,19 @@ export function MakerworldPage() {
     mutationFn: (url: string) => api.resolveMakerworldUrl(url),
     onSuccess: (data) => {
       setResolved(data);
-      setResolvedForUrl(urlInput.trim());
       // Fresh resolve — clear any success card from a previous model.
       setImportsByProfile({});
+      // When resolving from a search result card further down the page,
+      // browser scroll anchoring keeps the viewport on the search grid while
+      // the resolved preview mounts above it. Scroll the preview into view.
+      window.requestAnimationFrame(() => {
+        if (typeof resolvedSectionRef.current?.scrollIntoView === 'function') {
+          resolvedSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
     },
     onError: (err: Error) => showToast(err.message || t('makerworld.errors.resolveFailed'), 'error'),
   });
-
-  // URL-change detection: if the user edits the URL input away from what
-  // ``resolved`` was fetched for, drop the stale preview so they can't
-  // accidentally import the previous model. Whitespace-only differences
-  // don't count.
-  useEffect(() => {
-    if (resolved !== null && urlInput.trim() !== resolvedForUrl.trim()) {
-      setResolved(null);
-      setResolvedForUrl('');
-      setImportsByProfile({});
-    }
-  }, [urlInput, resolved, resolvedForUrl]);
 
   const importMutation = useMutation({
     mutationFn: ({ instanceId, profileId }: { instanceId: number; profileId: number | null }) =>
@@ -348,7 +339,6 @@ export function MakerworldPage() {
       resolveMutation.mutate(trimmed);
     } else {
       setResolved(null);
-      setResolvedForUrl('');
       setImportsByProfile({});
       setSearchPage(0);
       if (searchQuery === trimmed) {
@@ -525,7 +515,14 @@ export function MakerworldPage() {
             <input
               type="text"
               value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (resolved !== null && next.trim() !== urlInput.trim()) {
+                  setResolved(null);
+                  setImportsByProfile({});
+                }
+                setUrlInput(next);
+              }}
               placeholder={t('makerworld.pasteUrlPlaceholder')}
               className="flex-1 min-w-0 px-3 py-2 border rounded bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700"
               autoComplete="off"
@@ -551,6 +548,7 @@ export function MakerworldPage() {
       </Card>
 
       {resolved && (
+        <div ref={resolvedSectionRef} className="scroll-mt-6">
         <Card>
           <CardContent>
             <div className="flex gap-4 py-2">
@@ -571,7 +569,6 @@ export function MakerworldPage() {
                       size="sm"
                       onClick={() => {
                         setResolved(null);
-                        setResolvedForUrl('');
                         setImportsByProfile({});
                       }}
                       title={t('makerworld.closePreview')}
@@ -624,6 +621,7 @@ export function MakerworldPage() {
             </div>
           </CardContent>
         </Card>
+        </div>
       )}
 
       {resolved && instances.length > 0 && (
