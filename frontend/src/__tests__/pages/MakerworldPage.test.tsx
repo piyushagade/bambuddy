@@ -362,4 +362,68 @@ describe('MakerworldPage', () => {
     // And no literal ``<script>`` text leaks into the document.
     expect(document.body.innerHTML).not.toContain('window.__pwned');
   });
+
+  it('searches MakerWorld models when keywords are entered and resolves a clicked result', async () => {
+    useAuthedHandlers();
+    let capturedOrderBy: string | null = null;
+    server.use(
+      http.get('*/makerworld/search', ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get('q')).toBe('benchy');
+        capturedOrderBy = url.searchParams.get('order_by');
+        return HttpResponse.json({
+          total: 2,
+          hits: [
+            {
+              id: 40146,
+              title: 'Benchy Bambu Pla Basic',
+              cover: 'https://makerworld.bblmw.com/img/benchy.jpg',
+              designCreator: { name: 'Bambu Lab' },
+              downloadCount: 444364,
+              likeCount: 13981,
+              printCount: 332854,
+            },
+            {
+              id: 1400373,
+              title: 'Seed Starter',
+              cover: 'https://makerworld.bblmw.com/img/seed.jpg',
+              designCreator: { name: 'Meyui' },
+              downloadCount: 1234,
+              likeCount: 321,
+              printCount: 800,
+            },
+          ],
+          already_imported_model_ids: [40146],
+        });
+      }),
+      http.post('*/makerworld/resolve', async ({ request }) => {
+        const body = (await request.json()) as { url: string };
+        expect(body.url).toBe('https://makerworld.com/models/1400373');
+        return HttpResponse.json(resolveResponse());
+      }),
+    );
+
+    render(<MakerworldPage />);
+
+    const input = await screen.findByPlaceholderText(/https:\/\/makerworld\.com/i);
+    await userEvent.type(input, 'benchy');
+    // Non-URL input switches the action button label to "Search"
+    await userEvent.click(screen.getByRole('button', { name: /^Search$/i }));
+
+    expect(await screen.findByText('Benchy Bambu Pla Basic')).toBeInTheDocument();
+    expect(screen.getByText(/Already in library/i)).toBeInTheDocument();
+    expect(capturedOrderBy).toBe('score');
+
+    // Changing the sort order re-queries with the selected order_by
+    const sortSelect = screen.getByLabelText(/Sort by/i);
+    await userEvent.selectOptions(sortSelect, 'downloadCount');
+    await waitFor(() => {
+      expect(capturedOrderBy).toBe('downloadCount');
+    });
+
+    // Clicking a search result card resolves that model's plates
+    await userEvent.click(screen.getByText('Seed Starter'));
+    expect(await screen.findByText('9 cells')).toBeInTheDocument();
+    expect(screen.getByText('12 cells')).toBeInTheDocument();
+  });
 });

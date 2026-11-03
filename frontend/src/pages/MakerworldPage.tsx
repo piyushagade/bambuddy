@@ -3,13 +3,14 @@ import DOMPurify from 'dompurify';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, ArrowRight, Check, ChevronLeft, ChevronRight, Download, ExternalLink, FolderOpen, Globe, Images, Loader2, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, ChevronLeft, ChevronRight, Download, ExternalLink, FolderOpen, Globe, Heart, Images, Loader2, Printer, Search, Trash2, X } from 'lucide-react';
 
 import {
   api,
   type MakerworldImportResponse,
   type MakerworldRecentImport,
   type MakerworldResolvedModel,
+  type MakerworldSearchOrderBy,
 } from '../api/client';
 import { openInSlicer, resolveDesktopSlicer, type SlicerType } from '../utils/slicer';
 import { Button } from '../components/Button';
@@ -108,6 +109,19 @@ function useElapsedSeconds(active: boolean): number {
   return elapsed;
 }
 
+const SEARCH_PAGE_SIZE = 12;
+
+// Detect whether the unified input contains a URL (or domain-prefixed path) vs.
+// plain search keywords. Any http(s):// link or makerworld.com/... string routes
+// to the URL resolver; everything else runs a keyword search.
+function looksLikeMakerworldUrl(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  if (/^(?:www\.)?makerworld\.com\//i.test(trimmed)) return true;
+  return false;
+}
+
 export function MakerworldPage() {
   const { t } = useTranslation();
   const { hasPermission } = useAuth();
@@ -117,6 +131,9 @@ export function MakerworldPage() {
   const canImport = hasPermission('makerworld:import');
 
   const [urlInput, setUrlInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOrderBy, setSearchOrderBy] = useState<MakerworldSearchOrderBy>('score');
+  const [searchPage, setSearchPage] = useState(0);
   const [resolved, setResolved] = useState<MakerworldResolvedModel | null>(null);
   // Selected target folder. ``null`` means "let the backend use the default
   // MakerWorld folder" (auto-created if missing). Any other value is the id
@@ -172,6 +189,17 @@ export function MakerworldPage() {
     queryFn: () => api.getMakerworldRecentImports(10),
   });
 
+  const searchResultsQuery = useQuery({
+    queryKey: ['makerworld-search', searchQuery, searchOrderBy, searchPage],
+    queryFn: () =>
+      api.searchMakerworldModels(searchQuery, {
+        limit: SEARCH_PAGE_SIZE,
+        offset: searchPage * SEARCH_PAGE_SIZE,
+        orderBy: searchOrderBy,
+      }),
+    enabled: Boolean(searchQuery),
+  });
+
   const settingsQuery = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
@@ -202,9 +230,9 @@ export function MakerworldPage() {
 
   const resolveMutation = useMutation({
     mutationFn: (url: string) => api.resolveMakerworldUrl(url),
-    onSuccess: (data, url) => {
+    onSuccess: (data) => {
       setResolved(data);
-      setResolvedForUrl(url);
+      setResolvedForUrl(urlInput.trim());
       // Fresh resolve — clear any success card from a previous model.
       setImportsByProfile({});
     },
@@ -231,6 +259,8 @@ export function MakerworldPage() {
       // Backend auto-creates a "MakerWorld" folder on first import; refresh
       // the folder tree so users see it without having to reload the page.
       queryClient.invalidateQueries({ queryKey: ['library-folders'] });
+      queryClient.invalidateQueries({ queryKey: ['makerworld-recent-imports'] });
+      queryClient.invalidateQueries({ queryKey: ['makerworld-search'] });
       // Track by profile_id so each plate's row can render its own inline
       // follow-up buttons even after multiple imports in the same session.
       if (data.profile_id) {
@@ -258,6 +288,7 @@ export function MakerworldPage() {
       queryClient.invalidateQueries({ queryKey: ['library-files'] });
       queryClient.invalidateQueries({ queryKey: ['library-folders'] });
       queryClient.invalidateQueries({ queryKey: ['makerworld-recent-imports'] });
+      queryClient.invalidateQueries({ queryKey: ['makerworld-search'] });
       setImportsByProfile((prev) => {
         const next = { ...prev };
         delete next[profileId];
@@ -284,6 +315,7 @@ export function MakerworldPage() {
       queryClient.invalidateQueries({ queryKey: ['library-files'] });
       queryClient.invalidateQueries({ queryKey: ['library-folders'] });
       queryClient.invalidateQueries({ queryKey: ['makerworld-recent-imports'] });
+      queryClient.invalidateQueries({ queryKey: ['makerworld-search'] });
       if (data.profile_id) {
         setImportsByProfile((prev) => ({ ...prev, [data.profile_id!]: data }));
       }
@@ -310,8 +342,35 @@ export function MakerworldPage() {
     e?.preventDefault();
     const trimmed = urlInput.trim();
     if (!trimmed) return;
-    resolveMutation.mutate(trimmed);
+    if (looksLikeMakerworldUrl(trimmed)) {
+      setSearchQuery('');
+      setSearchPage(0);
+      resolveMutation.mutate(trimmed);
+    } else {
+      setResolved(null);
+      setResolvedForUrl('');
+      setImportsByProfile({});
+      setSearchPage(0);
+      if (searchQuery === trimmed) {
+        void searchResultsQuery.refetch();
+      } else {
+        setSearchQuery(trimmed);
+      }
+    }
   };
+
+  const handleSelectSearchHit = (modelId: number) => {
+    resolveMutation.mutate(`https://makerworld.com/models/${modelId}`);
+  };
+
+  const isUrlMode = looksLikeMakerworldUrl(urlInput);
+  const searchHits = searchResultsQuery.data?.hits ?? [];
+  const searchTotal = searchResultsQuery.data?.total ?? 0;
+  const searchTotalPages = Math.max(1, Math.ceil(searchTotal / SEARCH_PAGE_SIZE));
+  const importedSearchIds = useMemo(
+    () => new Set(searchResultsQuery.data?.already_imported_model_ids ?? []),
+    [searchResultsQuery.data?.already_imported_model_ids],
+  );
 
   // Keyboard navigation for the lightbox (Escape closes, arrows navigate).
   useEffect(() => {
@@ -474,14 +533,18 @@ export function MakerworldPage() {
             <Button
               type="submit"
               variant="primary"
-              disabled={!urlInput.trim() || resolveMutation.isPending}
+              disabled={!urlInput.trim() || resolveMutation.isPending || searchResultsQuery.isFetching}
             >
-              {resolveMutation.isPending ? (
+              {resolveMutation.isPending || searchResultsQuery.isFetching ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
+              ) : isUrlMode ? (
                 <ArrowRight className="w-4 h-4" />
+              ) : (
+                <Search className="w-4 h-4" />
               )}
-              <span className="ml-2">{t('makerworld.resolveButton')}</span>
+              <span className="ml-2">
+                {isUrlMode ? t('makerworld.resolveButton') : t('makerworld.searchButton')}
+              </span>
             </Button>
           </form>
         </CardContent>
@@ -500,7 +563,23 @@ export function MakerworldPage() {
                 />
               )}
               <div className="flex-1 min-w-0">
-                <h3 className="text-xl font-semibold truncate">{title || t('makerworld.untitledModel')}</h3>
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-xl font-semibold truncate">{title || t('makerworld.untitledModel')}</h3>
+                  {searchQuery && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setResolved(null);
+                        setResolvedForUrl('');
+                        setImportsByProfile({});
+                      }}
+                      title={t('makerworld.closePreview')}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
                 {creator && (
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {t('makerworld.byCreator', { name: pickString(creator, 'name') })}
@@ -827,6 +906,206 @@ export function MakerworldPage() {
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {searchQuery && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">
+                {t('makerworld.searchResultsHeader', { count: searchTotal })}
+              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  htmlFor="makerworld-sort-select"
+                  className="text-xs text-gray-600 dark:text-gray-400"
+                >
+                  {t('makerworld.sortBy')}
+                </label>
+                <select
+                  id="makerworld-sort-select"
+                  aria-label={t('makerworld.sortBy')}
+                  value={searchOrderBy}
+                  onChange={(e) => {
+                    setSearchOrderBy(e.target.value as MakerworldSearchOrderBy);
+                    setSearchPage(0);
+                  }}
+                  className="text-sm px-2 py-1 border rounded bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                >
+                  <option value="score">{t('makerworld.sortRelevance')}</option>
+                  <option value="downloadCount">{t('makerworld.sortDownloads')}</option>
+                  <option value="likeCount">{t('makerworld.sortLikes')}</option>
+                  <option value="hotScore">{t('makerworld.sortHot')}</option>
+                </select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchPage(0);
+                  }}
+                  title={t('makerworld.clearSearch')}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {searchResultsQuery.isLoading ? (
+              <div className="flex items-center justify-center py-12 text-gray-500">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+            ) : searchResultsQuery.isError ? (
+              <p className="text-sm text-red-600 dark:text-red-400 py-4">
+                {searchResultsQuery.error instanceof Error
+                  ? searchResultsQuery.error.message
+                  : t('makerworld.errors.searchFailed')}
+              </p>
+            ) : searchHits.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">
+                {t('makerworld.searchNoResults', { query: searchQuery })}
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {searchHits.map((hit) => {
+                    const hitId = pickNumber(hit, 'id');
+                    if (hitId === null) return null;
+                    const hitTitle = pickString(hit, 'title') || t('makerworld.untitledModel');
+                    const hitCover = pickString(hit, 'cover') || pickString(hit, 'coverUrl');
+                    const hitCreator = pickObject(hit, 'designCreator');
+                    const hitCreatorName = pickString(hitCreator, 'name');
+                    const hitDownloads = pickNumber(hit, 'downloadCount');
+                    const hitLikes = pickNumber(hit, 'likeCount');
+                    const hitPrints = pickNumber(hit, 'printCount');
+                    const isSelected = resolved?.model_id === hitId;
+                    const isHitImported = importedSearchIds.has(hitId);
+                    const isResolvingHit =
+                      resolveMutation.isPending &&
+                      resolveMutation.variables === `https://makerworld.com/models/${hitId}`;
+
+                    return (
+                      <div
+                        key={hitId}
+                        onClick={() => handleSelectSearchHit(hitId)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectSearchHit(hitId);
+                          }
+                        }}
+                        className={`group flex flex-col border rounded-lg overflow-hidden text-left transition cursor-pointer ${
+                          isSelected
+                            ? 'border-bambu-green ring-1 ring-bambu-green bg-bambu-green/5'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="relative aspect-[4/3] bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                          {hitCover ? (
+                            <img
+                              src={proxyCdn(hitCover)}
+                              alt={hitTitle}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-400">
+                              <Globe className="w-8 h-8" />
+                            </div>
+                          )}
+                          {isHitImported && (
+                            <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-600/90 text-white">
+                              <Check className="w-3 h-3" /> {t('makerworld.alreadyImported')}
+                            </span>
+                          )}
+                          {isResolvingHit && (
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                              <Loader2 className="w-6 h-6 text-white animate-spin" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                          <div>
+                            <h3 className="font-medium text-sm line-clamp-2" title={hitTitle}>
+                              {hitTitle}
+                            </h3>
+                            {hitCreatorName && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                                {t('makerworld.byCreator', { name: hitCreatorName })}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-800">
+                            {hitDownloads !== null && (
+                              <span
+                                className="inline-flex items-center gap-1"
+                                title={t('makerworld.downloadsCount', { count: hitDownloads })}
+                              >
+                                <Download className="w-3 h-3" /> {hitDownloads.toLocaleString()}
+                              </span>
+                            )}
+                            {hitLikes !== null && (
+                              <span
+                                className="inline-flex items-center gap-1"
+                                title={t('makerworld.likesCount', { count: hitLikes })}
+                              >
+                                <Heart className="w-3 h-3" /> {hitLikes.toLocaleString()}
+                              </span>
+                            )}
+                            {hitPrints !== null && (
+                              <span
+                                className="inline-flex items-center gap-1"
+                                title={t('makerworld.printsCount', { count: hitPrints })}
+                              >
+                                <Printer className="w-3 h-3" /> {hitPrints.toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {searchTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 mt-4 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">
+                    <span>
+                      {t('makerworld.pageInfo', {
+                        page: searchPage + 1,
+                        totalPages: searchTotalPages,
+                      })}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={searchPage === 0 || searchResultsQuery.isFetching}
+                        onClick={() => setSearchPage((p) => Math.max(0, p - 1))}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        <span className="ml-1">{t('makerworld.prevPage')}</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          searchPage + 1 >= searchTotalPages || searchResultsQuery.isFetching
+                        }
+                        onClick={() => setSearchPage((p) => p + 1)}
+                      >
+                        <span className="mr-1">{t('makerworld.nextPage')}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       )}

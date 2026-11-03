@@ -944,3 +944,62 @@ class TestRecentImports:
         resp = await async_client.get("/api/v1/makerworld/recent-imports?limit=9999")
         assert resp.status_code == 200
         assert len(resp.json()) == 50
+
+
+class TestSearch:
+    """GET /makerworld/search — keyword search with already-imported annotation."""
+
+    @pytest.mark.asyncio
+    async def test_happy_path_returns_hits_and_flags_imported_models(self, async_client, db_session):
+        existing = LibraryFile(
+            filename="benchy.3mf",
+            file_path="library/files/benchy.3mf",
+            file_type="3mf",
+            file_size=100,
+            source_type="makerworld",
+            source_url="https://makerworld.com/models/40146#profileId-12345",
+        )
+        db_session.add(existing)
+        await db_session.commit()
+
+        svc = _fake_service(
+            search_designs={
+                "total": 2,
+                "hits": [
+                    {"id": 40146, "title": "Benchy Bambu Pla Basic", "downloadCount": 444000},
+                    {"id": 99999, "title": "Other Benchy", "downloadCount": 120},
+                ],
+            }
+        )
+
+        with patch("backend.app.api.routes.makerworld._build_service", AsyncMock(return_value=svc)):
+            resp = await async_client.get(
+                "/api/v1/makerworld/search",
+                params={"q": "benchy", "limit": 12, "offset": 0, "order_by": "downloadCount"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["total"] == 2
+        assert len(body["hits"]) == 2
+        assert body["already_imported_model_ids"] == [40146]
+        svc.search_designs.assert_awaited_once_with(
+            "benchy",
+            limit=12,
+            offset=0,
+            order_by="downloadCount",
+        )
+        svc.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rejects_blank_query_with_400(self, async_client):
+        resp = await async_client.get("/api/v1/makerworld/search", params={"q": "   "})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rejects_unsupported_order_by_with_400(self, async_client):
+        resp = await async_client.get(
+            "/api/v1/makerworld/search",
+            params={"q": "benchy", "order_by": "bogusField"},
+        )
+        assert resp.status_code == 400

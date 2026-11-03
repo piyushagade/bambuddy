@@ -16,7 +16,11 @@ from backend.app.services.model_providers.makerworld.errors import (
     MakerWorldUnavailableError,
     MakerWorldUrlError,
 )
-from backend.app.services.model_providers.makerworld.http import _MAX_3MF_BYTES, MAKERWORLD_API_BASE
+from backend.app.services.model_providers.makerworld.http import (
+    _MAX_3MF_BYTES,
+    MAKERWORLD_API_BASE,
+    MAKERWORLD_SEARCH_API_BASE,
+)
 from backend.app.services.model_providers.makerworld.service import MakerWorldService, set_shared_http_client
 from backend.app.services.model_providers.makerworld.url import parse_url
 
@@ -67,6 +71,7 @@ class TestApiBase:
         # and returns empty JSON to plain httpx. Regressing this constant
         # silently breaks the whole integration.
         assert MAKERWORLD_API_BASE == "https://api.bambulab.com/v1/design-service"
+        assert MAKERWORLD_SEARCH_API_BASE == "https://api.bambulab.com/v1/search-service"
 
 
 class TestGetDesign:
@@ -959,3 +964,45 @@ class TestSharedHttpClient:
         assert svc._owns_client is True
         await svc.close()
         assert svc._client.is_closed
+
+
+class TestSearchDesigns:
+    """``search_designs`` — hits ``/v1/search-service/select/design2`` on api.bambulab.com."""
+
+    @pytest.fixture
+    def service(self):
+        svc = MakerWorldService(client=MagicMock(spec=httpx.AsyncClient))
+        svc._client.get = AsyncMock()
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_hits_search_service_select_design2(self, service):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"total": 2, "hits": [{"id": 10, "title": "Benchy"}]}
+        service._client.get.return_value = resp
+
+        data = await service.search_designs("benchy", limit=12, offset=24, order_by="downloadCount")
+        assert data == {"total": 2, "hits": [{"id": 10, "title": "Benchy"}]}
+
+        call = service._client.get.call_args
+        url = call.args[0] if call.args else call.kwargs.get("url")
+        assert url == "https://api.bambulab.com/v1/search-service/select/design2"
+        assert call.kwargs["params"] == {
+            "keyword": "benchy",
+            "limit": 12,
+            "offset": 24,
+            "orderBy": "downloadCount",
+        }
+
+    @pytest.mark.asyncio
+    async def test_omits_order_by_when_default_score(self, service):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"total": 0, "hits": None}
+        service._client.get.return_value = resp
+
+        data = await service.search_designs("nothing", limit=10, offset=0, order_by="score")
+        # Null hits normalised to []
+        assert data == {"total": 0, "hits": []}
+        assert "orderBy" not in service._client.get.call_args.kwargs["params"]
