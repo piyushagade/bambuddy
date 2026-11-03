@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, type ReactNode } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Droplets, Copy, Check, Settings2, Package, Unlink } from 'lucide-react';
+import { Droplets, Copy, Check, Settings2, Package, Unlink, ExternalLink } from 'lucide-react';
 import { resolveSpoolColorName } from '../utils/colors';
 import { buildFilamentBackground, parseStops } from './filamentSwatchHelpers';
 
@@ -431,7 +431,7 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                       className="w-full flex items-center justify-start gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                       title={t('inventory.openInInventory')}
                     >
-                      <Package className="w-3 h-3 text-bambu-gray shrink-0" />
+                      <ExternalLink className="w-3 h-3 text-bambu-gray shrink-0" />
                       <span>{t('inventory.openInInventory')}</span>
                     </button>
                   )}
@@ -468,10 +468,10 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                                 dismiss();
                                 navigate(`/inventory?spool=${inventory.assignedSpool!.id}`);
                               }}
-                              className="flex-1 flex items-center justify-start gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
+                              className="flex-1 min-w-0 flex items-center justify-start gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 hover:text-white border border-bambu-dark-tertiary whitespace-nowrap"
                               title={t('inventory.openInInventory')}
                             >
-                              <Package className="w-3 h-3 text-bambu-gray shrink-0" />
+                              <ExternalLink className="w-3 h-3 text-bambu-gray shrink-0" />
                               <span>{t('inventory.openInInventory')}</span>
                             </button>
                           )}
@@ -482,11 +482,11 @@ export function FilamentHoverCard({ data, children, disabled, className = '', sp
                                 dismiss();
                                 inventory.onUnassignSpool?.();
                               }}
-                              className="flex items-center justify-start gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-colors bg-bambu-dark-secondary hover:bg-red-500/20 text-bambu-gray hover:text-red-300 border border-bambu-dark-tertiary hover:border-red-500/30 shrink-0 whitespace-nowrap"
+                              className="flex items-center justify-center p-1.5 rounded transition-colors bg-bambu-dark-secondary hover:bg-red-500/20 text-bambu-gray hover:text-red-300 border border-bambu-dark-tertiary hover:border-red-500/30 shrink-0"
                               title={t('inventory.unassignSpool')}
                             >
-                              <Unlink className="w-3 h-3 shrink-0" />
-                              <span>{t('inventory.unassignSpool')}</span>
+                              <Unlink className="w-3.5 h-3.5 shrink-0" />
+                              <span className="sr-only">{t('inventory.unassignSpool')}</span>
                             </button>
                           )}
                         </div>
