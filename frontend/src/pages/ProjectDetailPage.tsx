@@ -50,7 +50,7 @@ import { ProjectPermissionsModal } from '../components/ProjectPermissionsModal';
 // Project edit modal (reused from ProjectsPage)
 import { ProjectModal } from './ProjectsPage';
 import { getCurrencySymbol } from '../utils/currency';
-import { isSlicedLibraryFile } from '../utils/libraryFiles';
+import { isPrintableLibraryFile } from '../utils/libraryFiles';
 import { NumberInput } from '../components/NumberInput';
 
 function formatFilament(grams: number): string {
@@ -286,7 +286,7 @@ export function ProjectDetailPage() {
   const completeSets = useMemo(() => {
     const target = project?.target_sets;
     if (!target || !allProjectFiles) return null;
-    const printable = allProjectFiles.filter((f) => isSlicedLibraryFile(f));
+    const printable = allProjectFiles.filter((f) => isPrintableLibraryFile(f));
     if (printable.length === 0) return null;
     return Math.min(...printable.map((f) => Math.min(progressByFileId.get(f.id) ?? 0, target)));
   }, [project?.target_sets, allProjectFiles, progressByFileId]);
@@ -1080,7 +1080,7 @@ export function ProjectDetailPage() {
                     ) : (
                       <div className="space-y-1 pl-3">
                         {files.map((file) => {
-                          const printable = isSlicedLibraryFile(file);
+                          const printable = isPrintableLibraryFile(file);
                           return (
                             <div
                               key={file.id}

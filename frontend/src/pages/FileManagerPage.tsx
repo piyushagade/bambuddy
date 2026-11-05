@@ -91,7 +91,7 @@ import { formatDuration, parseUTCDate, formatDate } from '../utils/date';
 import { formatFileSize } from '../utils/file';
 import { assignableProjects } from '../utils/projectTree';
 import { openInSlicer, resolveDesktopSlicer, type SlicerType } from '../utils/slicer';
-import { isSlicedLibraryFile, isSliceableLibraryFile } from '../utils/libraryFiles';
+import { isPrintableLibraryFile, isSlicedLibraryFile, isSliceableLibraryFile } from '../utils/libraryFiles';
 
 type SortField = 'name' | 'date' | 'size' | 'type' | 'prints';
 type SortDirection = 'asc' | 'desc';
@@ -1051,7 +1051,7 @@ function FileCard({ file, isSelected, onSelect, onDelete, onDownload, onPrint, o
   const canDelete = canModify('library', 'delete', file.created_by_id);
 
   const menuItems: ContextMenuItem[] = [];
-  if (onPrint && isSlicedLibraryFile(file)) {
+  if (onPrint && isPrintableLibraryFile(file)) {
     menuItems.push({
       label: t('common.print'),
       // The action stays visually distinct now that the menu component styles
@@ -1350,7 +1350,7 @@ function FileActionStrip({ file, onPrint, onSlice, onOpenInSlicer, onRunPipeline
   const canDelete = canModify('library', 'delete', file.created_by_id);
   return (
     <div className="flex items-center gap-1" data-file-actions {...stopRowActivation}>
-      {isSlicedLibraryFile(file) && (
+      {isPrintableLibraryFile(file) && (
         <button
           tabIndex={tabIndex}
           onClick={() => hasPermission('queue:create') && onPrint(file)}
@@ -2404,12 +2404,12 @@ export function FileManagerPage() {
     return file && isPreviewableLibraryFile(file) ? file : null;
   }, [selectableFiles, selectedFiles]);
 
-  // The sliced files among the selection, in the order they were ticked.
+  // The printable files among the selection, in the order they were ticked.
   const selectedSlicedFiles = useMemo(
     () =>
       selectedFiles
         .map((id) => selectableFiles.get(id))
-        .filter((f): f is LibraryFileListItem => !!f && isSlicedLibraryFile(f)),
+        .filter((f): f is LibraryFileListItem => !!f && isPrintableLibraryFile(f)),
     [selectableFiles, selectedFiles],
   );
 

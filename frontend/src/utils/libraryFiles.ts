@@ -27,6 +27,21 @@ export function isSlicedLibraryFile(file: {
 }
 
 /**
+ * Can a library file be sent to PrintModal from the File Manager / Project view?
+ * Covers sliced files (`.gcode`, `.gcode.3mf`) as well as `.3mf` files.
+ */
+export function isPrintableLibraryFile(file: {
+  filename: string;
+  file_type?: string | null;
+}): boolean {
+  if (isSlicedLibraryFile(file)) return true;
+  const fileType = (file.file_type || '').toLowerCase();
+  if (fileType === '3mf') return true;
+  const lower = (file.filename || '').toLowerCase();
+  return lower.endsWith('.3mf');
+}
+
+/**
  * Is a library file something a slicer can take as *input*?
  *
  * `isSliceableFilename` already refuses a `.gcode` / `.gcode.3mf` name — the

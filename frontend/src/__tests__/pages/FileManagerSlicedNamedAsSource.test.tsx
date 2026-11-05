@@ -109,12 +109,12 @@ describe('FileManagerPage — a sliced 3MF that is not named like one (#2993)', 
     expect(within(row).getByTitle('Slice')).toBeInTheDocument();
   });
 
-  it('does not offer Print for a genuine project of the same shape', async () => {
+  it('also offers Print for a .3mf project file', async () => {
     render(<FileManagerPage />);
 
     await waitFor(() => expect(screen.getByText('Labyrinth source.3mf')).toBeInTheDocument());
     const row = await rowFor('Labyrinth source.3mf');
 
-    expect(within(row).queryByTitle('Print')).not.toBeInTheDocument();
+    expect(within(row).getByTitle('Print')).toBeInTheDocument();
   });
 });
