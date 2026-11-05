@@ -132,48 +132,125 @@ class _FolderAccess:
     can_write: bool = False
     can_manage: bool = False
     visible_in_tree: bool = False
+    is_shared: bool = False
+
+
+_SHARED_ROOT_NAMES = {"course", "courses", "shared", "shared files", "groups", "group"}
+_MAKERWORLD_FOLDER_NAMES = {"makerworld", "makerspace"}
 
 
 async def _compute_folder_access_map(
     db: AsyncSession,
     user: User | None,
 ) -> dict[int, _FolderAccess]:
-    """Compute effective folder permissions across the entire folder hierarchy.
+    """Compute effective folder permissions and section classification across the folder hierarchy.
 
-    Rules:
-    - Admins (`user is None or user.is_admin`) have full `can_read`, `can_write`,
-      `can_manage`, and `visible_in_tree` on all folders.
-    - Non-admins do NOT inherently have access to folders unless:
-      1. They created/own the folder (`folder.created_by_id == user.id`) ->
-         `can_read=True, can_write=True, can_manage=True`.
-      2. They or one of their active (non-expired) groups have an explicit
-         `LibraryFolderPermission` grant on the folder.
-    - Top-down inheritance: `can_read`, `can_write`, and `can_manage` propagate
-      downward from parent folders to all descendant subfolders.
-    - Bottom-up tree traversal: ancestor folders of any readable descendant
-      remain `visible_in_tree=True` (with `can_read=False, can_write=False`
-      unless separately granted) so users can navigate the tree hierarchy
-      (e.g., `Course -> F26 - ABE4042C -> ExoGlove`) without seeing sibling
-      folders (`GatorByte`, `Stella`) or files inside parent folders.
+    Sections:
+    - **My Files** (`is_shared=False`): Personal folders and `MakerWorld` / `MakerSpace`.
+      Only visible and accessible to the user who owns the folder (`created_by_id == user.id`)
+      or owns files inside a legacy unowned `MakerWorld` / `MakerSpace` folder.
+    - **Shared Files** (`is_shared=True`): Folders that have `is_shared=True`, explicit
+      `LibraryFolderPermission` grants, a linked `project_id`, `is_external=True`, or
+      reside under a Course/Shared/Group root folder tree.
+      - Admins (`user is None or user.is_admin`) have full access to Shared Files.
+      - Non-admins have access via ownership (`created_by_id == user.id`),
+        `LibraryFolderPermission` (direct user or active group), or project access,
+        with top-down inheritance to children and bottom-up `visible_in_tree` traversal.
     """
     all_rows = (
         await db.execute(
             select(
                 LibraryFolder.id,
+                LibraryFolder.name,
                 LibraryFolder.parent_id,
                 LibraryFolder.created_by_id,
                 LibraryFolder.project_id,
+                LibraryFolder.is_shared,
+                LibraryFolder.is_external,
             )
         )
     ).all()
     if not all_rows:
         return {}
 
-    if user is None or user.is_admin:
+    all_ids = {fid for fid, _, _, _, _, _, _ in all_rows}
+    parent_by_id: dict[int, int | None] = {}
+    children_by_parent: dict[int | None, list[int]] = {}
+    name_by_id: dict[int, str] = {}
+    creator_by_id: dict[int, int | None] = {}
+    proj_by_id: dict[int, int | None] = {}
+    explicit_shared_by_id: dict[int, bool] = {}
+    external_by_id: dict[int, bool] = {}
+
+    for fid, fname, pid, creator_id, proj_id, is_sh, is_ext in all_rows:
+        effective_pid = pid if pid in all_ids and pid != fid else None
+        parent_by_id[fid] = effective_pid
+        children_by_parent.setdefault(effective_pid, []).append(fid)
+        name_by_id[fid] = fname or ""
+        creator_by_id[fid] = creator_id
+        proj_by_id[fid] = proj_id
+        explicit_shared_by_id[fid] = bool(is_sh)
+        external_by_id[fid] = bool(is_ext)
+
+    folders_with_any_perms = set(
+        (await db.execute(select(LibraryFolderPermission.folder_id).distinct())).scalars().all()
+    )
+
+    # Determine root folder for every node and whether each root tree is Shared vs My Files
+    root_of: dict[int, int] = {}
+    for fid in all_ids:
+        curr = fid
+        seen: set[int] = set()
+        while parent_by_id.get(curr) is not None and parent_by_id[curr] not in seen:
+            seen.add(curr)
+            curr = parent_by_id[curr]  # type: ignore[assignment]
+        root_of[fid] = curr
+
+    tree_nodes_by_root: dict[int, list[int]] = {}
+    for fid, root_id in root_of.items():
+        tree_nodes_by_root.setdefault(root_id, []).append(fid)
+
+    effective_is_shared: dict[int, bool] = {}
+    for root_id, node_ids in tree_nodes_by_root.items():
+        root_name_clean = name_by_id.get(root_id, "").strip().lower()
+        tree_shared = root_name_clean in _SHARED_ROOT_NAMES or any(
+            explicit_shared_by_id[nid]
+            or nid in folders_with_any_perms
+            or proj_by_id[nid] is not None
+            or external_by_id[nid]
+            for nid in node_ids
+        )
+        for nid in node_ids:
+            effective_is_shared[nid] = tree_shared
+
+    if user is None:
         return {
-            fid: _FolderAccess(can_read=True, can_write=True, can_manage=True, visible_in_tree=True)
-            for fid, _, _, _ in all_rows
+            fid: _FolderAccess(
+                can_read=True,
+                can_write=True,
+                can_manage=True,
+                visible_in_tree=True,
+                is_shared=effective_is_shared.get(fid, False),
+            )
+            for fid in all_ids
         }
+
+    # Resolve folders where this user owns active files (for legacy unowned MakerWorld folders)
+    user_owned_file_folders = set(
+        (
+            await db.execute(
+                select(LibraryFile.folder_id)
+                .where(
+                    LibraryFile.folder_id.isnot(None),
+                    LibraryFile.deleted_at.is_(None),
+                    LibraryFile.created_by_id == user.id,
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     # Resolve active (non-expired) groups for this user
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -205,42 +282,70 @@ async def _compute_folder_access_map(
     ).all()
 
     project_access_map = {}
-    if any(proj_id is not None for _, _, _, proj_id in all_rows):
+    if any(proj_id is not None for proj_id in proj_by_id.values()):
         from backend.app.api.routes.projects import _compute_project_access_map
 
         project_access_map = await _compute_project_access_map(db, user)
 
     access_map: dict[int, _FolderAccess] = {}
-    parent_by_id: dict[int, int | None] = {}
-    children_by_parent: dict[int | None, list[int]] = {}
-    all_ids = {fid for fid, _, _, _ in all_rows}
 
-    for fid, pid, creator_id, proj_id in all_rows:
-        effective_pid = pid if pid in all_ids and pid != fid else None
-        parent_by_id[fid] = effective_pid
-        children_by_parent.setdefault(effective_pid, []).append(fid)
-        is_owner = creator_id is not None and creator_id == user.id
-        proj_acc = project_access_map.get(proj_id) if proj_id is not None else None
-        p_read = bool(proj_acc and proj_acc.can_read)
-        p_write = bool(proj_acc and proj_acc.can_write)
-        p_manage = bool(proj_acc and proj_acc.can_manage)
-        access_map[fid] = _FolderAccess(
-            can_read=is_owner or p_read,
-            can_write=is_owner or p_write,
-            can_manage=is_owner or p_manage,
-            visible_in_tree=is_owner or p_read,
-        )
+    for fid in all_ids:
+        is_sh = effective_is_shared.get(fid, False)
+        creator_id = creator_by_id[fid]
+        fname_clean = name_by_id[fid].strip().lower()
+
+        if not is_sh:
+            # My Files section: strictly private to the owner of the folder/files
+            if creator_id is not None:
+                is_my_folder = creator_id == user.id
+            elif fname_clean in _MAKERWORLD_FOLDER_NAMES:
+                # Legacy unowned MakerWorld / MakerSpace folder: visible to users who own files in it
+                is_my_folder = fid in user_owned_file_folders
+            else:
+                # Legacy unowned folder (e.g., created when auth was disabled or via test fixtures)
+                is_my_folder = bool(user.is_admin or fid in user_owned_file_folders)
+            access_map[fid] = _FolderAccess(
+                can_read=is_my_folder,
+                can_write=is_my_folder,
+                can_manage=is_my_folder,
+                visible_in_tree=is_my_folder,
+                is_shared=False,
+            )
+        else:
+            # Shared Files section
+            if user.is_admin:
+                access_map[fid] = _FolderAccess(
+                    can_read=True,
+                    can_write=True,
+                    can_manage=True,
+                    visible_in_tree=True,
+                    is_shared=True,
+                )
+            else:
+                is_owner = creator_id is not None and creator_id == user.id
+                proj_id = proj_by_id[fid]
+                proj_acc = project_access_map.get(proj_id) if proj_id is not None else None
+                p_read = bool(proj_acc and proj_acc.can_read)
+                p_write = bool(proj_acc and proj_acc.can_write)
+                p_manage = bool(proj_acc and proj_acc.can_manage)
+                access_map[fid] = _FolderAccess(
+                    can_read=is_owner or p_read,
+                    can_write=is_owner or p_write,
+                    can_manage=is_owner or p_manage,
+                    visible_in_tree=is_owner or p_read,
+                    is_shared=True,
+                )
 
     for fid, p_read, p_write in perm_rows:
         acc = access_map.get(fid)
-        if acc is not None:
+        if acc is not None and acc.is_shared:
             if p_read or p_write:
                 acc.can_read = True
                 acc.visible_in_tree = True
             if p_write:
                 acc.can_write = True
 
-    # Step 1: Top-down inheritance (parent -> children)
+    # Step 1: Top-down inheritance (parent -> children within the same tree)
     queue = list(children_by_parent.get(None, []))
     visited_down: set[int] = set()
     while queue:
@@ -795,9 +900,12 @@ async def save_3mf_bytes_to_library(
     does, via :class:`ThreeMFParser`. Paths are stored as relative so the
     library is portable across installs.
     """
-    # Source-URL-based dedupe: return the existing row untouched.
+    # Source-URL-based dedupe: return the existing row untouched (scoped per user when owner_id is set).
     if source_url:
-        existing = await db.execute(LibraryFile.active().where(LibraryFile.source_url == source_url).limit(1))
+        existing_q = LibraryFile.active().where(LibraryFile.source_url == source_url)
+        if owner_id is not None:
+            existing_q = existing_q.where(LibraryFile.created_by_id == owner_id)
+        existing = await db.execute(existing_q.limit(1))
         existing_row = existing.scalar_one_or_none()
         if existing_row is not None:
             return existing_row, True
@@ -1140,6 +1248,35 @@ async def list_folders(
     )
     latest_file_activity = dict(latest_file_activity_result.all())
 
+    # For My Files (`is_shared=False`) folders when authenticated, count only files owned by the current user
+    own_file_counts: dict[int, int] = file_counts
+    own_latest_file_activity: dict[int, datetime | None] = latest_file_activity
+    if user is not None:
+        own_counts_result = await db.execute(
+            select(LibraryFile.folder_id, func.count(LibraryFile.id))
+            .where(
+                LibraryFile.folder_id.isnot(None),
+                LibraryFile.deleted_at.is_(None),
+                LibraryFile.created_by_id == user.id,
+            )
+            .group_by(LibraryFile.folder_id)
+        )
+        own_file_counts = dict(own_counts_result.all())
+
+        own_activity_result = await db.execute(
+            select(
+                LibraryFile.folder_id,
+                func.max(func.coalesce(LibraryFile.fs_modified_at, LibraryFile.updated_at)),
+            )
+            .where(
+                LibraryFile.folder_id.isnot(None),
+                LibraryFile.deleted_at.is_(None),
+                LibraryFile.created_by_id == user.id,
+            )
+            .group_by(LibraryFile.folder_id)
+        )
+        own_latest_file_activity = dict(own_activity_result.all())
+
     # Build tree structure. Each folder's initial ``latest_activity_at`` is its own
     # leaf activity: the newer of its real directory mtime (fallback updated_at)
     # and its immediate files' mtime. The recursive bubble below then rolls each
@@ -1152,8 +1289,10 @@ async def list_folders(
         acc = access_map.get(folder.id, _FolderAccess())
         if not acc.visible_in_tree:
             continue
+        effective_counts = file_counts if acc.is_shared else own_file_counts
+        effective_activity = latest_file_activity if acc.is_shared else own_latest_file_activity
         own_activity = (folder.fs_modified_at or folder.updated_at) if acc.can_read else None
-        latest_file = latest_file_activity.get(folder.id) if acc.can_read else None
+        latest_file = effective_activity.get(folder.id) if acc.can_read else None
         if latest_file is not None and (own_activity is None or latest_file > own_activity):
             own_activity = latest_file
         folder_item = FolderTreeItem(
@@ -1164,6 +1303,7 @@ async def list_folders(
             archive_id=folder.archive_id,
             project_name=project_name,
             archive_name=archive_name,
+            is_shared=acc.is_shared,
             is_external=folder.is_external,
             external_path=folder.external_path,
             external_readonly=folder.external_readonly,
@@ -1172,7 +1312,7 @@ async def list_folders(
             can_read=acc.can_read,
             can_write=acc.can_write and not (folder.is_external and folder.external_readonly),
             can_manage=acc.can_manage,
-            file_count=file_counts.get(folder.id, 0) if acc.can_read else 0,
+            file_count=effective_counts.get(folder.id, 0) if acc.can_read else 0,
             latest_activity_at=own_activity,
             children=[],
         )
@@ -1267,6 +1407,7 @@ async def get_folders_by_project(
                 archive_id=folder.archive_id,
                 project_name=project_name,
                 archive_name=None,
+                is_shared=acc.is_shared,
                 is_external=folder.is_external,
                 external_path=folder.external_path,
                 external_readonly=folder.external_readonly,
@@ -1340,6 +1481,7 @@ async def get_folders_by_archive(
                 archive_id=folder.archive_id,
                 project_name=None,
                 archive_name=archive_name,
+                is_shared=acc.is_shared,
                 is_external=folder.is_external,
                 external_path=folder.external_path,
                 external_readonly=folder.external_readonly,
@@ -1368,13 +1510,16 @@ async def create_folder(
 ):
     """Create a new folder. The creator becomes the folder owner (`can_manage=True`)."""
     # Verify parent exists if specified
+    parent_is_shared = False
     if data.parent_id is not None:
         parent_result = await db.execute(select(LibraryFolder).where(LibraryFolder.id == data.parent_id))
-        if not parent_result.scalar_one_or_none():
+        parent_folder = parent_result.scalar_one_or_none()
+        if not parent_folder:
             raise HTTPException(status_code=404, detail="Parent folder not found")
+        access_map = await _compute_folder_access_map(db, current_user)
+        parent_acc = access_map.get(data.parent_id)
+        parent_is_shared = bool(parent_acc.is_shared if parent_acc is not None else parent_folder.is_shared)
         if current_user is not None and not current_user.is_admin:
-            access_map = await _compute_folder_access_map(db, current_user)
-            parent_acc = access_map.get(data.parent_id)
             if parent_acc is None or not parent_acc.can_write:
                 raise HTTPException(
                     status_code=403,
@@ -1399,11 +1544,22 @@ async def create_folder(
             raise HTTPException(status_code=404, detail="Archive not found")
         archive_name = archive.print_name
 
+    effective_is_shared = bool(
+        parent_is_shared
+        if data.parent_id is not None
+        else (
+            data.is_shared
+            or data.project_id is not None
+            or data.name.strip().lower() in _SHARED_ROOT_NAMES
+        )
+    )
+
     folder = LibraryFolder(
         name=data.name,
         parent_id=data.parent_id,
         project_id=data.project_id,
         archive_id=data.archive_id,
+        is_shared=effective_is_shared,
         created_by_id=current_user.id if current_user else None,
     )
     db.add(folder)
@@ -1418,6 +1574,7 @@ async def create_folder(
         archive_id=folder.archive_id,
         project_name=project_name,
         archive_name=archive_name,
+        is_shared=folder.is_shared,
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
@@ -1464,18 +1621,21 @@ async def get_folder(
     folder, project_name, archive_name, creator_username = row
     access_map = await _compute_folder_access_map(db, user)
     acc = access_map.get(folder_id, _FolderAccess())
-    if user is not None and not user.is_admin and not acc.visible_in_tree:
+    if user is not None and not acc.visible_in_tree:
         raise HTTPException(status_code=404, detail="Folder not found")
 
     # Get file count + latest file activity (#1770) in one trip
+    file_where = [
+        LibraryFile.folder_id == folder_id,
+        LibraryFile.deleted_at.is_(None),
+    ]
+    if user is not None and not acc.is_shared:
+        file_where.append(LibraryFile.created_by_id == user.id)
     agg_result = await db.execute(
         select(
             func.count(LibraryFile.id),
             func.max(LibraryFile.updated_at),
-        ).where(
-            LibraryFile.folder_id == folder_id,
-            LibraryFile.deleted_at.is_(None),
-        )
+        ).where(*file_where)
     )
     file_count, latest_file = agg_result.one()
     file_count = (file_count or 0) if acc.can_read else 0
@@ -1489,6 +1649,7 @@ async def get_folder(
         archive_id=folder.archive_id,
         project_name=project_name,
         archive_name=archive_name,
+        is_shared=acc.is_shared,
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
@@ -1719,6 +1880,8 @@ async def update_folder_permissions(
                 can_write=can_w,
             )
         )
+    if deduped_users or deduped_groups:
+        folder.is_shared = True
     await db.commit()
 
     return await _build_folder_permissions_response(db, folder)
@@ -1868,6 +2031,9 @@ async def update_folder(
                 raise HTTPException(status_code=404, detail="Archive not found")
             folder.archive_id = data.archive_id
 
+    if data.is_shared is not None:
+        folder.is_shared = data.is_shared
+
     await db.commit()
     await db.refresh(folder)
 
@@ -1899,6 +2065,9 @@ async def update_folder(
         creator_result = await db.execute(select(User.username).where(User.id == folder.created_by_id))
         creator_username = creator_result.scalar()
 
+    updated_access_map = await _compute_folder_access_map(db, user)
+    updated_acc = updated_access_map.get(folder_id, acc)
+
     return FolderResponse(
         id=folder.id,
         name=folder.name,
@@ -1907,6 +2076,7 @@ async def update_folder(
         archive_id=folder.archive_id,
         project_name=project_name,
         archive_name=archive_name,
+        is_shared=updated_acc.is_shared,
         is_external=folder.is_external,
         external_path=folder.external_path,
         external_readonly=folder.external_readonly,
@@ -2640,6 +2810,7 @@ async def list_files(
     include_root: bool = True,
     internal_only: bool = False,
     external_only: bool = False,
+    section: str | None = None,
     recursive: bool = False,
     tag_ids: list[int] = Query(default_factory=list),
     db: AsyncSession = Depends(get_db),
@@ -2650,30 +2821,7 @@ async def list_files(
         )
     ),
 ):
-    """List files, optionally filtered by folder or project.
-
-    Args:
-        folder_id: Filter by folder ID. If None and include_root=True, returns root files.
-        project_id: Return all files across folders linked to this project (bulk fetch, avoids N+1).
-        include_root: If True and folder_id is None, returns files at root level.
-                     If False and folder_id is None, returns all files.
-        internal_only: Restrict the result to files in managed storage (`is_external=False`).
-                       Used by the File Manager's "All Files" sidebar entry so a linked NAS
-                       with hundreds of files doesn't drown the user's own uploads (#1621).
-        external_only: Restrict the result to files under external folders
-                       (`is_external=True`) — the symmetric combined view for users with
-                       multiple linked external sources (#1621).
-        recursive: When combined with ``folder_id``, also include files in every
-                   descendant subfolder (#1268). Implemented via a recursive CTE
-                   that walks ``library_folders.parent_id``. Default off so
-                   existing callers (folder browsing, etc.) keep their narrow
-                   single-folder semantics.
-        tag_ids: Restrict the listing to files carrying ALL of these tags
-                 (AND semantics, #1268). When non-empty the folder filter is
-                 intentionally bypassed — tags are cross-cutting and the user
-                 wants "every file with this tag" regardless of where it lives.
-                 ``recursive`` becomes irrelevant in that case.
-    """
+    """List files, optionally filtered by folder, project, or section ('my' | 'shared')."""
     if internal_only and external_only:
         raise HTTPException(
             status_code=400,
@@ -2683,6 +2831,8 @@ async def list_files(
     user, can_read_all = auth_result
     access_map = await _compute_folder_access_map(db, user)
     readable_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read}
+    my_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read and not acc.is_shared}
+    shared_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read and acc.is_shared}
 
     query = LibraryFile.active().options(
         selectinload(LibraryFile.created_by),
@@ -2695,16 +2845,12 @@ async def list_files(
         # SQLite and Postgres without dialect tricks. We deliberately skip
         # the folder / project / include_root scoping below so the result
         # is the global "all files carrying these tags".
-        if user is not None and not user.is_admin:
-            root_cond = (
-                LibraryFile.folder_id.is_(None)
-                if can_read_all
-                else (LibraryFile.folder_id.is_(None) & (LibraryFile.created_by_id == user.id))
-            )
-            if readable_folder_ids:
-                query = query.where(or_(root_cond, LibraryFile.folder_id.in_(readable_folder_ids)))
+        if user is not None:
+            own_cond = LibraryFile.created_by_id == user.id
+            if shared_folder_ids:
+                query = query.where(or_(own_cond, LibraryFile.folder_id.in_(shared_folder_ids)))
             else:
-                query = query.where(root_cond)
+                query = query.where(own_cond)
         unique_tag_ids = list(dict.fromkeys(tag_ids))
         query = (
             query.join(LibraryFileTag, LibraryFileTag.file_id == LibraryFile.id)
@@ -2720,21 +2866,25 @@ async def list_files(
             select(LibraryFolder.id).where(LibraryFolder.id == folder_id).cte(name="folder_descendants", recursive=True)
         )
         descendants = roots.union_all(select(LibraryFolder.id).join(roots, LibraryFolder.parent_id == roots.c.id))
-        if user is not None and not user.is_admin:
-            if not readable_folder_ids:
+        if user is not None:
+            if folder_id not in readable_folder_ids:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 return []
             query = query.where(
                 LibraryFile.folder_id.in_(select(descendants.c.id)),
                 LibraryFile.folder_id.in_(readable_folder_ids),
             )
+            if folder_id in my_folder_ids:
+                query = query.where(LibraryFile.created_by_id == user.id)
         else:
             query = query.where(LibraryFile.folder_id.in_(select(descendants.c.id)))
     elif folder_id is not None:
-        if user is not None and not user.is_admin and folder_id not in readable_folder_ids:
+        if user is not None and folder_id not in readable_folder_ids:
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             return []
         query = query.where(LibraryFile.folder_id == folder_id)
+        if user is not None and folder_id in my_folder_ids:
+            query = query.where(LibraryFile.created_by_id == user.id)
     elif project_id is not None:
         # Single join instead of one query per folder (avoids N+1 pattern)
         query = query.join(LibraryFolder, LibraryFile.folder_id == LibraryFolder.id)
@@ -2744,6 +2894,21 @@ async def list_files(
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 return []
             query = query.where(LibraryFile.folder_id.in_(readable_folder_ids))
+    elif section == "my":
+        if include_root:
+            query = query.where(LibraryFile.folder_id.is_(None))
+        else:
+            if my_folder_ids:
+                query = query.where(or_(LibraryFile.folder_id.is_(None), LibraryFile.folder_id.in_(my_folder_ids)))
+            else:
+                query = query.where(LibraryFile.folder_id.is_(None))
+        if user is not None:
+            query = query.where(LibraryFile.created_by_id == user.id)
+    elif section == "shared":
+        if include_root or not shared_folder_ids:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return []
+        query = query.where(LibraryFile.folder_id.in_(shared_folder_ids))
     elif include_root:
         query = query.where(LibraryFile.folder_id.is_(None))
         if user is not None and not user.is_admin and not can_read_all:

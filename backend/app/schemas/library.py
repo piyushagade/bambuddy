@@ -14,6 +14,7 @@ class FolderCreate(BaseModel):
     parent_id: int | None = None
     project_id: int | None = None
     archive_id: int | None = None
+    is_shared: bool = False
 
 
 class ExternalFolderCreate(BaseModel):
@@ -33,6 +34,7 @@ class FolderUpdate(BaseModel):
     parent_id: int | None = None
     project_id: int | None = None  # 0 to unlink
     archive_id: int | None = None  # 0 to unlink
+    is_shared: bool | None = None
 
 
 class FolderResponse(BaseModel):
@@ -58,6 +60,7 @@ class FolderResponse(BaseModel):
     latest_activity_at: datetime | None = None
     created_by_id: int | None = None
     created_by_username: str | None = None
+    is_shared: bool = False
     can_read: bool = True
     can_write: bool = True
     can_manage: bool = False
@@ -99,6 +102,7 @@ class FolderTreeItem(BaseModel):
     latest_activity_at: datetime | None = None
     created_by_id: int | None = None
     created_by_username: str | None = None
+    is_shared: bool = False
     can_read: bool = True
     can_write: bool = True
     can_manage: bool = False

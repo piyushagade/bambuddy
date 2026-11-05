@@ -332,11 +332,12 @@ describe('FileManagerPage', () => {
   });
 
   describe('folder sidebar', () => {
-    it('shows All Files option', async () => {
+    it('shows My Files and Shared Files sections', async () => {
       render(<FileManagerPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('All Files')).toBeInTheDocument();
+        expect(screen.getByTestId('sidebar-section-my-files')).toBeInTheDocument();
+        expect(screen.getByTestId('sidebar-section-shared-files')).toBeInTheDocument();
       });
     });
 
@@ -1839,7 +1840,7 @@ describe('FileManagerPage', () => {
       // Default mockFolders have no is_external entries → no External row.
       const { unmount } = render(<FileManagerPage />);
       await waitFor(() => {
-        expect(screen.getByText('All Files')).toBeInTheDocument();
+        expect(screen.getByTestId('sidebar-section-my-files')).toBeInTheDocument();
       });
       expect(screen.queryByText('External')).not.toBeInTheDocument();
       unmount();

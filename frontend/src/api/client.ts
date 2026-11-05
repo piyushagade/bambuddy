@@ -7828,7 +7828,7 @@ export const api = {
     folderId?: number | null,
     includeRoot = true,
     projectId?: number,
-    scope?: 'internal' | 'external',
+    scope?: 'internal' | 'external' | 'my' | 'shared',
     recursive = false,
     tagIds: number[] = [],
   ) => {
@@ -7842,6 +7842,13 @@ export const api = {
     params.set('include_root', String(includeRoot));
     if (scope === 'internal') params.set('internal_only', 'true');
     else if (scope === 'external') params.set('external_only', 'true');
+    else if (scope === 'my') {
+      params.set('internal_only', 'true');
+      params.set('section', 'my');
+    } else if (scope === 'shared') {
+      params.set('internal_only', 'true');
+      params.set('section', 'shared');
+    }
     // recursive=true expands the folder_id filter to include every descendant
     // folder (#1268). Only meaningful when folder_id is set; ignored server-side
     // otherwise. Off by default so non-search callers keep folder-scoped behavior.
@@ -8586,6 +8593,7 @@ export interface LibraryFolderTree {
   archive_id: number | null;
   project_name: string | null;
   archive_name: string | null;
+  is_shared?: boolean;
   is_external: boolean;
   external_path: string | null;
   external_readonly: boolean;
@@ -8609,6 +8617,7 @@ export interface LibraryFolder {
   archive_id: number | null;
   project_name: string | null;
   archive_name: string | null;
+  is_shared?: boolean;
   is_external: boolean;
   external_path: string | null;
   external_readonly: boolean;
@@ -8675,6 +8684,7 @@ export interface LibraryFolderCreate {
   parent_id?: number | null;
   project_id?: number | null;
   archive_id?: number | null;
+  is_shared?: boolean;
 }
 
 export interface ExternalFolderCreate {
@@ -8690,6 +8700,7 @@ export interface LibraryFolderUpdate {
   parent_id?: number | null;
   project_id?: number | null;  // 0 to unlink
   archive_id?: number | null;  // 0 to unlink
+  is_shared?: boolean;
 }
 
 export interface LibraryFileDuplicate {

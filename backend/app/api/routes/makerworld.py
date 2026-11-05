@@ -290,12 +290,14 @@ async def search_models(
     already_imported_model_ids: list[int] = []
     hit_ids = [hid for h in hits if isinstance(h, dict) and isinstance((hid := h.get("id")), int)]
     if hit_ids:
-        existing_q = await db.execute(
-            select(LibraryFile.source_url).where(
-                or_(*(makerworld_provider.source_url_filter(LibraryFile.source_url, str(hid)) for hid in hit_ids)),
-                LibraryFile.deleted_at.is_(None),
-            )
-        )
+        owner_user = current_user or api_key_cloud_owner
+        existing_conds = [
+            or_(*(makerworld_provider.source_url_filter(LibraryFile.source_url, str(hid)) for hid in hit_ids)),
+            LibraryFile.deleted_at.is_(None),
+        ]
+        if owner_user is not None:
+            existing_conds.append(LibraryFile.created_by_id == owner_user.id)
+        existing_q = await db.execute(select(LibraryFile.source_url).where(*existing_conds))
         matched_ids: set[int] = set()
         for (src_url,) in existing_q.all():
             if not src_url:
@@ -360,12 +362,14 @@ async def resolve_url(
     # the provider's :meth:`source_url_filter` owns what "belongs" means
     # (whole-model key, per-plate keys, ...). The frontend surfaces the ids
     # to mark imported plates in the instance picker.
-    existing_q = await db.execute(
-        select(LibraryFile.id).where(
-            provider.source_url_filter(LibraryFile.source_url, str(model_id)),
-            LibraryFile.deleted_at.is_(None),
-        )
-    )
+    owner_user = current_user or api_key_cloud_owner
+    existing_conds = [
+        provider.source_url_filter(LibraryFile.source_url, str(model_id)),
+        LibraryFile.deleted_at.is_(None),
+    ]
+    if owner_user is not None:
+        existing_conds.append(LibraryFile.created_by_id == owner_user.id)
+    existing_q = await db.execute(select(LibraryFile.id).where(*existing_conds))
     already_imported = [row[0] for row in existing_q.all()]
 
     return MakerWorldResolvedModel(
@@ -406,6 +410,8 @@ async def import_instance(
     # which the UI lists anyway; anonymous callers never get this far.
     provider = _provider_for_source(body.source_type)
     current_user = await _authorize_for_provider(provider, provider.import_permission, credentials, x_api_key)
+    cloud_token_user = current_user or api_key_cloud_owner
+    owner_id = cloud_token_user.id if cloud_token_user else None
 
     if body.folder_id is not None:
         folder_q = await db.execute(select(LibraryFolder).where(LibraryFolder.id == body.folder_id))
@@ -419,28 +425,60 @@ async def import_instance(
             )
         effective_folder_id: int | None = body.folder_id
     else:
-        # Default destination: the resolved provider's dedicated top-level
-        # folder (``default_folder_name`` — read off *provider*, not the
-        # MakerWorld singleton, so the second provider lands in its own
-        # folder). Keeps imports out of the library root so power users can
-        # still organise manually in subfolders, and auto-creates the folder
-        # on the first import so users don't have to set it up themselves. A
-        # provider that leaves it unset imports into the library root rather
-        # than minting a NULL-named folder.
+        # Default destination: the resolved provider's dedicated per-user top-level
+        # folder in My Files (`is_shared=False`). Each user gets their own MakerWorld
+        # folder (or claims a legacy unowned folder if no other user has files in it).
         default_folder_name = provider.default_folder_name
         if default_folder_name is None:
             effective_folder_id = None
         else:
-            default_folder_q = await db.execute(
-                select(LibraryFolder).where(
-                    LibraryFolder.name == default_folder_name,
-                    LibraryFolder.parent_id.is_(None),
-                    LibraryFolder.is_external.is_(False),
-                )
-            )
+            folder_conds = [
+                LibraryFolder.name == default_folder_name,
+                LibraryFolder.parent_id.is_(None),
+                LibraryFolder.is_external.is_(False),
+            ]
+            if owner_id is not None:
+                folder_conds.append(LibraryFolder.created_by_id == owner_id)
+            else:
+                folder_conds.append(LibraryFolder.created_by_id.is_(None))
+            default_folder_q = await db.execute(select(LibraryFolder).where(*folder_conds).limit(1))
             default_folder = default_folder_q.scalar_one_or_none()
+            if default_folder is None and owner_id is not None:
+                legacy_q = await db.execute(
+                    select(LibraryFolder)
+                    .where(
+                        LibraryFolder.name == default_folder_name,
+                        LibraryFolder.parent_id.is_(None),
+                        LibraryFolder.is_external.is_(False),
+                        LibraryFolder.created_by_id.is_(None),
+                    )
+                    .limit(1)
+                )
+                legacy_folder = legacy_q.scalar_one_or_none()
+                if legacy_folder is not None:
+                    other_user_files = (
+                        await db.execute(
+                            select(LibraryFile.id)
+                            .where(
+                                LibraryFile.folder_id == legacy_folder.id,
+                                LibraryFile.deleted_at.is_(None),
+                                LibraryFile.created_by_id.isnot(None),
+                                LibraryFile.created_by_id != owner_id,
+                            )
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if other_user_files is None:
+                        legacy_folder.created_by_id = owner_id
+                        legacy_folder.is_shared = False
+                        default_folder = legacy_folder
             if default_folder is None:
-                default_folder = LibraryFolder(name=default_folder_name, parent_id=None)
+                default_folder = LibraryFolder(
+                    name=default_folder_name,
+                    parent_id=None,
+                    created_by_id=owner_id,
+                    is_shared=False,
+                )
                 db.add(default_folder)
                 await db.flush()
             effective_folder_id = default_folder.id
@@ -468,8 +506,11 @@ async def import_instance(
         # entry (see ``ModelProvider.canonical_url``).
         source_url = provider.canonical_url(info.ref)
 
-        # Dedupe check upfront so we don't burn bandwidth re-downloading.
-        existing_q = await db.execute(LibraryFile.active().where(LibraryFile.source_url == source_url).limit(1))
+        # Dedupe check upfront (scoped to the current user when authenticated).
+        dedupe_q = LibraryFile.active().where(LibraryFile.source_url == source_url)
+        if owner_id is not None:
+            dedupe_q = dedupe_q.where(LibraryFile.created_by_id == owner_id)
+        existing_q = await db.execute(dedupe_q.limit(1))
         existing_row = existing_q.scalar_one_or_none()
         if existing_row is not None:
             return MakerWorldImportResponse(
@@ -507,11 +548,6 @@ async def import_instance(
     # there as on the manifest-supplied name.
     filename = suggested_name if suggested_name.endswith(".3mf") else unquote(download.filename)
 
-    # API-keyed callers carry identity on the key, not in current_user (#1777);
-    # this collapse stays route-side solely so the library row is attributed
-    # to the key's owner rather than NULL. Credential identity is resolved
-    # inside the provider.
-    cloud_token_user = current_user or api_key_cloud_owner
     library_file, was_existing = await save_3mf_bytes_to_library(
         db,
         file_bytes=download.file_bytes,
@@ -519,7 +555,7 @@ async def import_instance(
         folder_id=effective_folder_id,
         source_type=provider.source_type,
         source_url=source_url,
-        owner_id=cloud_token_user.id if cloud_token_user else None,
+        owner_id=owner_id,
     )
 
     return MakerWorldImportResponse(
@@ -545,15 +581,12 @@ async def recent_imports(
     belongs with the provider that needs it.
     ``limit`` is clamped to ``[1, 50]`` to keep payloads sensible.
     """
-    _ = current_user  # permission gate only
     capped = max(1, min(50, int(limit)))
 
-    result = await db.execute(
-        LibraryFile.active()
-        .where(LibraryFile.source_type == makerworld_provider.source_type)
-        .order_by(LibraryFile.created_at.desc())
-        .limit(capped)
-    )
+    recent_q = LibraryFile.active().where(LibraryFile.source_type == makerworld_provider.source_type)
+    if current_user is not None:
+        recent_q = recent_q.where(LibraryFile.created_by_id == current_user.id)
+    result = await db.execute(recent_q.order_by(LibraryFile.created_at.desc()).limit(capped))
     rows = result.scalars().all()
 
     return [

@@ -557,6 +557,12 @@ async def test_library_folder_permissions_and_ownership(async_client, db_session
     own_folder_id = own_folder_resp.json()["id"]
     assert own_folder_resp.json()["created_by_id"] == u_exo_id
     assert own_folder_resp.json()["can_manage"] is True
+    assert own_folder_resp.json()["is_shared"] is False
+
+    # Private My Files folders are not visible to other users (even admins)
+    admin_tree_before = (await async_client.get("/api/v1/library/folders", headers=admin_headers)).json()
+    assert "DavidPersonalProject" not in [f["name"] for f in admin_tree_before]
+    assert next(f for f in admin_tree_before if f["name"] == "Course")["is_shared"] is True
 
     # student_gator cannot see DavidPersonalProject yet
     gator_tree_before = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
@@ -570,10 +576,11 @@ async def test_library_folder_permissions_and_ownership(async_client, db_session
     )
     assert share_resp.status_code == 200
 
-    # Now student_gator sees DavidPersonalProject with read & write access!
+    # Now student_gator sees DavidPersonalProject in Shared Files with read & write access!
     gator_tree_after = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
     shared_node = next((f for f in gator_tree_after if f["name"] == "DavidPersonalProject"), None)
     assert shared_node is not None
+    assert shared_node["is_shared"] is True
     assert shared_node["can_read"] is True
     assert shared_node["can_write"] is True
     assert shared_node["can_manage"] is False

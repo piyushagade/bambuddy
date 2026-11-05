@@ -53,6 +53,7 @@ class LibraryFolder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Real on-disk modification time of the directory this folder mirrors (#2680).
     # For external folders this is captured from ``os.stat().st_mtime`` on scan so

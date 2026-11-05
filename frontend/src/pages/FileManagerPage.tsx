@@ -40,6 +40,7 @@ import {
   Pencil,
   Image,
   User,
+  Users,
   Box,
   RefreshCw,
   Lock,
@@ -283,18 +284,24 @@ function filterAndSortFiles(
 // New Folder Modal
 interface NewFolderModalProps {
   parentId: number | null;
+  defaultIsShared?: boolean;
   onClose: () => void;
   onSave: (data: LibraryFolderCreate) => void;
   isLoading: boolean;
   t: TFunction;
 }
 
-function NewFolderModal({ parentId, onClose, onSave, isLoading, t }: NewFolderModalProps) {
+function NewFolderModal({ parentId, defaultIsShared = false, onClose, onSave, isLoading, t }: NewFolderModalProps) {
   const [name, setName] = useState('');
+  const [isShared, setIsShared] = useState(defaultIsShared);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ name: name.trim(), parent_id: parentId });
+    onSave({
+      name: name.trim(),
+      parent_id: parentId,
+      is_shared: parentId === null ? isShared : undefined,
+    });
   };
 
   return (
@@ -318,6 +325,39 @@ function NewFolderModal({ parentId, onClose, onSave, isLoading, t }: NewFolderMo
               required
             />
           </div>
+          {parentId === null && (
+            <div>
+              <label className="block text-sm font-medium text-white mb-1.5">
+                Section
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsShared(false)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded border text-sm transition-colors ${
+                    !isShared
+                      ? 'bg-bambu-green/20 border-bambu-green text-bambu-green font-medium'
+                      : 'bg-bambu-dark border-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                  }`}
+                >
+                  <User className="w-4 h-4 flex-shrink-0" />
+                  <span>My Files</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsShared(true)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded border text-sm transition-colors ${
+                    isShared
+                      ? 'bg-bambu-green/20 border-bambu-green text-bambu-green font-medium'
+                      : 'bg-bambu-dark border-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                  }`}
+                >
+                  <Users className="w-4 h-4 flex-shrink-0" />
+                  <span>Shared Files</span>
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={onClose}>
               {t('common.cancel')}
@@ -1586,11 +1626,10 @@ export function FileManagerPage() {
 
   // State
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
-  // Which top-level pseudo-view the sidebar shows when no specific folder is
-  // selected: "internal" = files in Bambuddy's managed storage, "external" =
-  // combined view across every linked external folder (#1621). Per-folder
-  // selection bypasses this (selectedFolderId !== null disables the filter).
-  const [topLevelView, setTopLevelView] = useState<'internal' | 'external'>('internal');
+  // Which top-level section the sidebar shows when no specific folder is
+  // selected: "my" = user's private files & MakerWorld, "shared" = course/group
+  // shared folders, "external" = combined view across linked external folders.
+  const [topLevelView, setTopLevelView] = useState<'my' | 'shared' | 'external'>('my');
   const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [showExternalFolderModal, setShowExternalFolderModal] = useState(false);
@@ -1804,6 +1843,19 @@ export function FileManagerPage() {
     };
     return sortLevel(folders);
   }, [folders, folderSortField, folderSortDirection]);
+
+  const myFolders = useMemo(
+    () => (sortedFolders ?? []).filter((f) => !f.is_external && !f.is_shared),
+    [sortedFolders],
+  );
+  const sharedFolders = useMemo(
+    () => (sortedFolders ?? []).filter((f) => !f.is_external && Boolean(f.is_shared)),
+    [sortedFolders],
+  );
+  const externalFolders = useMemo(
+    () => (sortedFolders ?? []).filter((f) => Boolean(f.is_external)),
+    [sortedFolders],
+  );
 
   // Trash count for the header badge (#1008). Empty/error are silently treated
   // as zero so a broken trash endpoint doesn't break the File Manager.
@@ -2312,11 +2364,17 @@ export function FileManagerPage() {
     return path;
   }, [sortedFolders, selectedFolderId]);
 
-  // Which half of the tree the current location lives in: the selected path's
+  // Which section of the tree the current location lives in: the selected path's
   // bucket when there is one, otherwise the sidebar's top-level choice. Drives
   // both the path bar's root crumb and the columns view's first column.
-  const currentBucketIsExternal =
-    folderPath.length > 0 ? Boolean(folderPath[0].is_external) : topLevelView === 'external';
+  const currentBucket: 'my' | 'shared' | 'external' =
+    folderPath.length > 0
+      ? folderPath[0].is_external
+        ? 'external'
+        : folderPath[0].is_shared
+          ? 'shared'
+          : 'my'
+      : topLevelView;
 
   // One column per level: the top-level bucket, then the children of each
   // folder along the path. `folderId` is the folder the column is the inside
@@ -2324,7 +2382,12 @@ export function FileManagerPage() {
   // Leaf folders contribute no column — the files pane to the right is their
   // content.
   const folderColumns = useMemo(() => {
-    const rootItems = (sortedFolders ?? []).filter((f) => Boolean(f.is_external) === currentBucketIsExternal);
+    const rootItems =
+      currentBucket === 'external'
+        ? externalFolders
+        : currentBucket === 'shared'
+          ? sharedFolders
+          : myFolders;
     const cols: { key: string; folderId: number | null; items: LibraryFolderTree[]; activeId: number | null }[] = [
       { key: 'root', folderId: null, items: rootItems, activeId: folderPath[0]?.id ?? null },
     ];
@@ -2339,7 +2402,7 @@ export function FileManagerPage() {
       }
     });
     return cols;
-  }, [sortedFolders, folderPath, currentBucketIsExternal]);
+  }, [myFolders, sharedFolders, externalFolders, folderPath, currentBucket]);
 
   // Every column lists its own level's files, not just the rightmost pane: a
   // folder that holds files and no subfolders used to look empty until it was
@@ -2354,14 +2417,9 @@ export function FileManagerPage() {
       .map((col) => ({
         key: col.key,
         folderId: col.folderId,
-        scope:
-          col.folderId === null
-            ? currentBucketIsExternal
-              ? ('external' as const)
-              : ('internal' as const)
-            : undefined,
+        scope: col.folderId === null ? currentBucket : undefined,
       }));
-  }, [viewMode, columnsFilterActive, folderColumns, selectedFolderId, currentBucketIsExternal]);
+  }, [viewMode, columnsFilterActive, folderColumns, selectedFolderId, currentBucket]);
 
   const columnFileQueries = useQueries({
     combine: combineColumnFileQueries,
@@ -2619,7 +2677,13 @@ export function FileManagerPage() {
           // navigating — the tree can select a folder from either bucket
           // without touching topLevelView, and falling back to a stale one
           // would teleport the root column to the other folder set.
-          setTopLevelView(folderPath[0].is_external ? 'external' : 'internal');
+          setTopLevelView(
+            folderPath[0].is_external
+              ? 'external'
+              : folderPath[0].is_shared
+                ? 'shared'
+                : 'my',
+          );
           setSelectedFolderId(null);
         } else if (selectedFolderId !== null) {
           // Selection not in the tree (e.g. a deep link to a deleted
@@ -2826,35 +2890,63 @@ export function FileManagerPage() {
               const v = e.target.value;
               if (v.startsWith('__top:')) {
                 setSelectedFolderId(null);
-                setTopLevelView(v.slice('__top:'.length) as 'internal' | 'external');
+                setTopLevelView(v.slice('__top:'.length) as 'my' | 'shared' | 'external');
               } else {
                 setSelectedFolderId(parseInt(v, 10));
               }
             }}
             className="w-full bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-bambu-green"
           >
-            <option value="__top:internal">📁 {t('fileManager.allFiles')}</option>
-            {folders?.some((f) => f.is_external) && (
-              <option value="__top:external">🔗 {t('fileManager.allExternal')}</option>
-            )}
-            {sortedFolders && (() => {
-              // Flatten folder tree for mobile selector
-              const flattenFolders = (items: LibraryFolderTree[], depth = 0): { id: number; name: string; fileCount: number; depth: number }[] => {
-                const result: { id: number; name: string; fileCount: number; depth: number }[] = [];
-                for (const item of items) {
-                  result.push({ id: item.id, name: item.name, fileCount: item.file_count, depth });
-                  if (item.children.length > 0) {
-                    result.push(...flattenFolders(item.children, depth + 1));
+            <optgroup label="My Files">
+              <option value="__top:my">👤 My Files</option>
+              {(() => {
+                const flattenFolders = (items: LibraryFolderTree[], depth = 0): { id: number; name: string; fileCount: number; depth: number }[] => {
+                  const result: { id: number; name: string; fileCount: number; depth: number }[] = [];
+                  for (const item of items) {
+                    result.push({ id: item.id, name: item.name, fileCount: item.file_count, depth });
+                    if (item.children.length > 0) {
+                      result.push(...flattenFolders(item.children, depth + 1));
+                    }
                   }
-                }
-                return result;
-              };
-              return flattenFolders(sortedFolders).map((folder) => (
-                <option key={folder.id} value={folder.id}>
-                  {'│ '.repeat(folder.depth)}📂 {folder.name} {folder.fileCount > 0 ? `(${folder.fileCount})` : ''}
-                </option>
-              ));
-            })()}
+                  return result;
+                };
+                return flattenFolders(myFolders).map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {'│ '.repeat(folder.depth)}📂 {folder.name} {folder.fileCount > 0 ? `(${folder.fileCount})` : ''}
+                  </option>
+                ));
+              })()}
+            </optgroup>
+            <optgroup label="Shared Files">
+              <option value="__top:shared">👥 Shared Files</option>
+              {(() => {
+                const flattenFolders = (items: LibraryFolderTree[], depth = 0): { id: number; name: string; fileCount: number; depth: number }[] => {
+                  const result: { id: number; name: string; fileCount: number; depth: number }[] = [];
+                  for (const item of items) {
+                    result.push({ id: item.id, name: item.name, fileCount: item.file_count, depth });
+                    if (item.children.length > 0) {
+                      result.push(...flattenFolders(item.children, depth + 1));
+                    }
+                  }
+                  return result;
+                };
+                return flattenFolders(sharedFolders).map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {'│ '.repeat(folder.depth)}📂 {folder.name} {folder.fileCount > 0 ? `(${folder.fileCount})` : ''}
+                  </option>
+                ));
+              })()}
+            </optgroup>
+            {externalFolders.length > 0 && (
+              <optgroup label="External">
+                <option value="__top:external">🔗 {t('fileManager.allExternal')}</option>
+                {externalFolders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    📂 {folder.name} {folder.file_count > 0 ? `(${folder.file_count})` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 
@@ -2951,65 +3043,125 @@ export function FileManagerPage() {
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {/* All Files = the user's own uploaded / managed-storage files
-                only. External folders are surfaced separately below to keep
-                a linked NAS from drowning the user's own uploads (#1621). */}
-            <div
-              className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                selectedFolderId === null && topLevelView === 'internal'
-                  ? 'bg-bambu-green/20 text-bambu-green'
-                  : 'hover:bg-bambu-dark text-white'
-              }`}
-              onClick={() => {
-                setSelectedFolderId(null);
-                setTopLevelView('internal');
-              }}
-            >
-              <FileBox className="w-4 h-4" />
-              <span className="text-sm">{t('fileManager.allFiles')}</span>
-            </div>
-
-            {/* External (combined) — only shown when at least one external
-                folder is linked. Single folder users don't need a combined
-                view; clicking the individual folder is just as fast. */}
-            {folders?.some((f) => f.is_external) && (
+          <div className="flex-1 overflow-y-auto p-2 space-y-3">
+            {/* Section 1: My Files (private user files & MakerWorld/MakerSpace) */}
+            <div>
               <div
+                data-testid="sidebar-section-my-files"
                 className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
-                  selectedFolderId === null && topLevelView === 'external'
-                    ? 'bg-bambu-green/20 text-bambu-green'
-                    : 'hover:bg-bambu-dark text-white'
+                  selectedFolderId === null && topLevelView === 'my'
+                    ? 'bg-bambu-green/20 text-bambu-green font-medium'
+                    : 'hover:bg-bambu-dark text-white font-medium'
                 }`}
                 onClick={() => {
                   setSelectedFolderId(null);
-                  setTopLevelView('external');
+                  setTopLevelView('my');
                 }}
               >
-                <FolderSymlink className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span className="text-sm">{t('fileManager.allExternal')}</span>
+                <User className="w-4 h-4 text-bambu-green flex-shrink-0" />
+                <span className="text-sm flex-1 truncate">My Files</span>
+              </div>
+              {myFolders.length > 0 && (
+                <div className="mt-0.5 pl-1">
+                  {myFolders.map((folder) => (
+                    <FolderTreeItem
+                      key={`${folder.id}-${collapseFoldersByDefault ? 'c' : 'e'}`}
+                      folder={folder}
+                      selectedFolderId={selectedFolderId}
+                      onSelect={setSelectedFolderId}
+                      onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
+                      onLink={setLinkFolder}
+                      onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
+                      onPermissions={setPermissionsFolder}
+                      wrapNames={wrapFolderNames}
+                      defaultExpanded={!collapseFoldersByDefault}
+                      showModified={showModified}
+                      hasPermission={hasPermission}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Shared Files (Course / Group folders) */}
+            <div className="pt-2 border-t border-bambu-dark-tertiary">
+              <div
+                data-testid="sidebar-section-shared-files"
+                className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                  selectedFolderId === null && topLevelView === 'shared'
+                    ? 'bg-bambu-green/20 text-bambu-green font-medium'
+                    : 'hover:bg-bambu-dark text-white font-medium'
+                }`}
+                onClick={() => {
+                  setSelectedFolderId(null);
+                  setTopLevelView('shared');
+                }}
+              >
+                <Users className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                <span className="text-sm flex-1 truncate">Shared Files</span>
+              </div>
+              {sharedFolders.length > 0 && (
+                <div className="mt-0.5 pl-1">
+                  {sharedFolders.map((folder) => (
+                    <FolderTreeItem
+                      key={`${folder.id}-${collapseFoldersByDefault ? 'c' : 'e'}`}
+                      folder={folder}
+                      selectedFolderId={selectedFolderId}
+                      onSelect={setSelectedFolderId}
+                      onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
+                      onLink={setLinkFolder}
+                      onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
+                      onPermissions={setPermissionsFolder}
+                      wrapNames={wrapFolderNames}
+                      defaultExpanded={!collapseFoldersByDefault}
+                      showModified={showModified}
+                      hasPermission={hasPermission}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* External (combined) — only shown when at least one external folder is linked */}
+            {externalFolders.length > 0 && (
+              <div className="pt-2 border-t border-bambu-dark-tertiary">
+                <div
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                    selectedFolderId === null && topLevelView === 'external'
+                      ? 'bg-bambu-green/20 text-bambu-green font-medium'
+                      : 'hover:bg-bambu-dark text-white font-medium'
+                  }`}
+                  onClick={() => {
+                    setSelectedFolderId(null);
+                    setTopLevelView('external');
+                  }}
+                >
+                  <FolderSymlink className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <span className="text-sm flex-1 truncate">{t('fileManager.allExternal')}</span>
+                </div>
+                <div className="mt-0.5 pl-1">
+                  {externalFolders.map((folder) => (
+                    <FolderTreeItem
+                      key={`${folder.id}-${collapseFoldersByDefault ? 'c' : 'e'}`}
+                      folder={folder}
+                      selectedFolderId={selectedFolderId}
+                      onSelect={setSelectedFolderId}
+                      onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
+                      onLink={setLinkFolder}
+                      onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
+                      onPermissions={setPermissionsFolder}
+                      wrapNames={wrapFolderNames}
+                      defaultExpanded={!collapseFoldersByDefault}
+                      showModified={showModified}
+                      hasPermission={hasPermission}
+                      t={t}
+                    />
+                  ))}
+                </div>
               </div>
             )}
-
-            {/* Folder tree — re-key on the collapse toggle so flipping it
-                remounts every FolderTreeItem, which re-reads defaultExpanded
-                and makes the preference take effect immediately. */}
-            {sortedFolders?.map((folder) => (
-              <FolderTreeItem
-                key={`${folder.id}-${collapseFoldersByDefault ? 'c' : 'e'}`}
-                folder={folder}
-                selectedFolderId={selectedFolderId}
-                onSelect={setSelectedFolderId}
-                onDelete={(id) => setDeleteConfirm({ type: 'folder', id })}
-                onLink={setLinkFolder}
-                onRename={(f) => setRenameItem({ type: 'folder', id: f.id, name: f.name })}
-                onPermissions={setPermissionsFolder}
-                wrapNames={wrapFolderNames}
-                defaultExpanded={!collapseFoldersByDefault}
-                showModified={showModified}
-                hasPermission={hasPermission}
-                t={t}
-              />
-            ))}
           </div>
         </div>
 
@@ -3862,6 +4014,7 @@ export function FileManagerPage() {
       {showNewFolderModal && (
         <NewFolderModal
           parentId={selectedFolderId}
+          defaultIsShared={topLevelView === 'shared'}
           onClose={() => setShowNewFolderModal(false)}
           onSave={(data) => createFolderMutation.mutate(data)}
           isLoading={createFolderMutation.isPending}

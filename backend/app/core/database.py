@@ -1861,6 +1861,10 @@ async def run_migrations(conn):
         "ALTER TABLE library_folders ADD COLUMN created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
     )
     if is_sqlite():
+        await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN is_shared BOOLEAN DEFAULT 0")
+    else:
+        await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN is_shared BOOLEAN DEFAULT FALSE")
+    if is_sqlite():
         await _safe_execute(
             conn,
             """
