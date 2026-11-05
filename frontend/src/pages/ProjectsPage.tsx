@@ -586,17 +586,19 @@ function ProjectCard({ project, parentName, onClick, onEdit, onShare, onDelete, 
 
   return (
     <div
-      className="group relative bg-gradient-to-br from-bambu-card to-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary hover:border-bambu-green/50 hover:shadow-lg hover:shadow-bambu-green/5 transition-all duration-300 cursor-pointer overflow-hidden"
+      className={`group relative bg-gradient-to-br from-bambu-card to-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary hover:border-bambu-green/50 hover:shadow-lg hover:shadow-bambu-green/5 transition-all duration-300 cursor-pointer ${showActions ? 'z-30' : ''}`}
       onClick={onClick}
     >
       {/* Color accent bar with glow */}
-      <div
-        className="absolute top-0 left-0 w-1.5 h-full"
-        style={{
-          backgroundColor: project.color || '#6b7280',
-          boxShadow: `0 0 12px ${project.color || '#6b7280'}40`
-        }}
-      />
+      <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+        <div
+          className="absolute top-0 left-0 w-1.5 h-full"
+          style={{
+            backgroundColor: project.color || '#6b7280',
+            boxShadow: `0 0 12px ${project.color || '#6b7280'}40`
+          }}
+        />
+      </div>
 
       <div className="p-5 pl-6">
         {/* Header */}
