@@ -9324,9 +9324,9 @@ function PrinterListRow({
       </td>
 
       {/* AMS / Loaded Spools */}
-      <td className="px-4 py-3 align-middle">
+      <td className="px-4 py-3 align-middle whitespace-nowrap">
         {loadedTrays.length > 0 ? (
-          <div className="inline-grid grid-cols-4 gap-1 items-center">
+          <div className="inline-grid grid-cols-[repeat(4,max-content)] gap-1 items-center">
             {loadedTrays.slice(0, 8).map((tr) => (
               <span
                 key={tr.key}
@@ -9337,7 +9337,7 @@ function PrinterListRow({
                   className="w-2 h-2 rounded-full border border-white/20 shrink-0"
                   style={{ backgroundColor: tr.colorHex }}
                 />
-                <span className="truncate max-w-[42px]">{tr.type}</span>
+                <span className="shrink-0">{tr.type}</span>
               </span>
             ))}
             {loadedTrays.length > 8 && (
@@ -10776,13 +10776,13 @@ export function PrintersPage({
                       </th>
                     );
                   })}
-                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
-                    {t('printers.temperatures', 'Temps (N / B / C)')}
+                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none whitespace-nowrap">
+                    {t('printers.temperaturesColumn', 'Temps (N / B / C)')}
                   </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none whitespace-nowrap">
                     {t('printers.loadedSpools', 'AMS / Filament')}
                   </th>
-                  <th className="text-right py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none">
+                  <th className="text-right py-3 px-4 text-xs font-medium text-bambu-gray uppercase tracking-wide select-none whitespace-nowrap">
                     {t('common.actions', 'Actions')}
                   </th>
                 </tr>
