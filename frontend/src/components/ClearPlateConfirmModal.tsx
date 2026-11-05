@@ -13,7 +13,13 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { api, withStreamToken } from '../api/client';
+import {
+  api,
+  getAuthToken,
+  getStreamToken,
+  setStreamToken,
+  withStreamToken,
+} from '../api/client';
 import { Card, CardContent } from './Card';
 import { Button } from './Button';
 import { PlateClearedIcon } from './icons/PlateClearedIcon';
@@ -54,9 +60,12 @@ export function ClearPlateConfirmModal({
   );
   const [lightTurnedOn, setLightTurnedOn] = useState<boolean>(Boolean(chamberLightOn));
   const [snapshotBust, setSnapshotBust] = useState<number>(() => Date.now());
+  const [useLiveFallback, setUseLiveFallback] = useState<boolean>(false);
+  const [retriedToken, setRetriedToken] = useState<boolean>(false);
   const [imageLoading, setImageLoading] = useState<boolean>(Boolean(connected && canViewCamera));
   const [imageError, setImageError] = useState<boolean>(false);
   const didInitRef = useRef(false);
+  const liveFallbackUsedRef = useRef(false);
 
   // Close on Escape key
   useEffect(() => {
@@ -69,7 +78,23 @@ export function ClearPlateConfirmModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onCancel, isSubmitting]);
 
-  // Turn on chamber light before taking the picture if needed
+  // If live MJPEG stream fallback was used, clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (liveFallbackUsedRef.current && printerId > 0) {
+        const headers: Record<string, string> = {};
+        const token = getAuthToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        fetch(`/api/v1/printers/${printerId}/camera/stop`, {
+          method: 'POST',
+          keepalive: true,
+          headers,
+        }).catch(() => {});
+      }
+    };
+  }, [printerId]);
+
+  // Turn on chamber light before taking the picture if needed, and ensure stream token is ready
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
@@ -80,6 +105,18 @@ export function ClearPlateConfirmModal({
         setPreparingLight(false);
         setImageLoading(false);
         return;
+      }
+
+      // Ensure we have a valid camera stream token (especially after backend restarts)
+      if (!getStreamToken() && getAuthToken()) {
+        try {
+          const tokenData = await api.getCameraStreamToken();
+          if (!cancelled && tokenData?.token) {
+            setStreamToken(tokenData.token);
+          }
+        } catch {
+          // Proceed even if token mint fails (auth may be disabled)
+        }
       }
 
       if (chamberLightOn === false && canControlLight) {
@@ -117,6 +154,20 @@ export function ClearPlateConfirmModal({
     if (!connected || !canViewCamera) return;
     setImageError(false);
     setImageLoading(true);
+    setRetriedToken(false);
+    setUseLiveFallback(false);
+
+    if (getAuthToken()) {
+      try {
+        const tokenData = await api.getCameraStreamToken();
+        if (tokenData?.token) {
+          setStreamToken(tokenData.token);
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!lightTurnedOn && chamberLightOn === false && canControlLight) {
       setPreparingLight(true);
       try {
@@ -133,9 +184,46 @@ export function ClearPlateConfirmModal({
     setSnapshotBust(Date.now());
   }, [connected, canViewCamera, lightTurnedOn, chamberLightOn, canControlLight, printerId, queryClient]);
 
+  const handleImageError = useCallback(async () => {
+    // Step 1: Refresh stream token once in case the backend restarted and wiped in-memory tokens
+    if (!retriedToken && getAuthToken()) {
+      setRetriedToken(true);
+      try {
+        const tokenData = await api.getCameraStreamToken();
+        if (tokenData?.token) {
+          setStreamToken(tokenData.token);
+          setImageLoading(true);
+          setImageError(false);
+          setSnapshotBust(Date.now());
+          return;
+        }
+      } catch {
+        // Fall through to live stream fallback
+      }
+    }
+
+    // Step 2: Fall back to the fan-out MJPEG stream endpoint (/camera/stream),
+    // which auto-reconnects and shares any active viewer session on X2D/P2S/X1C
+    if (!useLiveFallback) {
+      liveFallbackUsedRef.current = true;
+      setUseLiveFallback(true);
+      setImageLoading(true);
+      setImageError(false);
+      setSnapshotBust(Date.now());
+      return;
+    }
+
+    setImageLoading(false);
+    setImageError(true);
+  }, [retriedToken, useLiveFallback]);
+
   const snapshotUrl =
     connected && canViewCamera && !preparingLight
-      ? withStreamToken(`/api/v1/printers/${printerId}/camera/snapshot?ensure_light=true&t=${snapshotBust}`)
+      ? useLiveFallback
+        ? withStreamToken(`/api/v1/printers/${printerId}/camera/stream?fps=5&t=${snapshotBust}`)
+        : withStreamToken(
+            `/api/v1/printers/${printerId}/camera/snapshot?ensure_light=true&t=${snapshotBust}`,
+          )
       : null;
 
   return (
@@ -251,7 +339,7 @@ export function ClearPlateConfirmModal({
                 <>
                   {snapshotUrl && !imageError && (
                     <img
-                      key={snapshotBust}
+                      key={`${useLiveFallback ? 'live' : 'snap'}-${snapshotBust}`}
                       src={snapshotUrl}
                       alt={`${printerName} build plate snapshot`}
                       className={`w-full h-full object-contain transition-opacity duration-200 ${
@@ -262,8 +350,7 @@ export function ClearPlateConfirmModal({
                         setImageError(false);
                       }}
                       onError={() => {
-                        setImageLoading(false);
-                        setImageError(true);
+                        void handleImageError();
                       }}
                     />
                   )}

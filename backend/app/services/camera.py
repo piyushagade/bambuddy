@@ -765,6 +765,9 @@ async def _capture_camera_frame_bytes_uncoalesced(
 
     # RTSP models: X1/H2/P2 - use ffmpeg piping to stdout
     # TLS proxy avoids GnuTLS compatibility issues with some printer firmwares
+    from backend.app.services.camera_profiles import get_camera_profile
+
+    profile = get_camera_profile(model)
     port = get_camera_port(model)
     proxy_port, proxy_server = await create_tls_proxy(ip_address, port)
     camera_url = f"rtsp://bblp:{access_code}@127.0.0.1:{proxy_port}/streaming/live/1"
@@ -782,6 +785,17 @@ async def _capture_camera_frame_bytes_uncoalesced(
         "tcp",
         "-rtsp_flags",
         "prefer_tcp",
+        f"-{rtsp_socket_timeout_flag()}",
+        "15000000",
+        "-probesize",
+        str(profile.probesize),
+        "-analyzeduration",
+        str(profile.analyzeduration),
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+        *profile.extra_ffmpeg_input_args,
         "-i",
         camera_url,
         "-frames:v",

@@ -1327,16 +1327,30 @@ async def camera_snapshot(
     # watching — avoids opening a second concurrent RTSP socket on printers
     # that allow only one camera connection (e.g. X2D firmware 01.01.00.00;
     # see #1271). Buffered frame is <1s old while a viewer is connected.
-    buffered = try_get_active_buffered_frame(printer_id)
-    if buffered:
-        return Response(
-            content=buffered,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Content-Disposition": f'inline; filename="snapshot_{printer_id}.jpg"',
-            },
-        )
+    if is_stream_active(printer_id):
+        for _ in range(10):
+            buffered = try_get_active_buffered_frame(printer_id)
+            if buffered:
+                return Response(
+                    content=buffered,
+                    media_type="image/jpeg",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Content-Disposition": f'inline; filename="snapshot_{printer_id}.jpg"',
+                    },
+                )
+            await asyncio.sleep(0.25)
+    else:
+        buffered = try_get_active_buffered_frame(printer_id)
+        if buffered:
+            return Response(
+                content=buffered,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Content-Disposition": f'inline; filename="snapshot_{printer_id}.jpg"',
+                },
+            )
 
     # Create temporary file for the snapshot (0600 so only the app user can read it)
     fd, tmp_name = tempfile.mkstemp(suffix=".jpg")

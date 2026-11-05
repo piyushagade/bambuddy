@@ -2197,7 +2197,10 @@ def require_camera_stream_token_if_auth_enabled():
 
     Used for camera stream/snapshot endpoints that are loaded via <img> tags
     which cannot send Authorization headers. The frontend obtains a token from
-    POST /printers/camera/stream-token and appends it as ?token=xxx.
+    POST /printers/camera/stream-token and appends it as ?token=xxx. Also
+    accepts standard Authorization / X-API-Key headers with ``camera:view``
+    permission so programmatic ``fetch()`` calls continue working across
+    backend restarts even before a new in-memory stream token is minted.
 
     Camera routes only. Non-camera media (thumbnails, plate previews,
     timelapses, cover images, icons) takes ``require_media_token_*``: minting a
@@ -2205,16 +2208,25 @@ def require_camera_stream_token_if_auth_enabled():
     require, and the token names no principal, so a route guarded by it cannot
     tell one user's rows from another's (#3025).
     """
+    header_checker = require_permission_if_auth_enabled(Permission.CAMERA_VIEW)
 
-    async def checker(token: str | None = None) -> None:
+    async def checker(
+        token: str | None = None,
+        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
+        x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    ) -> None:
         async with async_session() as db:
             if not await is_auth_enabled(db):
                 return  # Auth disabled, allow access
-        if not token or not await verify_camera_stream_token(token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Valid camera stream token required. Obtain one from POST /api/v1/printers/camera/stream-token",
-            )
+        if token and await verify_camera_stream_token(token):
+            return
+        if credentials is not None or x_api_key is not None:
+            await header_checker(credentials=credentials, x_api_key=x_api_key)
+            return
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Valid camera stream token required. Obtain one from POST /api/v1/printers/camera/stream-token",
+        )
 
     return checker
 
