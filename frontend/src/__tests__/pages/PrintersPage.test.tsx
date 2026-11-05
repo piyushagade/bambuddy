@@ -544,6 +544,9 @@ describe('PrintersPage', () => {
 
       fireEvent.click(clearButton);
 
+      const confirmButton = await screen.findByRole('button', { name: 'Confirm Plate is Clear' });
+      fireEvent.click(confirmButton);
+
       await waitFor(() => {
         expect(cleared).toBe(true);
       });
@@ -561,7 +564,13 @@ describe('PrintersPage', () => {
           return HttpResponse.json([mockPrinters[0]]);
         }),
         http.get('/api/v1/printers/:id/status', () => {
-          return HttpResponse.json({ ...mockPrinterStatus, state: 'FINISH', awaiting_plate_clear: awaitingPlateClear });
+          return HttpResponse.json({
+            ...mockPrinterStatus,
+            state: 'FINISH',
+            awaiting_plate_clear: awaitingPlateClear,
+            last_print_user: 'Alex Rivera',
+            last_print_name: 'gear_housing.3mf',
+          });
         }),
         http.post('/api/v1/printers/:id/clear-plate', () => {
           awaitingPlateClear = false;
@@ -575,7 +584,12 @@ describe('PrintersPage', () => {
         expect(screen.getAllByText('Plate not Clear').length).toBeGreaterThan(0);
       });
 
+      expect(screen.getAllByText(/Alex Rivera/).length).toBeGreaterThan(0);
+
       fireEvent.click(screen.getAllByRole('button', { name: 'Mark plate as cleared' })[0]);
+
+      const confirmButton = await screen.findByRole('button', { name: 'Confirm Plate is Clear' });
+      fireEvent.click(confirmButton);
 
       await waitFor(() => {
         expect(screen.queryByText('Plate not Clear')).not.toBeInTheDocument();
@@ -615,6 +629,9 @@ describe('PrintersPage', () => {
       const clearButton = screen.getByRole('button', { name: 'Mark plate as cleared' });
 
       fireEvent.click(clearButton);
+
+      const confirmButton = await screen.findByRole('button', { name: 'Confirm Plate is Clear' });
+      fireEvent.click(confirmButton);
 
       await waitFor(() => {
         expect(screen.queryByRole('button', { name: 'Mark plate as cleared' })).not.toBeInTheDocument();

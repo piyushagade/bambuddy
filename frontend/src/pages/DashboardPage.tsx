@@ -56,6 +56,7 @@ import { Button } from '../components/Button';
 import { SpoolFormModal } from '../components/SpoolFormModal';
 import { AssignToAmsModal } from '../components/spoolbuddy/AssignToAmsModal';
 import { PrintModal } from '../components/PrintModal';
+import { ClearPlateConfirmModal } from '../components/ClearPlateConfirmModal';
 import { AddPrinterModal, PrintersPage } from './PrintersPage';
 import { getCurrencySymbol } from '../utils/currency';
 import { parseUTCDate } from '../utils/date';
@@ -136,6 +137,10 @@ export function DashboardPage() {
   const [printTarget, setPrintTarget] = useState<{
     libraryFileId?: number;
     archiveId?: number;
+    name: string;
+  } | null>(null);
+  const [clearPlateTarget, setClearPlateTarget] = useState<{
+    id: number;
     name: string;
   } | null>(null);
 
@@ -288,6 +293,7 @@ export function DashboardPage() {
   const clearPlateMutation = useMutation({
     mutationFn: (printerId: number) => api.clearPlate(printerId),
     onSuccess: (_, printerId) => {
+      setClearPlateTarget(null);
       queryClient.invalidateQueries({ queryKey: ['printerStatus', printerId] });
       queryClient.invalidateQueries({ queryKey: ['printers'] });
       showToast(t('printers.plateCleared', 'Build plate marked as cleared'), 'success');
@@ -925,7 +931,9 @@ export function DashboardPage() {
                               <p className="text-xs font-medium text-white truncate">{p.name}</p>
                               <p className="text-[11px] text-amber-400 truncate">
                                 {st?.awaiting_plate_clear
-                                  ? t('dashboard.printers.awaitingPlateClear', 'Awaiting plate clear')
+                                  ? st.last_print_user
+                                    ? `${t('dashboard.printers.awaitingPlateClear', 'Awaiting plate clear')} · ${st.last_print_user}`
+                                    : t('dashboard.printers.awaitingPlateClear', 'Awaiting plate clear')
                                   : hmsCount > 0
                                     ? `${hmsCount} HMS alert(s)`
                                     : st?.state === 'PAUSE'
@@ -936,7 +944,7 @@ export function DashboardPage() {
                             {st?.awaiting_plate_clear && hasPermission('printers:clear_plate') ? (
                               <button
                                 type="button"
-                                onClick={() => clearPlateMutation.mutate(p.id)}
+                                onClick={() => setClearPlateTarget({ id: p.id, name: p.name })}
                                 disabled={clearPlateMutation.isPending}
                                 className="px-2.5 py-1 rounded-md text-xs font-medium bg-bambu-dark-secondary hover:bg-bambu-dark-tertiary text-gray-200 border border-bambu-dark-tertiary transition-colors shrink-0"
                               >
@@ -2173,6 +2181,22 @@ export function DashboardPage() {
           libraryFileId={printTarget.libraryFileId}
           archiveName={printTarget.name}
           onClose={() => setPrintTarget(null)}
+        />
+      )}
+
+      {clearPlateTarget && (
+        <ClearPlateConfirmModal
+          printerId={clearPlateTarget.id}
+          printerName={clearPlateTarget.name}
+          connected={Boolean(statusByPrinterId[clearPlateTarget.id]?.connected)}
+          chamberLightOn={statusByPrinterId[clearPlateTarget.id]?.chamber_light}
+          canControlLight={hasPermission('printers:control')}
+          canViewCamera={hasPermission('camera:view')}
+          lastPrintName={statusByPrinterId[clearPlateTarget.id]?.last_print_name}
+          lastPrintUser={statusByPrinterId[clearPlateTarget.id]?.last_print_user}
+          isSubmitting={clearPlateMutation.isPending}
+          onConfirm={() => clearPlateMutation.mutate(clearPlateTarget.id)}
+          onCancel={() => setClearPlateTarget(null)}
         />
       )}
     </div>

@@ -471,6 +471,10 @@ class PrinterStatus(BaseModel):
     # Queue: printer is awaiting the user to acknowledge the build plate is cleared
     # after a finished/failed print. Persisted across restarts (#961).
     awaiting_plate_clear: bool = False
+    # Name and owner of the most recent completed/failed/cancelled print on this printer,
+    # surfaced in the Clear Plate info UI and confirmation modal regardless of archive read scope.
+    last_print_name: str | None = None
+    last_print_user: str | None = None
     # AMS drying support
     supports_drying: bool = False
     # AMS "Print While Drying" — drying mid-print. Verified per Bambu wiki release notes;

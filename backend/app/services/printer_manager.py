@@ -964,6 +964,13 @@ class PrinterManager:
             caller.lineno,
             caller.name,
         )
+        if self.is_awaiting_plate_clear(printer_id):
+            logger.warning(
+                "start_print refused: printer %s is awaiting plate clear (file=%s)",
+                printer_id,
+                filename,
+            )
+            return False
         if printer_id in self._clients:
             return self._clients[printer_id].start_print(
                 filename,

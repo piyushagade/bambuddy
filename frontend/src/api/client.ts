@@ -719,6 +719,8 @@ export interface PrinterStatus {
   // Queue: printer is awaiting user ack that the build plate was cleared after a
   // finished/failed print. Persisted across restarts (#961).
   awaiting_plate_clear: boolean;
+  last_print_name?: string | null;
+  last_print_user?: string | null;
   // AMS drying support
   supports_drying: boolean;
   // The AMS can dry, but only from the printer's own screen (P1 series, #2533).

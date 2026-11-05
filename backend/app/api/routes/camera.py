@@ -1265,6 +1265,7 @@ async def stop_camera_stream(
 @router.get("/{printer_id}/camera/snapshot")
 async def camera_snapshot(
     printer_id: int,
+    ensure_light: bool = Query(default=False),
     _: None = RequireCameraStreamTokenIfAuthEnabled,
 ):
     """Capture a single frame from the printer camera.
@@ -1272,6 +1273,8 @@ async def camera_snapshot(
     Returns a JPEG image.
 
     Requires a stream token query param (?token=xxx) when auth is enabled.
+    When ``ensure_light=true``, turns on the chamber light if it is currently off
+    and waits briefly for the chamber LED and camera auto-exposure to settle.
     """
     import tempfile
     from pathlib import Path
@@ -1285,6 +1288,16 @@ async def camera_snapshot(
     # below reads only already-loaded scalar columns (expire_on_commit=False).
     async with database.async_session() as db:
         printer = await get_printer_or_404(printer_id, db)
+
+    if ensure_light:
+        state = printer_manager.get_status(printer_id)
+        client = printer_manager.get_client(printer_id)
+        if client and state and state.connected and not state.chamber_light:
+            try:
+                client.set_chamber_light(True)
+                await asyncio.sleep(1.8)
+            except Exception as exc:
+                logger.warning("Failed to turn on chamber light before snapshot for printer %s: %s", printer_id, exc)
 
     # Check for external camera first
     if printer.external_camera_enabled and printer.external_camera_url:

@@ -479,6 +479,90 @@ async def delete_printer(
     return {"status": "deleted", "archives_deleted": delete_archives}
 
 
+def _format_user_display(user: User | None, fallback_username: str | None = None) -> str | None:
+    """Format a User model (or fallback username) as a human-friendly display name."""
+    if user:
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+        if full_name and user.username and full_name.lower() != user.username.lower():
+            return f"{full_name} ({user.username})"
+        return full_name or user.username
+    return fallback_username or None
+
+
+async def _resolve_last_print_info(db: AsyncSession, printer_id: int) -> tuple[str | None, str | None]:
+    """Return (last_print_name, last_print_user) for the most recent print on a printer."""
+    from sqlalchemy.orm import selectinload
+
+    from backend.app.models.archive import PrintArchive
+    from backend.app.models.print_log import PrintLogEntry
+    from backend.app.models.print_queue import PrintQueueItem
+
+    last_name: str | None = None
+    last_user: str | None = None
+
+    try:
+        arch_res = await db.execute(
+            select(PrintArchive)
+            .where(PrintArchive.printer_id == printer_id, PrintArchive.deleted_at.is_(None))
+            .options(selectinload(PrintArchive.created_by))
+            .order_by(
+                PrintArchive.completed_at.desc().nullslast(),
+                PrintArchive.created_at.desc(),
+                PrintArchive.id.desc(),
+            )
+            .limit(1)
+        )
+        arch = arch_res.scalar_one_or_none()
+        if arch:
+            last_name = arch.print_name or arch.filename
+            last_user = _format_user_display(arch.created_by)
+
+        if not last_user or not last_name:
+            log_res = await db.execute(
+                select(PrintLogEntry)
+                .where(PrintLogEntry.printer_id == printer_id)
+                .order_by(
+                    PrintLogEntry.completed_at.desc().nullslast(),
+                    PrintLogEntry.started_at.desc().nullslast(),
+                    PrintLogEntry.id.desc(),
+                )
+                .limit(1)
+            )
+            log_entry = log_res.scalar_one_or_none()
+            if log_entry:
+                if not last_name and log_entry.print_name:
+                    last_name = log_entry.print_name
+                if not last_user:
+                    if log_entry.created_by_id:
+                        u_res = await db.execute(select(User).where(User.id == log_entry.created_by_id))
+                        last_user = _format_user_display(u_res.scalar_one_or_none(), log_entry.created_by_username)
+                    elif log_entry.created_by_username:
+                        last_user = log_entry.created_by_username
+
+        if not last_user:
+            q_res = await db.execute(
+                select(PrintQueueItem)
+                .where(
+                    PrintQueueItem.printer_id == printer_id,
+                    PrintQueueItem.status.in_(("completed", "failed", "cancelled", "aborted")),
+                )
+                .options(selectinload(PrintQueueItem.created_by))
+                .order_by(
+                    PrintQueueItem.completed_at.desc().nullslast(),
+                    PrintQueueItem.created_at.desc(),
+                    PrintQueueItem.id.desc(),
+                )
+                .limit(1)
+            )
+            q_item = q_res.scalar_one_or_none()
+            if q_item and q_item.created_by:
+                last_user = _format_user_display(q_item.created_by)
+    except Exception as exc:
+        logger.debug("Could not resolve last print info for printer %s: %s", printer_id, exc)
+
+    return last_name, last_user
+
+
 @router.get("/{printer_id}/status", response_model=PrinterStatus)
 async def get_printer_status(
     printer_id: int,
@@ -493,6 +577,8 @@ async def get_printer_status(
     if not is_user_authorized_for_printer(printer, user):
         raise HTTPException(403, "Not authorized to access this printer")
 
+    last_print_name, last_print_user = await _resolve_last_print_info(db, printer_id)
+
     state = printer_manager.get_status(printer_id)
     if not state:
         # No MQTT client state — the printer was never connected this run, or it
@@ -505,6 +591,8 @@ async def get_printer_status(
             name=printer.name,
             connected=False,
             awaiting_plate_clear=printer_manager.is_awaiting_plate_clear(printer_id),
+            last_print_name=last_print_name,
+            last_print_user=last_print_user,
         )
 
     # Determine cover URL if there's an active print (including paused)
@@ -839,6 +927,8 @@ async def get_printer_status(
         developer_mode=state.developer_mode if state else None,
         ams_filament_backup=state.ams_filament_backup if state else None,
         awaiting_plate_clear=printer_manager.is_awaiting_plate_clear(printer_id),
+        last_print_name=last_print_name,
+        last_print_user=last_print_user,
         supports_drying=supports_drying(printer.model, state.firmware_version),
         supports_drying_while_printing=supports_drying_while_printing(printer.model, state.firmware_version),
         drying_screen_only=drying_screen_only(printer.model),

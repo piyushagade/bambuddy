@@ -263,6 +263,7 @@ export function PrinterSelector({
   const isPrinterBusy = (printerId: number): boolean => {
     const status = printerStatusMap.get(printerId);
     if (!status) return false; // Unknown state — don't block
+    if (status.awaiting_plate_clear) return true;
     if (!status.connected) return true;
     return !AVAILABLE_STATES.has(status.state ?? '');
   };
@@ -270,6 +271,7 @@ export function PrinterSelector({
   const getPrinterStateLabel = (printerId: number): string | null => {
     const status = printerStatusMap.get(printerId);
     if (!status) return null;
+    if (status.awaiting_plate_clear) return 'Plate not Clear';
     if (!status.connected) return 'Offline';
     const state = status.state;
     if (!state) return null;

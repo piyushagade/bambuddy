@@ -194,6 +194,7 @@ import { ConfigureAmsSlotModal } from '../components/ConfigureAmsSlotModal';
 import { useToast } from '../contexts/ToastContext';
 import { ChamberLight } from '../components/icons/ChamberLight';
 import { PlateClearedIcon } from '../components/icons/PlateClearedIcon';
+import { ClearPlateConfirmModal } from '../components/ClearPlateConfirmModal';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { FileUploadModal } from '../components/FileUploadModal';
 import { PrintModal } from '../components/PrintModal';
@@ -2602,10 +2603,12 @@ function PrinterCard({
   // Fetch last completed print for this printer
   const { data: lastPrints } = useQuery({
     queryKey: ['archives', printer.id, 'last'],
-    queryFn: () => api.getArchives(printer.id, 1, 0),
+    queryFn: () => api.getArchives(printer.id, undefined, 1, 0),
     enabled: status?.connected && status?.state !== 'RUNNING',
   });
   const lastPrint = lastPrints?.[0];
+  const lastPrintUser = status?.last_print_user || lastPrint?.created_by_username || null;
+  const lastPrintName = status?.last_print_name || lastPrint?.print_name || lastPrint?.filename || null;
   const isPrintingOrPaused = status?.state === 'RUNNING' || status?.state === 'PAUSE';
   const needsPlateClear = status?.awaiting_plate_clear === true;
   // Post-print outcome confirmation on the card (#1898): while the plate-clear
@@ -2827,9 +2830,12 @@ function PrinterCard({
     onError: (error: Error) => showToast(error.message || t('printers.toast.failedToResumePrint'), 'error'),
   });
 
+  const [showClearPlateModal, setShowClearPlateModal] = useState(false);
+
   const clearPlateMutation = useMutation({
     mutationFn: () => api.clearPlate(printer.id),
     onSuccess: () => {
+      setShowClearPlateModal(false);
       showToast(t('queue.clearPlateSuccess'));
       queryClient.setQueryData(['printerStatus', printer.id], (old: PrinterStatus | undefined) =>
         old ? { ...old, awaiting_plate_clear: false } : old
@@ -2893,20 +2899,41 @@ function PrinterCard({
           </button>
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => clearPlateMutation.mutate()}
-        disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
-        className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-100 dark:bg-yellow-500/20 border border-yellow-300 dark:border-yellow-400/40 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors text-xs font-medium disabled:opacity-50"
-        title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : t('printers.plateStatus.markCleared')}
-      >
-        {clearPlateMutation.isPending ? (
-          <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
-        ) : (
-          <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-        )}
-        {t('printers.plateStatus.markCleared')}
-      </button>
+      <div className="mt-2 rounded-lg bg-yellow-100/80 dark:bg-yellow-500/15 border border-yellow-300 dark:border-yellow-400/40 p-2 space-y-1.5">
+        <div className="flex items-center justify-between gap-2 text-xs text-yellow-800 dark:text-yellow-300 px-0.5">
+          <span className="flex items-center gap-1.5 min-w-0 truncate">
+            <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
+            <span className="truncate">
+              {t('printers.plateStatus.lastPrintBy', 'Last print by:')}{' '}
+              <strong className="font-semibold text-yellow-900 dark:text-yellow-200">
+                {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+              </strong>
+            </span>
+          </span>
+          {lastPrintName && (
+            <span
+              className="text-[11px] text-yellow-700/80 dark:text-yellow-300/80 truncate max-w-[45%]"
+              title={lastPrintName}
+            >
+              {lastPrintName}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowClearPlateModal(true)}
+          disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
+          className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/40 text-yellow-800 dark:text-yellow-300 transition-colors text-xs font-medium disabled:opacity-50"
+          title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : t('printers.plateStatus.markCleared')}
+        >
+          {clearPlateMutation.isPending ? (
+            <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
+          ) : (
+            <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+          )}
+          {t('printers.plateStatus.markCleared')}
+        </button>
+      </div>
       {showConfirmOutcome && pendingConfirmArchive && (
         <ConfirmOutcomeDialog
           archiveId={pendingConfirmArchive.id}
@@ -3512,7 +3539,7 @@ function PrinterCard({
   // used to check — so someone holding that but neither of these had the file
   // uploaded and then rejected by the queue, leaving it stranded. The Print
   // button below has always checked this pair.
-  const canDrop = hasPermission('library:upload') && hasPermission('queue:create');
+  const canDrop = !needsPlateClear && hasPermission('library:upload') && hasPermission('queue:create');
 
   // Drives the wording alone. Shared with the PrintModal so the card's promise
   // and the modal's own "will start later" toast cannot disagree.
@@ -3886,9 +3913,11 @@ function PrinterCard({
               <>
                 <X className="w-8 h-8 mx-auto mb-2 text-red-600 dark:text-red-400" />
                 <p className="text-sm font-medium text-red-700 dark:text-red-400">
-                  {!hasPermission('library:upload')
-                    ? t('fileManager.noPermissionUpload')
-                    : t('fileManager.noPermissionAddToQueue')}
+                  {needsPlateClear
+                    ? t('printers.plateStatus.cannotPrintUntilCleared', 'Clear the build plate before starting a new print')
+                    : !hasPermission('library:upload')
+                      ? t('fileManager.noPermissionUpload')
+                      : t('fileManager.noPermissionAddToQueue')}
                 </p>
               </>
             )}
@@ -3939,7 +3968,7 @@ function PrinterCard({
                   {viewMode === 'compact' && showClearPlateButton && (
                     <button
                       type="button"
-                      onClick={() => clearPlateMutation.mutate()}
+                      onClick={() => setShowClearPlateModal(true)}
                       disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
                       aria-label={t('printers.plateStatus.markCleared')}
                       className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-yellow-100 dark:bg-yellow-500/20 border border-yellow-300 dark:border-yellow-400/40 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
@@ -4217,7 +4246,7 @@ function PrinterCard({
                 {showClearPlateButton && (
                   <button
                     type="button"
-                    onClick={() => clearPlateMutation.mutate()}
+                    onClick={() => setShowClearPlateModal(true)}
                     disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
                     className="relative flex h-6 w-6 items-center justify-center rounded-md text-xs cursor-pointer bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
                     title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : `${t('printers.plateStatus.notCleared')} — ${t('printers.plateStatus.markCleared')}`}
@@ -4428,7 +4457,13 @@ function PrinterCard({
                 {(() => {
                   const isActivePrint = !!(status.current_print && (status.state === 'RUNNING' || status.state === 'PAUSE'));
                   const showRetainedPrint = !isActivePrint && needsPlateClear && retainedPrintJob;
-                  const printName = isActivePrint ? activePrintName : showRetainedPrint ? retainedPrintJob.name : null;
+                  const printName = isActivePrint
+                    ? activePrintName
+                    : showRetainedPrint
+                      ? retainedPrintJob.name
+                      : needsPlateClear
+                        ? lastPrintName
+                        : null;
                   const coverUrl = isActivePrint ? status.cover_url : showRetainedPrint ? retainedPrintJob.coverUrl : null;
                   const progress = isActivePrint ? (status.progress || 0) : showRetainedPrint ? 100 : 0;
 
@@ -4519,9 +4554,36 @@ function PrinterCard({
                                   </span>
                                 )}
                               </>
+                            ) : needsPlateClear ? (
+                              <span
+                                className="flex items-center gap-1.5 text-yellow-500/90 truncate"
+                                title={
+                                  lastPrintUser
+                                    ? `${t('printers.plateStatus.lastPrintBy', 'Last print by:')} ${lastPrintUser}`
+                                    : undefined
+                                }
+                              >
+                                <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
+                                <span className="truncate">
+                                  {t('printers.plateStatus.lastPrintBy', 'Last print by:')}{' '}
+                                  <strong className="font-medium text-white">
+                                    {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+                                  </strong>
+                                </span>
+                                {lastPrint?.completed_at && (
+                                  <span className="text-bambu-gray/60 shrink-0">
+                                    • {formatDateOnly(lastPrint.completed_at, { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                              </span>
                             ) : lastPrint ? (
                               <p className="truncate" title={lastPrint.print_name || lastPrint.filename}>
                                 Last: {lastPrint.print_name || lastPrint.filename}
+                                {lastPrintUser && (
+                                  <span className="ml-1 text-bambu-gray/80">
+                                    ({lastPrintUser})
+                                  </span>
+                                )}
                                 {lastPrint.completed_at && (
                                   <span className="ml-1 text-bambu-gray/60">
                                     • {formatDateOnly(lastPrint.completed_at, { month: 'short', day: 'numeric' })}
@@ -6766,15 +6828,21 @@ function PrinterCard({
                 <Button
                   size="sm"
                   onClick={() => setShowUploadForPrint(true)}
-                  disabled={!hasPermission('library:upload') || !hasPermission('queue:create')}
+                  disabled={needsPlateClear || !hasPermission('library:upload') || !hasPermission('queue:create')}
                   title={
-                    !hasPermission('library:upload')
-                      ? t('fileManager.noPermissionUpload')
-                      : !hasPermission('queue:create')
-                        ? t('fileManager.noPermissionAddToQueue')
-                        : t('common.print')
+                    needsPlateClear
+                      ? t('printers.plateStatus.cannotPrintUntilCleared', 'Clear the build plate before starting a new print')
+                      : !hasPermission('library:upload')
+                        ? t('fileManager.noPermissionUpload')
+                        : !hasPermission('queue:create')
+                          ? t('fileManager.noPermissionAddToQueue')
+                          : t('common.print')
                   }
-                  className={`${footerActionButtonClass} !bg-bambu-green hover:!bg-bambu-green/80 !text-white`}
+                  className={`${footerActionButtonClass} ${
+                    needsPlateClear
+                      ? '!bg-bambu-dark-tertiary !text-bambu-gray'
+                      : '!bg-bambu-green hover:!bg-bambu-green/80 !text-white'
+                  }`}
                 >
                   <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                   {t('common.print')}
@@ -7210,6 +7278,23 @@ function PrinterCard({
             setHaToggleConfirm(null);
           }}
           onCancel={() => setHaToggleConfirm(null)}
+        />
+      )}
+
+      {/* Clear Plate Confirmation Modal with Camera Snapshot */}
+      {showClearPlateModal && (
+        <ClearPlateConfirmModal
+          printerId={printer.id}
+          printerName={printer.name}
+          connected={Boolean(status?.connected)}
+          chamberLightOn={status?.chamber_light}
+          canControlLight={hasPermission('printers:control')}
+          canViewCamera={hasPermission('camera:view')}
+          lastPrintName={lastPrintName || retainedPrintJob?.name || null}
+          lastPrintUser={lastPrintUser}
+          isSubmitting={clearPlateMutation.isPending}
+          onConfirm={() => clearPlateMutation.mutate()}
+          onCancel={() => setShowClearPlateModal(false)}
         />
       )}
 
@@ -8924,9 +9009,12 @@ function PrinterListRow({
     onError: (error: Error) => showToast(error.message || t('printers.toast.failedToResumePrint'), 'error'),
   });
 
+  const [showClearPlateModal, setShowClearPlateModal] = useState(false);
+
   const clearPlateMutation = useMutation({
     mutationFn: () => api.clearPlate(printer.id),
     onSuccess: () => {
+      setShowClearPlateModal(false);
       showToast(t('queue.clearPlateSuccess'));
       queryClient.setQueryData(['printerStatus', printer.id], (old: PrinterStatus | undefined) =>
         old ? { ...old, awaiting_plate_clear: false } : old
@@ -9140,10 +9228,14 @@ function PrinterListRow({
           {showClearPlate && (
             <button
               type="button"
-              onClick={() => clearPlateMutation.mutate()}
+              onClick={() => setShowClearPlateModal(true)}
               disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-400/40 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
-              title={t('printers.plateStatus.markCleared')}
+              title={
+                status?.last_print_user
+                  ? `${t('printers.plateStatus.lastPrintBy', 'Last print by:')} ${status.last_print_user} — ${t('printers.plateStatus.markCleared')}`
+                  : t('printers.plateStatus.markCleared')
+              }
             >
               <PlateClearedIcon className="w-3 h-3" />
               {t('printers.plateStatus.markCleared')}
@@ -9326,6 +9418,23 @@ function PrinterListRow({
         </div>
 
         {/* Modals rendered via portal so they never sit inside <tr> */}
+        {showClearPlateModal &&
+          createPortal(
+            <ClearPlateConfirmModal
+              printerId={printer.id}
+              printerName={printer.name}
+              connected={Boolean(status?.connected)}
+              chamberLightOn={status?.chamber_light}
+              canControlLight={hasPermission('printers:control')}
+              canViewCamera={hasPermission('camera:view')}
+              lastPrintName={status?.last_print_name}
+              lastPrintUser={status?.last_print_user}
+              isSubmitting={clearPlateMutation.isPending}
+              onConfirm={() => clearPlateMutation.mutate()}
+              onCancel={() => setShowClearPlateModal(false)}
+            />,
+            document.body,
+          )}
         {showEditModal &&
           createPortal(
             <EditPrinterModal printer={printer} onClose={() => setShowEditModal(false)} />,

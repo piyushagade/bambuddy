@@ -1150,6 +1150,27 @@ export function PrintModal({
       showToast('Please select at least one printer', 'error');
       return;
     }
+    if (assignmentMode === 'printer' && scheduleOptions.scheduleType === 'asap') {
+      const blockedPrinterId = selectedPrinters.find((pid) => {
+        const cached =
+          queryClient.getQueryData<PrinterStatus>(['printerStatus', pid]) ??
+          queryClient.getQueryData<PrinterStatus>(['printer-status', pid]) ??
+          (pid === effectivePrinterId ? printerStatus : undefined);
+        return cached?.awaiting_plate_clear === true;
+      });
+      if (blockedPrinterId !== undefined) {
+        const blockedName = printers?.find((p) => p.id === blockedPrinterId)?.name || `Printer #${blockedPrinterId}`;
+        showToast(
+          t(
+            'printers.plateStatus.cannotPrintUntilClearedNamed',
+            'Cannot start print on {{name}}: build plate has not been cleared',
+            { name: blockedName },
+          ),
+          'error',
+        );
+        return;
+      }
+    }
     // A cross-model job has no single target model — each candidate carries its
     // own, and the backend gates each of them separately. Both checks below are
     // about the one-model case only.

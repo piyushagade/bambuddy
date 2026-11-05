@@ -1838,8 +1838,11 @@ class PrintScheduler:
                         )
                         continue
 
-                    # Check if printer is idle
-                    printer_idle = self._is_printer_idle(item.printer_id, require_plate_clear)
+                    # Check if printer is idle (always enforce plate-clear gate when the Clear Plate flag is on)
+                    effective_plate_clear = require_plate_clear or (
+                        printer_manager.is_awaiting_plate_clear(item.printer_id) is True
+                    )
+                    printer_idle = self._is_printer_idle(item.printer_id, effective_plate_clear)
                     printer_connected = printer_manager.is_connected(item.printer_id)
 
                     # If printer not connected, try to power on via smart plug
@@ -1864,7 +1867,7 @@ class PrintScheduler:
                                     except Exception as e:
                                         logger.warning("Failed to power on extra plug '%s': %s", extra_plug.name, e)
                                 printer_connected = True
-                                printer_idle = self._is_printer_idle(item.printer_id, require_plate_clear)
+                                printer_idle = self._is_printer_idle(item.printer_id, effective_plate_clear)
                             else:
                                 logger.warning("Could not power on printer %s via smart plug", item.printer_id)
                                 await hold_for_printer(
@@ -1894,7 +1897,7 @@ class PrintScheduler:
                             item.printer_id,
                             "not idle",
                             self._pinned_hold_reason(
-                                item.printer_id, printer_label(item.printer_id), require_plate_clear
+                                item.printer_id, printer_label(item.printer_id), effective_plate_clear
                             ),
                         )
                         continue
@@ -2941,7 +2944,10 @@ class PrintScheduler:
                 continue
 
             is_connected = printer_manager.is_connected(printer.id)
-            is_idle = self._is_printer_idle(printer.id, require_plate_clear) if is_connected else False
+            effective_plate_clear = require_plate_clear or (
+                printer_manager.is_awaiting_plate_clear(printer.id) is True
+            )
+            is_idle = self._is_printer_idle(printer.id, effective_plate_clear) if is_connected else False
 
             if not is_connected:
                 # An offline printer whose last known filament cannot run this
@@ -7361,6 +7367,14 @@ class PrintScheduler:
                 item.id,
                 item.printer_id,
                 pre_dispatch_state,
+            )
+            return
+
+        if printer_manager.is_awaiting_plate_clear(item.printer_id) is True:
+            logger.info(
+                "Queue item %s: printer %s is awaiting plate clear — deferring dispatch until plate is cleared",
+                item.id,
+                item.printer_id,
             )
             return
 

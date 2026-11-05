@@ -2541,6 +2541,9 @@ async def start_queue_item(
     if item.status != "pending":
         raise HTTPException(400, f"Can only start pending items, current status: '{item.status}'")
 
+    if item.printer_id and printer_manager.is_awaiting_plate_clear(item.printer_id) is True:
+        raise HTTPException(400, "Cannot start print: build plate has not been cleared")
+
     await validate_spool_authorization_for_mapping(db, item.printer_id, item.ams_mapping, user)
 
     item.estimated_cost = await _trusted_item_estimated_cost(

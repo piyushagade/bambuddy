@@ -188,6 +188,9 @@ async def webhook_start_print(
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    if printer_manager.is_awaiting_plate_clear(printer_id) is True:
+        raise HTTPException(status_code=400, detail="Cannot start print: build plate has not been cleared")
+
     # Get next pending queue item
     result = await db.execute(
         select(PrintQueueItem)
