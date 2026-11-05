@@ -156,6 +156,8 @@ class FolderPermissionsListResponse(BaseModel):
     folder_name: str
     created_by_id: int | None = None
     created_by_username: str | None = None
+    can_manage: bool = False
+    inherit_to_children: bool = False
     permissions: list[FolderPermissionEntry] = []
     available_users: list[FolderShareTargetUser] = []
     available_groups: list[FolderShareTargetGroup] = []
@@ -163,6 +165,7 @@ class FolderPermissionsListResponse(BaseModel):
 
 class FolderPermissionsUpdateRequest(BaseModel):
     permissions: list[FolderPermissionGrant] = []
+    inherit_to_children: bool | None = None
 
 
 # ============ File Schemas ============

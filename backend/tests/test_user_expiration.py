@@ -547,6 +547,40 @@ async def test_library_folder_permissions_and_ownership(async_client, db_session
     )
     assert forbidden_sub.status_code == 403
 
+    # 6b. Granting permission on parent folder F26 - ABE4042C with default inherit_to_children=False
+    #     does NOT expose sibling subfolders (ExoGlove, Stella) to student_gator!
+    perm_f26_no_inherit = await async_client.put(
+        f"/api/v1/library/folders/{f26_id}/permissions",
+        headers=admin_headers,
+        json={
+            "permissions": [{"user_id": u_gator_id, "can_read": True, "can_write": False}],
+            "inherit_to_children": False,
+        },
+    )
+    assert perm_f26_no_inherit.status_code == 200
+    assert perm_f26_no_inherit.json()["inherit_to_children"] is False
+
+    gator_tree_parent_only = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
+    f26_for_gator = gator_tree_parent_only[0]["children"][0]
+    assert f26_for_gator["can_read"] is True
+    assert [c["name"] for c in f26_for_gator["children"]] == ["GatorByte"]
+
+    # Enabling inherit_to_children=True on F26 - ABE4042C propagates access to all subfolders
+    perm_f26_with_inherit = await async_client.put(
+        f"/api/v1/library/folders/{f26_id}/permissions",
+        headers=admin_headers,
+        json={
+            "permissions": [{"user_id": u_gator_id, "can_read": True, "can_write": False}],
+            "inherit_to_children": True,
+        },
+    )
+    assert perm_f26_with_inherit.status_code == 200
+    assert perm_f26_with_inherit.json()["inherit_to_children"] is True
+
+    gator_tree_inherited = (await async_client.get("/api/v1/library/folders", headers=gator_headers)).json()
+    f26_for_gator_inh = gator_tree_inherited[0]["children"][0]
+    assert sorted(c["name"] for c in f26_for_gator_inh["children"]) == ["ExoGlove", "GatorByte", "Stella"]
+
     # 7. Student creates their own top-level folder -> owns it (can_manage=True) -> shares with another student
     own_folder_resp = await async_client.post(
         "/api/v1/library/folders",

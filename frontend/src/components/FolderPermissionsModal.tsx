@@ -51,6 +51,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
   });
 
   const [grants, setGrants] = useState<EditableGrant[]>([]);
+  const [inheritToChildren, setInheritToChildren] = useState<boolean>(false);
   const [grantedFilterQuery, setGrantedFilterQuery] = useState('');
 
   // Popup selector modal state ('group' | 'user' | null)
@@ -62,6 +63,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
 
   useEffect(() => {
     if (data) {
+      setInheritToChildren(Boolean(data.inherit_to_children));
       setGrants(
         data.permissions.map((p) => ({
           key: p.group_id ? `group:${p.group_id}` : `user:${p.user_id}`,
@@ -94,8 +96,8 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
   };
 
   const saveMutation = useMutation({
-    mutationFn: (payload: FolderPermissionGrant[]) =>
-      api.updateLibraryFolderPermissions(folder.id, payload),
+    mutationFn: (payload: { permissions: FolderPermissionGrant[]; inheritToChildren: boolean }) =>
+      api.updateLibraryFolderPermissions(folder.id, payload.permissions, payload.inheritToChildren),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['folder-permissions', folder.id] });
       queryClient.invalidateQueries({ queryKey: ['library-folders'] });
@@ -262,7 +264,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
       can_read: g.can_read,
       can_write: g.can_write,
     }));
-    saveMutation.mutate(payload);
+    saveMutation.mutate({ permissions: payload, inheritToChildren });
   };
 
   const visibleGrants = useMemo(() => {
@@ -288,7 +290,7 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
         subtitle={
           <>
             Manage who can view or upload files in{' '}
-            <span className="text-white font-medium">{folder.name}</span> (and its subfolders)
+            <span className="text-white font-medium">{folder.name}</span>
           </>
         }
         footer={
@@ -330,6 +332,25 @@ export function FolderPermissionsModal({ folder, onClose }: FolderPermissionsMod
                 Full Access (Owner & Admins)
               </span>
             </div>
+
+            {/* Subfolder inheritance checkbox (toggled off by default) */}
+            <label className="flex items-start gap-2.5 p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary cursor-pointer hover:border-bambu-green/50 transition-colors">
+              <input
+                type="checkbox"
+                checked={inheritToChildren}
+                onChange={(e) => setInheritToChildren(e.target.checked)}
+                className="mt-0.5 rounded border-bambu-dark-tertiary bg-bambu-dark-secondary text-bambu-green focus:ring-bambu-green"
+              />
+              <div className="text-xs">
+                <div className="font-medium text-white">
+                  Apply permissions to all subfolders (top-down inheritance)
+                </div>
+                <div className="text-bambu-gray mt-0.5">
+                  When unchecked (default), granted users and groups only get access to{' '}
+                  <span className="text-white">{folder.name}</span> itself and subfolders they create or are explicitly granted.
+                </div>
+              </div>
+            </label>
 
             {/* Action buttons to open scalable Group / User selector popup modal */}
             <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-2">

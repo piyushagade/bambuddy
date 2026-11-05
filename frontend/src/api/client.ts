@@ -7805,10 +7805,17 @@ export const api = {
     request<{ status: string; message: string }>(`/library/folders/${id}`, { method: 'DELETE' }),
   getLibraryFolderPermissions: (folderId: number) =>
     request<FolderPermissionsListResponse>(`/library/folders/${folderId}/permissions`),
-  updateLibraryFolderPermissions: (folderId: number, permissions: FolderPermissionGrant[]) =>
+  updateLibraryFolderPermissions: (
+    folderId: number,
+    permissions: FolderPermissionGrant[],
+    inheritToChildren?: boolean,
+  ) =>
     request<FolderPermissionsListResponse>(`/library/folders/${folderId}/permissions`, {
       method: 'PUT',
-      body: JSON.stringify({ permissions }),
+      body: JSON.stringify({
+        permissions,
+        ...(inheritToChildren !== undefined ? { inherit_to_children: inheritToChildren } : {}),
+      }),
     }),
   createExternalFolder: (data: ExternalFolderCreate) =>
     request<LibraryFolder>('/library/folders/external', {
@@ -8674,6 +8681,7 @@ export interface FolderPermissionsListResponse {
   folder_name: string;
   created_by_id?: number | null;
   created_by_username?: string | null;
+  inherit_to_children?: boolean;
   permissions: FolderPermissionEntry[];
   available_users: FolderShareTargetUser[];
   available_groups: FolderShareTargetGroup[];

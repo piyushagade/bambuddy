@@ -167,13 +167,14 @@ async def _compute_folder_access_map(
                 LibraryFolder.project_id,
                 LibraryFolder.is_shared,
                 LibraryFolder.is_external,
+                LibraryFolder.inherit_to_children,
             )
         )
     ).all()
     if not all_rows:
         return {}
 
-    all_ids = {fid for fid, _, _, _, _, _, _ in all_rows}
+    all_ids = {fid for fid, _, _, _, _, _, _, _ in all_rows}
     parent_by_id: dict[int, int | None] = {}
     children_by_parent: dict[int | None, list[int]] = {}
     name_by_id: dict[int, str] = {}
@@ -181,8 +182,9 @@ async def _compute_folder_access_map(
     proj_by_id: dict[int, int | None] = {}
     explicit_shared_by_id: dict[int, bool] = {}
     external_by_id: dict[int, bool] = {}
+    inherit_by_id: dict[int, bool] = {}
 
-    for fid, fname, pid, creator_id, proj_id, is_sh, is_ext in all_rows:
+    for fid, fname, pid, creator_id, proj_id, is_sh, is_ext, inh_children in all_rows:
         effective_pid = pid if pid in all_ids and pid != fid else None
         parent_by_id[fid] = effective_pid
         children_by_parent.setdefault(effective_pid, []).append(fid)
@@ -191,6 +193,7 @@ async def _compute_folder_access_map(
         proj_by_id[fid] = proj_id
         explicit_shared_by_id[fid] = bool(is_sh)
         external_by_id[fid] = bool(is_ext)
+        inherit_by_id[fid] = bool(inh_children)
 
     folders_with_any_perms = set(
         (await db.execute(select(LibraryFolderPermission.folder_id).distinct())).scalars().all()
@@ -345,24 +348,32 @@ async def _compute_folder_access_map(
             if p_write:
                 acc.can_write = True
 
-    # Step 1: Top-down inheritance (parent -> children within the same tree)
+    # Step 1: Top-down inheritance (parent -> children).
+    # In Shared Files, permissions only propagate to children when the folder has
+    # `inherit_to_children=True` (toggled off by default). In My Files, personal
+    # folder ownership propagates to personal subfolders.
     queue = list(children_by_parent.get(None, []))
     visited_down: set[int] = set()
+    active_inherit_subtree: set[int] = {fid for fid, inh in inherit_by_id.items() if inh}
     while queue:
         curr_id = queue.pop(0)
         if curr_id in visited_down:
             continue
         visited_down.add(curr_id)
         curr_acc = access_map[curr_id]
+        should_propagate = (not curr_acc.is_shared) or (curr_id in active_inherit_subtree)
         for child_id in children_by_parent.get(curr_id, []):
-            child_acc = access_map[child_id]
-            if curr_acc.can_read:
-                child_acc.can_read = True
-                child_acc.visible_in_tree = True
-            if curr_acc.can_write:
-                child_acc.can_write = True
-            if curr_acc.can_manage:
-                child_acc.can_manage = True
+            if should_propagate:
+                if curr_id in active_inherit_subtree:
+                    active_inherit_subtree.add(child_id)
+                child_acc = access_map[child_id]
+                if curr_acc.can_read:
+                    child_acc.can_read = True
+                    child_acc.visible_in_tree = True
+                if curr_acc.can_write:
+                    child_acc.can_write = True
+                if curr_acc.can_manage:
+                    child_acc.can_manage = True
             queue.append(child_id)
 
     # Step 2: Bottom-up traversal visibility (readable child -> ancestors)
@@ -1744,6 +1755,7 @@ async def _build_folder_permissions_response(
         created_by_id=folder.created_by_id,
         created_by_username=creator_username,
         can_manage=True,
+        inherit_to_children=bool(folder.inherit_to_children),
         permissions=entries,
         available_users=available_users,
         available_groups=available_groups,
@@ -1882,6 +1894,8 @@ async def update_folder_permissions(
         )
     if deduped_users or deduped_groups:
         folder.is_shared = True
+    if payload.inherit_to_children is not None:
+        folder.inherit_to_children = bool(payload.inherit_to_children)
     await db.commit()
 
     return await _build_folder_permissions_response(db, folder)

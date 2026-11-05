@@ -1862,8 +1862,10 @@ async def run_migrations(conn):
     )
     if is_sqlite():
         await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN is_shared BOOLEAN DEFAULT 0")
+        await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN inherit_to_children BOOLEAN DEFAULT 0")
     else:
         await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN is_shared BOOLEAN DEFAULT FALSE")
+        await _safe_execute(conn, "ALTER TABLE library_folders ADD COLUMN inherit_to_children BOOLEAN DEFAULT FALSE")
     if is_sqlite():
         await _safe_execute(
             conn,
