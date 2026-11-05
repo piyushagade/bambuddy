@@ -894,5 +894,29 @@ describe('ProjectsPage', () => {
         expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument();
       });
     });
+
+    describe('project sections grouping', () => {
+      it('groups projects into My Projects, Shared Projects, and Other\'s Projects', async () => {
+        server.use(
+          http.get('/api/v1/projects/', () =>
+            HttpResponse.json([
+              listItem({ id: 1, name: 'My Own Project', created_by_id: null, is_shared: false }),
+              listItem({ id: 2, name: 'Shared Team Project', created_by_id: 2, is_shared: true }),
+              listItem({ id: 3, name: 'Another User Project', created_by_id: 3, is_shared: false }),
+            ]),
+          ),
+        );
+
+        render(<ProjectsPage />);
+
+        const mySection = await screen.findByTestId('projects-section-my');
+        const sharedSection = await screen.findByTestId('projects-section-shared');
+        const othersSection = await screen.findByTestId('projects-section-others');
+
+        expect(mySection.textContent).toContain('My Own Project');
+        expect(sharedSection.textContent).toContain('Shared Team Project');
+        expect(othersSection.textContent).toContain('Another User Project');
+      });
+    });
   });
 });

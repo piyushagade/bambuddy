@@ -27,6 +27,7 @@ import {
   X,
   Shield,
   User,
+  Users,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { ProjectListItem, ProjectCreate, ProjectUpdate, ProjectImport, Permission } from '../api/client';
@@ -956,7 +957,7 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { hasPermission } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectListItem | undefined>();
   const [sharingProject, setSharingProject] = useState<ProjectListItem | null>(null);
@@ -1043,6 +1044,68 @@ export function ProjectsPage() {
     topLevel.push(project);
     markDrawn(project.id);
   }
+
+  const myProjects: ProjectListItem[] = [];
+  const sharedProjects: ProjectListItem[] = [];
+  const othersProjects: ProjectListItem[] = [];
+
+  for (const project of topLevel) {
+    const isMine = user !== null
+      ? project.created_by_id === user.id
+      : !project.is_shared && project.created_by_id == null;
+
+    if (isMine) {
+      myProjects.push(project);
+    } else if (project.is_shared || !isAdmin) {
+      sharedProjects.push(project);
+    } else {
+      othersProjects.push(project);
+    }
+  }
+
+  const projectSections: {
+    key: string;
+    testId: string;
+    title: string;
+    subtitle?: string;
+    icon: typeof User;
+    iconColor: string;
+    projects: ProjectListItem[];
+    emptyText: string;
+  }[] = [
+    {
+      key: 'my',
+      testId: 'projects-section-my',
+      title: 'My Projects',
+      icon: User,
+      iconColor: 'text-bambu-green',
+      projects: myProjects,
+      emptyText: 'No projects in My Projects',
+    },
+    {
+      key: 'shared',
+      testId: 'projects-section-shared',
+      title: 'Shared Projects',
+      icon: Users,
+      iconColor: 'text-blue-400',
+      projects: sharedProjects,
+      emptyText: 'No shared projects',
+    },
+    ...(user?.is_admin || othersProjects.length > 0
+      ? [
+          {
+            key: 'others',
+            testId: 'projects-section-others',
+            title: "Other's Projects",
+            subtitle: 'Projects created by other users (visible to admins)',
+            icon: Shield,
+            iconColor: 'text-amber-400',
+            projects: othersProjects,
+            emptyText: "No projects in Other's Projects",
+          },
+        ]
+      : []),
+  ];
 
   const renderProjectTree = (project: ProjectListItem, depth: number, seen: Set<number>) => {
     const card = (
@@ -1379,34 +1442,38 @@ export function ProjectsPage() {
             <p className="text-sm text-bambu-gray">{t('projects.loading')}</p>
           </div>
         </div>
-      ) : projects?.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 px-4">
-          <div className="p-4 bg-bambu-dark rounded-2xl mb-4">
-            <FolderKanban className="w-12 h-12 text-bambu-gray/50" />
-          </div>
-          <h3 className="text-lg font-medium text-white mb-2">
-            {statusFilter === 'all' ? t('projects.noProjects') : t('projects.noProjectsFiltered', { status: statusFilter })}
-          </h3>
-          <p className="text-bambu-gray text-center max-w-md mb-6">
-            {statusFilter === 'all'
-              ? t('projects.createFirst')
-              : t('projects.noProjectsFilteredHelp', { status: statusFilter })
-            }
-          </p>
-          {statusFilter === 'all' && (
-            <Button
-              onClick={() => setShowModal(true)}
-              disabled={!hasPermission('projects:create')}
-              title={!hasPermission('projects:create') ? t('projects.noCreatePermission') : undefined}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {t('projects.createFirstButton')}
-            </Button>
-          )}
-        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-          {topLevel.map((project) => renderProjectTree(project, 0, new Set()))}
+        <div className="space-y-8">
+          {projectSections.map((section) => {
+            const SectionIcon = section.icon;
+            return (
+              <section key={section.key} data-testid={section.testId} className="space-y-4">
+                <div className="flex items-center gap-2.5 border-b border-bambu-dark-tertiary pb-2.5">
+                  <SectionIcon className={`w-4 h-4 ${section.iconColor} flex-shrink-0`} />
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-white">
+                    {section.title}
+                  </h2>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-bambu-dark text-bambu-gray font-medium">
+                    {section.projects.length}
+                  </span>
+                  {section.subtitle && (
+                    <span className="text-xs text-bambu-gray hidden sm:inline">
+                      — {section.subtitle}
+                    </span>
+                  )}
+                </div>
+                {section.projects.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                    {section.projects.map((project) => renderProjectTree(project, 0, new Set()))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-bambu-dark-tertiary bg-bambu-dark/30 px-4 py-5 text-sm text-bambu-gray/70 italic">
+                    {section.emptyText}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
 

@@ -148,6 +148,7 @@ class ProjectResponse(BaseModel):
     can_write: bool = True
     can_manage: bool = False
     can_delete: bool = False
+    is_shared: bool = False
 
     class Config:
         from_attributes = True
@@ -213,6 +214,7 @@ class ProjectListResponse(BaseModel):
     can_write: bool = True
     can_manage: bool = False
     can_delete: bool = False
+    is_shared: bool = False
 
     class Config:
         from_attributes = True

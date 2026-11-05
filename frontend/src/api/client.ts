@@ -1121,6 +1121,8 @@ export interface Project {
   can_read?: boolean;
   can_write?: boolean;
   can_manage?: boolean;
+  can_delete?: boolean;
+  is_shared?: boolean;
   created_at: string;
   updated_at: string;
   stats?: ProjectStats;
@@ -1180,6 +1182,8 @@ export interface ProjectListItem {
   can_read?: boolean;
   can_write?: boolean;
   can_manage?: boolean;
+  can_delete?: boolean;
+  is_shared?: boolean;
   archives: ArchivePreview[];
   url: string | null;  // #1155
   cover_image_filename: string | null;  // #1155

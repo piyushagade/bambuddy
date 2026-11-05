@@ -97,6 +97,7 @@ class _ProjectAccess:
     can_write: bool = False
     can_manage: bool = False
     can_delete: bool = False
+    is_shared: bool = False
 
 
 async def _compute_project_access_map(
@@ -113,8 +114,8 @@ async def _compute_project_access_map(
          the corresponding update/delete permission.
       2. They or one of their active (non-expired) groups have an explicit
          `ProjectPermission` grant on the project.
-    - Top-down inheritance: `can_read`, `can_write`, `can_manage`, and `can_delete`
-      propagate downward from parent projects to all descendant sub-projects.
+    - Top-down inheritance: `can_read`, `can_write`, `can_manage`, `can_delete`,
+      and `is_shared` propagate downward from parent projects to all descendant sub-projects.
     """
     all_rows = (
         await db.execute(
@@ -124,9 +125,9 @@ async def _compute_project_access_map(
     if not all_rows:
         return {}
 
-    if user is None or user.is_admin:
+    if user is None:
         return {
-            pid: _ProjectAccess(can_read=True, can_write=True, can_manage=True, can_delete=True)
+            pid: _ProjectAccess(can_read=True, can_write=True, can_manage=True, can_delete=True, is_shared=False)
             for pid, _, _ in all_rows
         }
 
@@ -171,24 +172,38 @@ async def _compute_project_access_map(
 
     access_map: dict[int, _ProjectAccess] = {}
     children_by_parent: dict[int | None, list[int]] = {}
+    creator_by_id: dict[int, int | None] = {}
     all_ids = {pid for pid, _, _ in all_rows}
 
     for pid, parent_id, creator_id in all_rows:
         effective_parent = parent_id if parent_id in all_ids and parent_id != pid else None
         children_by_parent.setdefault(effective_parent, []).append(pid)
+        creator_by_id[pid] = creator_id
         is_owner = creator_id is not None and creator_id == user.id
-        access_map[pid] = _ProjectAccess(
-            can_read=is_owner,
-            can_write=is_owner and can_write_own,
-            can_manage=is_owner and can_write_own,
-            can_delete=is_owner and can_delete_own,
-        )
+        if user.is_admin:
+            access_map[pid] = _ProjectAccess(
+                can_read=True,
+                can_write=True,
+                can_manage=True,
+                can_delete=True,
+                is_shared=False,
+            )
+        else:
+            access_map[pid] = _ProjectAccess(
+                can_read=is_owner,
+                can_write=is_owner and can_write_own,
+                can_manage=is_owner and can_write_own,
+                can_delete=is_owner and can_delete_own,
+                is_shared=False,
+            )
 
     for pid, p_read, p_write in perm_rows:
         acc = access_map.get(pid)
         if acc is not None:
             if p_read or p_write:
                 acc.can_read = True
+                if creator_by_id.get(pid) != user.id:
+                    acc.is_shared = True
             if p_write:
                 acc.can_write = True
 
@@ -211,6 +226,8 @@ async def _compute_project_access_map(
                 child_acc.can_manage = True
             if curr_acc.can_delete:
                 child_acc.can_delete = True
+            if (curr_acc.is_shared or (not user.is_admin and curr_acc.can_read)) and creator_by_id.get(child_id) != user.id:
+                child_acc.is_shared = True
             queue.append(child_id)
 
     return access_map
@@ -787,6 +804,7 @@ async def list_projects(
                 can_write=acc.can_write,
                 can_manage=acc.can_manage,
                 can_delete=acc.can_delete,
+                is_shared=acc.is_shared,
             )
         )
 
@@ -928,6 +946,7 @@ async def list_templates(
                 can_write=acc.can_write,
                 can_manage=acc.can_manage,
                 can_delete=acc.can_delete,
+                is_shared=acc.is_shared,
             )
         )
 
@@ -1093,6 +1112,8 @@ async def get_project(
         can_read=acc.can_read,
         can_write=acc.can_write,
         can_manage=acc.can_manage,
+        can_delete=acc.can_delete,
+        is_shared=acc.is_shared,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
@@ -1219,6 +1240,8 @@ async def update_project(
         can_read=acc.can_read,
         can_write=acc.can_write,
         can_manage=acc.can_manage,
+        can_delete=acc.can_delete,
+        is_shared=acc.is_shared,
         created_at=project.created_at,
         updated_at=project.updated_at,
         stats=stats,
