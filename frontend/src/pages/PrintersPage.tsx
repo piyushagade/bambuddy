@@ -195,6 +195,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ChamberLight } from '../components/icons/ChamberLight';
 import { PlateClearedIcon } from '../components/icons/PlateClearedIcon';
 import { ClearPlateConfirmModal } from '../components/ClearPlateConfirmModal';
+import { MarqueeText } from '../components/MarqueeText';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { FileUploadModal } from '../components/FileUploadModal';
 import { PrintModal } from '../components/PrintModal';
@@ -2900,19 +2901,23 @@ function PrinterCard({
         </div>
       )}
       <div className="mt-2 rounded-lg bg-yellow-100/80 dark:bg-yellow-500/15 border border-yellow-300 dark:border-yellow-400/40 p-2 space-y-1.5">
-        <div className="flex items-center justify-between gap-2 text-xs text-yellow-800 dark:text-yellow-300 px-0.5">
-          <span className="flex items-center gap-1.5 min-w-0 truncate">
+        <div className="flex items-center justify-between gap-2 text-xs text-yellow-800 dark:text-yellow-300 px-0.5 min-w-0">
+          <span className="flex items-center gap-1.5 min-w-0 flex-1">
             <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
-            <span className="truncate">
-              {t('printers.plateStatus.lastPrintBy', 'Last print by:')}{' '}
-              <strong className="font-semibold text-yellow-900 dark:text-yellow-200">
-                {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
-              </strong>
+            <span className="shrink-0">
+              {t('printers.plateStatus.lastPrintBy', 'Last print by:')}
             </span>
+            <MarqueeText
+              className="flex-1 min-w-0"
+              innerClassName="font-semibold text-yellow-900 dark:text-yellow-200"
+              title={lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+            >
+              {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+            </MarqueeText>
           </span>
-          {lastPrintName && (
+          {!status?.connected && lastPrintName && (
             <span
-              className="text-[11px] text-yellow-700/80 dark:text-yellow-300/80 truncate max-w-[45%]"
+              className="text-[11px] text-yellow-700/80 dark:text-yellow-300/80 truncate max-w-[35%] shrink-0"
               title={lastPrintName}
             >
               {lastPrintName}
@@ -4548,15 +4553,17 @@ function PrinterCard({
                                   </span>
                                 )}
                                 {currentPrintUser && (
-                                  <span className="flex items-center gap-1" title={`Started by ${currentPrintUser}`}>
-                                    <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)]" />
-                                    {currentPrintUser}
+                                  <span className="flex items-center gap-1 min-w-0 flex-1" title={`Started by ${currentPrintUser}`}>
+                                    <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
+                                    <MarqueeText className="flex-1 min-w-0">
+                                      {currentPrintUser}
+                                    </MarqueeText>
                                   </span>
                                 )}
                               </>
                             ) : needsPlateClear ? (
                               <span
-                                className="flex items-center gap-1.5 text-yellow-500/90 truncate"
+                                className="flex items-center gap-1.5 text-yellow-500/90 min-w-0 flex-1"
                                 title={
                                   lastPrintUser
                                     ? `${t('printers.plateStatus.lastPrintBy', 'Last print by:')} ${lastPrintUser}`
@@ -4564,12 +4571,15 @@ function PrinterCard({
                                 }
                               >
                                 <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
-                                <span className="truncate">
-                                  {t('printers.plateStatus.lastPrintBy', 'Last print by:')}{' '}
-                                  <strong className="font-medium text-white">
-                                    {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
-                                  </strong>
+                                <span className="shrink-0">
+                                  {t('printers.plateStatus.lastPrintBy', 'Last print by:')}
                                 </span>
+                                <MarqueeText
+                                  className="flex-1 min-w-0"
+                                  innerClassName="font-medium text-white"
+                                >
+                                  {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+                                </MarqueeText>
                                 {lastPrint?.completed_at && (
                                   <span className="text-bambu-gray/60 shrink-0">
                                     • {formatDateOnly(lastPrint.completed_at, { month: 'short', day: 'numeric' })}
@@ -4577,19 +4587,27 @@ function PrinterCard({
                                 )}
                               </span>
                             ) : lastPrint ? (
-                              <p className="truncate" title={lastPrint.print_name || lastPrint.filename}>
-                                Last: {lastPrint.print_name || lastPrint.filename}
+                              <span
+                                className="flex items-center gap-1 min-w-0 flex-1"
+                                title={lastPrint.print_name || lastPrint.filename}
+                              >
+                                <span className="truncate">
+                                  Last: {lastPrint.print_name || lastPrint.filename}
+                                </span>
                                 {lastPrintUser && (
-                                  <span className="ml-1 text-bambu-gray/80">
+                                  <MarqueeText
+                                    className="max-w-[45%] min-w-0 text-bambu-gray/80"
+                                    title={lastPrintUser}
+                                  >
                                     ({lastPrintUser})
-                                  </span>
+                                  </MarqueeText>
                                 )}
                                 {lastPrint.completed_at && (
-                                  <span className="ml-1 text-bambu-gray/60">
+                                  <span className="text-bambu-gray/60 shrink-0">
                                     • {formatDateOnly(lastPrint.completed_at, { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
-                              </p>
+                              </span>
                             ) : (
                               <span>{t('printers.readyToPrint')}</span>
                             )}

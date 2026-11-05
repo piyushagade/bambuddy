@@ -17,6 +17,7 @@ import { api, withStreamToken } from '../api/client';
 import { Card, CardContent } from './Card';
 import { Button } from './Button';
 import { PlateClearedIcon } from './icons/PlateClearedIcon';
+import { MarqueeText } from './MarqueeText';
 
 export interface ClearPlateConfirmModalProps {
   printerId: number;
@@ -175,14 +176,19 @@ export function ClearPlateConfirmModal({
         <CardContent className="p-5 space-y-4">
           {/* Last Print & Owner Info */}
           <div className="p-3 rounded-lg bg-bambu-dark border border-bambu-dark-tertiary space-y-1.5">
-            <div className="flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center justify-between gap-2 text-xs min-w-0">
               <span className="text-bambu-gray flex items-center gap-1.5 shrink-0">
                 <UserIcon className="w-3.5 h-3.5 text-yellow-400" />
                 {t('printers.plateStatus.lastPrintOwner', 'Last print belongs to:')}
               </span>
-              <span className="font-semibold text-white truncate">
+              <MarqueeText
+                className="flex-1 min-w-0"
+                innerClassName="font-semibold text-white"
+                align="right"
+                title={lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
+              >
                 {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
-              </span>
+              </MarqueeText>
             </div>
             {lastPrintName && (
               <div className="flex items-center justify-between gap-2 text-xs">

@@ -151,6 +151,10 @@ npm run build        # Production build (outputs to ../static) + check:baseline
 ---
 
 ## 6. Contribution & Git Workflow Notes
+- **Mandatory Auto-Commit & Push After Every Change**:
+  - **Always automatically stage, commit, and push to `origin/main` after completing every code or configuration change** — do not wait for a separate prompt to commit and push.
+  - Whenever frontend files are modified, bump `CACHE_NAME` and `STATIC_CACHE` in `frontend/public/sw.js` and run `cd frontend && npm run build` so `static/` is rebuilt and included in the commit.
+  - Whenever backend files are modified, verify `python -c "import backend.app.main"` succeeds before committing and pushing.
 - **Git Remotes**:
   - `origin`: `https://github.com/piyushagade/bambuddy.git` (Primary fork repo; deployed branch is `main`)
   - `upstream`: `https://github.com/maziggy/bambuddy.git`

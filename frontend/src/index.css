@@ -674,3 +674,28 @@ body {
   border: none;
   border-radius: 999px;
 }
+
+/* Smooth back-and-forth marquee for overflowing single-line labels */
+@keyframes marquee-bounce {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  62%,
+  80% {
+    transform: translateX(var(--marquee-offset, 0px));
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-marquee-bounce {
+  display: inline-block;
+  will-change: transform;
+  animation: marquee-bounce var(--marquee-duration, 7s) ease-in-out infinite;
+}
+
+.animate-marquee-bounce:hover {
+  animation-play-state: paused;
+}
