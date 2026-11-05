@@ -269,6 +269,19 @@ export function SettingsPage() {
     tabParam === 'queue' && searchParams.get('sub') === 'pipelines' ? 'pipelines' : 'dispatch';
   const [queueSubTab, setQueueSubTab] = useState<'dispatch' | 'pipelines'>(initialQueueSub);
 
+  // Sync activeTab when URL ?tab= parameter changes while already on /settings
+  useEffect(() => {
+    const nextTab = tabParam === 'email'
+      ? 'users'
+      : (tabParam && validTabs.includes(tabParam as TabType) ? (tabParam as TabType) : 'general');
+    setActiveTab(nextTab);
+    if (tabParam === 'email') {
+      setUsersSubTab('email');
+    } else if (nextTab === 'users') {
+      setUsersSubTab('users');
+    }
+  }, [tabParam]);
+
   // Update URL when tab changes
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);

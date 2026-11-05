@@ -457,6 +457,45 @@ describe('Layout', () => {
         setAuthToken(priorToken, 'session');
       }
     });
+
+    it('renders user profile info next to the logo when authenticated and expanded', async () => {
+      const priorToken = getAuthToken();
+      server.use(
+        http.get('/api/v1/auth/status', () =>
+          HttpResponse.json({ auth_enabled: true, requires_setup: false }),
+        ),
+        http.get('/api/v1/auth/me', () =>
+          HttpResponse.json({
+            id: 1,
+            username: 'jdoe',
+            first_name: 'Jane',
+            last_name: 'Doe',
+            email: 'jane@ufl.edu',
+            role: 'admin',
+            is_active: true,
+            is_admin: true,
+            groups: [{ id: 2, name: 'Operators' }],
+            permissions: ['system:read'],
+            created_at: '2026-01-01T00:00:00Z',
+          }),
+        ),
+      );
+      setAuthToken('test-token', 'session');
+
+      try {
+        render(<Layout />);
+
+        const profileBtn = await screen.findByTestId('sidebar-user-profile');
+        expect(profileBtn).toBeInTheDocument();
+        expect(profileBtn).toHaveTextContent('Jane Doe');
+        expect(profileBtn).toHaveTextContent('@jdoe');
+        expect(profileBtn).toHaveTextContent('jane@ufl.edu');
+        expect(profileBtn).toHaveTextContent('Admin');
+        expect(profileBtn).toHaveTextContent('Operators');
+      } finally {
+        setAuthToken(priorToken, 'session');
+      }
+    });
   });
 
   describe('plate detection alert modal', () => {

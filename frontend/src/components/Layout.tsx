@@ -874,19 +874,76 @@ export function Layout() {
             : `fixed inset-y-0 left-0 z-30 ${sidebarExpanded ? 'w-64' : 'w-16'}`
         }`}
       >
-        {/* Logo */}
-        <div className={`border-b border-bambu-dark-tertiary flex items-center justify-center ${isSidebarCompact || sidebarExpanded ? 'p-4' : 'p-2'}`}>
+        {/* Logo & User Profile */}
+        <div
+          className={`border-b border-bambu-dark-tertiary flex items-center ${
+            isSidebarCompact || sidebarExpanded
+              ? authEnabled && user
+                ? 'justify-start gap-3 p-3'
+                : 'justify-center p-4'
+              : 'justify-center p-2'
+          }`}
+        >
           <img
             src={logoSrc}
             alt="Bambuddy"
             className={
               isSidebarCompact || sidebarExpanded
-                ? 'h-16 w-auto max-w-full object-contain'
+                ? authEnabled && user
+                  ? 'h-14 w-auto max-w-[4.5rem] flex-shrink-0 object-contain'
+                  : 'h-16 w-auto max-w-full object-contain'
                 : customLogo
                   ? 'h-8 w-8 object-contain'
                   : 'h-8 w-8 object-cover object-left'
             }
           />
+          {(isSidebarCompact || sidebarExpanded) && authEnabled && user && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileDrawerOpen(false);
+                navigate('/settings?tab=users#card-currentuser');
+              }}
+              data-testid="sidebar-user-profile"
+              title={t('settings.currentUser', { defaultValue: 'Current User' })}
+              className="flex-1 min-w-0 text-left rounded-lg p-1.5 -m-1.5 hover:bg-bambu-dark-tertiary transition-colors"
+            >
+              <p className="text-sm font-semibold text-white truncate">
+                {[user.first_name, user.last_name].filter(Boolean).join(' ') || user.username}
+              </p>
+              {(user.first_name || user.last_name) && (
+                <p className="text-xs text-bambu-gray truncate">@{user.username}</p>
+              )}
+              {user.email && (
+                <p className="text-[11px] text-bambu-gray truncate">{user.email}</p>
+              )}
+              {(user.is_admin || (user.groups && user.groups.length > 0)) && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {user.is_admin && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] leading-tight font-medium bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                      {t('settings.admin', { defaultValue: 'Admin' })}
+                    </span>
+                  )}
+                  {user.groups?.map((group) => (
+                    <span
+                      key={group.id}
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] leading-tight font-medium ${
+                        group.name === 'Administrators'
+                          ? 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                          : group.name === 'Operators'
+                          ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
+                          : group.name === 'Viewers'
+                          ? 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300'
+                          : 'bg-gray-500/20 text-gray-300'
+                      }`}
+                    >
+                      {group.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </button>
+          )}
         </div>
 
         {/* Navigation */}
