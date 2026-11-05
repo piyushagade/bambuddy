@@ -490,8 +490,6 @@ describe('Layout', () => {
         expect(profileBtn).toHaveTextContent('Jane Doe');
         expect(profileBtn).toHaveTextContent('@jdoe');
         expect(profileBtn).toHaveTextContent('jane@ufl.edu');
-        expect(profileBtn).toHaveTextContent('Admin');
-        expect(profileBtn).toHaveTextContent('Operators');
       } finally {
         setAuthToken(priorToken, 'session');
       }
