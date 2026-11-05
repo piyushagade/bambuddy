@@ -593,7 +593,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <Card
               onClick={() => navigate('/settings?tab=users')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -620,7 +620,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/queue')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -655,7 +655,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/stats')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -683,7 +683,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/system')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -1423,7 +1423,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <Card
               onClick={() => navigate('/printers')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -1448,7 +1448,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/projects')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -1472,7 +1472,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/inventory')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
@@ -1496,7 +1496,7 @@ export function DashboardPage() {
 
             <Card
               onClick={() => navigate('/queue')}
-              className="border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
+              className="cursor-pointer border-bambu-dark-tertiary hover:border-bambu-green/50 transition-colors"
             >
               <CardContent className="p-4 flex items-center justify-between">
                 <div>
