@@ -117,7 +117,7 @@ describe('PrintModal dispatch toast', () => {
     expect(toastMessages).not.toContain('Print queued');
   });
 
-  it('uses wait-for-idle copy when an ASAP target is held for plate clear', async () => {
+  it('disables the Print button when a selected printer is held for plate clear', async () => {
     server.use(
       http.get('/api/v1/printers/:id/status', () => {
         return HttpResponse.json({
@@ -130,7 +130,6 @@ describe('PrintModal dispatch toast', () => {
       }),
     );
 
-    const user = userEvent.setup();
     render(
       <PrintModal
         mode="create"
@@ -143,16 +142,13 @@ describe('PrintModal dispatch toast', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^print$/i })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole('button', { name: /^print$/i }));
-
-    await waitFor(() => {
-      expect(mockOnClose).toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /build plate has not been cleared/i,
+      );
     });
 
-    const toastMessages = mockShowToast.mock.calls.map(call => call[0]);
-    expect(toastMessages).toContain('Will start when printer is idle');
+    expect(screen.getByRole('button', { name: /^print$/i })).toBeDisabled();
+    expect(mockOnClose).not.toHaveBeenCalled();
   });
 
   it('uses wait-for-idle copy when an ASAP target is drying filament', async () => {

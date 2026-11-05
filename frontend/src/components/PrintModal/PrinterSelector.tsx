@@ -359,9 +359,12 @@ export function PrinterSelector({
   };
 
   const handleSelectAll = () => {
-    const selectable = disableBusy
-      ? displayPrinters.filter((p) => !isPrinterBusy(p.id))
-      : displayPrinters;
+    const selectable = displayPrinters.filter((p) => {
+      if (disableBusy && isPrinterBusy(p.id)) return false;
+      const status = printerStatusMap.get(p.id);
+      if (status?.awaiting_plate_clear) return false;
+      return true;
+    });
     onMultiSelect(selectable.map((p) => p.id));
   };
 

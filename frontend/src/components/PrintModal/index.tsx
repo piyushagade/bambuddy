@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   CostCenterSummary,
+  PrinterStatus,
   PrintQueueItemCreate,
   PrintQueueItemUpdate,
   SlotMaterial,
@@ -1585,6 +1586,26 @@ export function PrintModal({
 
   const isPending = isSubmitting || updateQueueMutation.isPending;
 
+  const selectedPrintersAwaitingPlateClear = useMemo(() => {
+    if (assignmentMode !== 'printer') return [];
+    return selectedPrinters.filter((pid) => {
+      const resultStatus = multiPrinterMapping.printerResults.find((r) => r.printerId === pid)?.status;
+      const singleStatus = pid === effectivePrinterId ? printerStatus : undefined;
+      const cachedStatus =
+        queryClient.getQueryData<PrinterStatus>(['printerStatus', pid]) ??
+        queryClient.getQueryData<PrinterStatus>(['printer-status', pid]);
+      const status = resultStatus ?? singleStatus ?? cachedStatus;
+      return status?.awaiting_plate_clear === true;
+    });
+  }, [
+    assignmentMode,
+    selectedPrinters,
+    multiPrinterMapping.printerResults,
+    effectivePrinterId,
+    printerStatus,
+    queryClient,
+  ]);
+
   const canSubmit = useMemo(() => {
     if (isPending) return false;
 
@@ -1615,6 +1636,10 @@ export function PrintModal({
     // known trays and serialized an all-[-1] mapping, which dispatched the print
     // to the empty external feed (#2589).
     if (assignmentMode === 'printer' && selectedPrinters.length === 1 && printerStatusLoading) return false;
+    if (assignmentMode === 'printer' && selectedPrinters.length > 1 && multiPrinterMapping.isLoading) return false;
+
+    // Prevent starting/submitting a print when any selected printer has an uncleared build plate
+    if (selectedPrintersAwaitingPlateClear.length > 0) return false;
 
     return true;
   }, [
@@ -1628,6 +1653,8 @@ export function PrintModal({
     perPlateReqsPending,
     perPlateReqsFailed,
     printerStatusLoading,
+    multiPrinterMapping.isLoading,
+    selectedPrintersAwaitingPlateClear.length,
     isCrossModel,
     billingEnabled,
     loadingCostCenters,
@@ -1942,6 +1969,27 @@ export function PrintModal({
                 />
               );
             })}
+
+            {/* Warning when any selected printer has an uncleared build plate */}
+            {selectedPrintersAwaitingPlateClear.length > 0 && (
+              <div
+                role="alert"
+                className="p-3 mb-2 bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-300 dark:border-yellow-500/30 rounded-lg flex items-center gap-2"
+              >
+                <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
+                <span className="text-sm text-yellow-700 dark:text-yellow-400">
+                  {t(
+                    'printers.plateStatus.cannotPrintUntilClearedNamed',
+                    'Cannot start print on {{name}}: build plate has not been cleared',
+                    {
+                      name: selectedPrintersAwaitingPlateClear
+                        .map((id) => printers?.find((p) => p.id === id)?.name || `Printer #${id}`)
+                        .join(', '),
+                    },
+                  )}
+                </span>
+              </div>
+            )}
 
             {/* Compatibility warning when sliced model doesn't match selected printer */}
             {slicedForModel && assignmentMode === 'printer' && selectedPrinters.length === 1 && (() => {
