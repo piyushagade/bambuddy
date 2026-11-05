@@ -3061,7 +3061,7 @@ export function FileManagerPage() {
                 <User className="w-4 h-4 text-bambu-green flex-shrink-0" />
                 <span className="text-sm flex-1 truncate">My Files</span>
               </div>
-              {myFolders.length > 0 && (
+              {myFolders.length > 0 ? (
                 <div className="mt-0.5 pl-1">
                   {myFolders.map((folder) => (
                     <FolderTreeItem
@@ -3080,6 +3080,10 @@ export function FileManagerPage() {
                       t={t}
                     />
                   ))}
+                </div>
+              ) : (
+                <div className="mt-1 pl-6 pr-2 py-1 text-xs text-bambu-gray/70 italic">
+                  No folders added
                 </div>
               )}
             </div>
@@ -3101,7 +3105,7 @@ export function FileManagerPage() {
                 <Users className="w-4 h-4 text-blue-400 flex-shrink-0" />
                 <span className="text-sm flex-1 truncate">Shared Files</span>
               </div>
-              {sharedFolders.length > 0 && (
+              {sharedFolders.length > 0 ? (
                 <div className="mt-0.5 pl-1">
                   {sharedFolders.map((folder) => (
                     <FolderTreeItem
@@ -3120,6 +3124,10 @@ export function FileManagerPage() {
                       t={t}
                     />
                   ))}
+                </div>
+              ) : (
+                <div className="mt-1 pl-6 pr-2 py-1 text-xs text-bambu-gray/70 italic">
+                  No folders added
                 </div>
               )}
             </div>

@@ -6848,21 +6848,29 @@ async def get_library_stats(
     ),
 ):
     """Get library statistics."""
-    user, can_read_all = auth_result
-    # Stats exclude trashed files — users see counts/sizes for what's actually in the library.
-    # Without LIBRARY_READ_ALL the stats reflect only the caller's own files —
-    # match what the file list endpoint shows so the numbers stay consistent.
+    user, _ = auth_result
+    access_map = await _compute_folder_access_map(db, user)
+    shared_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read and acc.is_shared}
+
+    # Stats exclude trashed files — users see counts/sizes for what's actually accessible to them.
     file_filters = [LibraryFile.deleted_at.is_(None)]
-    if user is not None and not can_read_all:
-        file_filters.append(LibraryFile.created_by_id == user.id)
+    if user is not None:
+        own_cond = LibraryFile.created_by_id == user.id
+        if shared_folder_ids:
+            file_filters.append(or_(own_cond, LibraryFile.folder_id.in_(shared_folder_ids)))
+        else:
+            file_filters.append(own_cond)
 
     # Total files
     total_files_result = await db.execute(select(func.count(LibraryFile.id)).where(*file_filters))
     total_files = total_files_result.scalar() or 0
 
-    # Total folders (folders are shared org structure, not per-user — count all)
-    total_folders_result = await db.execute(select(func.count(LibraryFolder.id)))
-    total_folders = total_folders_result.scalar() or 0
+    # Total folders visible to the user
+    if user is None:
+        total_folders_result = await db.execute(select(func.count(LibraryFolder.id)))
+        total_folders = total_folders_result.scalar() or 0
+    else:
+        total_folders = sum(1 for acc in access_map.values() if acc.visible_in_tree)
 
     # Total size
     total_size_result = await db.execute(select(func.sum(LibraryFile.file_size)).where(*file_filters))
