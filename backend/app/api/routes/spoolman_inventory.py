@@ -13,6 +13,7 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import JSONResponse
@@ -23,6 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.api.routes._spoolman_helpers import (
+    BAMBU_LAST_DRIED_AT_KEY,
+    BAMBU_LAST_DRIED_HOURS_KEY,
+    BAMBU_LAST_DRIED_TEMP_KEY,
     NormalizedFilament,
     NormalizedVendorRef,
     _map_spoolman_spool,
@@ -47,7 +51,7 @@ from backend.app.models.spoolman_k_profile import SpoolmanKProfile
 from backend.app.models.spoolman_slot_assignment import SpoolmanSlotAssignment
 from backend.app.models.supplier import SpoolmanSpoolSupplier, Supplier
 from backend.app.models.user import User
-from backend.app.schemas.spool import SpoolFilamentPresetBase, SpoolKProfileBase
+from backend.app.schemas.spool import SpoolFilamentPresetBase, SpoolKProfileBase, naive_utc
 from backend.app.schemas.spoolman import SpoolmanFilamentPatch, SpoolmanSlotAssignmentEnriched
 from backend.app.schemas.supplier import SpoolSupplierLinkInput
 from backend.app.services import slot_unlink_grace
@@ -175,6 +179,40 @@ async def _clear_stale_slot_fallback_tag_links(
         keep_spool_id=keep_spool_id,
         log_context=f"printer={printer_serial} ams={ams_id} tray={tray_id}",
     )
+
+
+async def _clear_vacated_slot_fallback_tag(
+    client: SpoolmanClient,
+    db: AsyncSession,
+    *,
+    spool_id: int,
+    spool: dict,
+    vacated: list[tuple[int, int, int]],
+) -> str | None:
+    """Clear the spool's extra.tag when it is the fallback tag of a slot it leaves (#1574)."""
+    tag = str((spool.get("extra") or {}).get("tag") or "").strip('"').upper()
+    if not tag or not vacated:
+        return None
+    serials = dict(
+        (await db.execute(select(Printer.id, Printer.serial_number).where(Printer.id.in_({p for p, _, _ in vacated}))))
+        .tuples()
+        .all()
+    )
+    if not any(
+        tag == get_fallback_spool_tag_for_slot(serials.get(printer_id) or "", ams_id, tray_id)
+        for printer_id, ams_id, tray_id in vacated
+    ):
+        return None
+    try:
+        await client.merge_spool_extra(spool_id, {"tag": json.dumps("")})
+    except (SpoolmanClientError, SpoolmanUnavailableError, SpoolmanNotFoundError) as exc:
+        logger.warning("Could not clear the old slot's fallback tag from Spoolman spool %s: %s", spool_id, exc)
+        raise HTTPException(
+            status_code=503 if isinstance(exc, SpoolmanUnavailableError) else 502,
+            detail="Spoolman did not clear the spool's tag for its old slot, so the spool was not moved",
+        ) from exc
+    logger.info("Cleared the old slot's fallback tag from Spoolman spool %s before moving it", spool_id)
+    return tag
 
 
 async def _get_client(db: AsyncSession) -> SpoolmanClient:
@@ -383,6 +421,9 @@ class SpoolmanInventoryUpdate(BaseModel):
     # schema). Pass an empty string to clear; null/omitted leaves unchanged.
     slicer_filament: str | None = Field(None, max_length=128)
     slicer_filament_name: str | None = Field(None, max_length=255)
+    # Set by hand for a drying done outside an AMS; null clears it. Persisted
+    # to the spool's extra dict like the slicer preset (#2863).
+    last_dried_at: datetime | None = None
 
     @field_validator("rgba")
     @classmethod
@@ -393,6 +434,11 @@ class SpoolmanInventoryUpdate(BaseModel):
     @classmethod
     def validate_storage_location(cls, v: str | None) -> str | None:
         return _validate_storage_location(v)
+
+    @field_validator("last_dried_at")
+    @classmethod
+    def validate_last_dried_at(cls, v: datetime | None) -> datetime | None:
+        return naive_utc(v)
 
     @model_validator(mode="after")
     def validate_tag_fields(self) -> SpoolmanInventoryUpdate:
@@ -951,7 +997,8 @@ async def update_spool(
     sf_set = "slicer_filament" in data.model_fields_set
     sfn_set = "slicer_filament_name" in data.model_fields_set
     cn_set = "color_name" in data.model_fields_set
-    if sf_set or sfn_set or cn_set:
+    dried_set = "last_dried_at" in data.model_fields_set
+    if sf_set or sfn_set or cn_set or dried_set:
         # Ensure extra fields are registered (Spoolman rejects PATCHes with
         # unknown keys with HTTP 400). Idempotent if startup already ran this.
         if sf_set:
@@ -967,6 +1014,13 @@ async def update_spool(
             new_extra["bambu_slicer_filament_name"] = json.dumps(data.slicer_filament_name or "")
         if cn_set:
             new_extra["bambu_color_name"] = json.dumps(data.color_name or "")
+        if dried_set:
+            # A hand-set date is not the AMS cycle the temperature and hours
+            # describe, so they are cleared with it, as in internal mode.
+            dried_at = data.last_dried_at.isoformat(timespec="seconds") if data.last_dried_at else ""
+            new_extra[BAMBU_LAST_DRIED_AT_KEY] = json.dumps(dried_at)
+            new_extra[BAMBU_LAST_DRIED_TEMP_KEY] = json.dumps("")
+            new_extra[BAMBU_LAST_DRIED_HOURS_KEY] = json.dumps("")
         async with _translate_spoolman_errors():
             updated = await client.merge_spool_extra(spool_id, new_extra)
 

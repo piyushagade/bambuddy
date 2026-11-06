@@ -46,6 +46,10 @@ class MappedSpoolFields(TypedDict):
     note: str | None
     added_full: None
     last_used: str | None
+    # Last drying (#2863), stored under the bambu_last_dried_* extra keys.
+    last_dried_at: str | None
+    last_dried_temp: int | None
+    last_dried_hours: float | None
     encode_time: str | None
     tag_uid: str | None
     tray_uuid: str | None
@@ -262,6 +266,14 @@ def _extract_extra_str(extra: dict, key: str) -> str:
 BAMBU_WEIGHT_USED_BASELINE_KEY = "bambu_weight_used_baseline"
 
 
+# Spool.extra keys holding when the spool was last dried, the target °C and the
+# hours the cycle ran (#2863). Written by services/spool_drying.py and the
+# spool update route; an empty string means unknown or cleared.
+BAMBU_LAST_DRIED_AT_KEY = "bambu_last_dried_at"
+BAMBU_LAST_DRIED_TEMP_KEY = "bambu_last_dried_temp"
+BAMBU_LAST_DRIED_HOURS_KEY = "bambu_last_dried_hours"
+
+
 def _extract_extra_float(extra: dict, key: str) -> float | None:
     """Extract a JSON-encoded number from a Spoolman extra dict.
 
@@ -322,6 +334,11 @@ def parse_spoolman_multi_colors(filament: dict) -> list[str]:
     else:
         return []
     return [cleaned for token in tokens if (cleaned := token.strip().lstrip("#"))]
+
+
+def _last_dried_temp(extra: dict) -> int | None:
+    value = _extract_extra_float(extra, BAMBU_LAST_DRIED_TEMP_KEY)
+    return int(round(value)) if value is not None and value > 0 else None
 
 
 def _map_spoolman_spool(spool: dict) -> MappedSpoolFields:
@@ -496,6 +513,9 @@ def _map_spoolman_spool(spool: dict) -> MappedSpoolFields:
         "note": spool.get("comment") or None,
         "added_full": None,
         "last_used": spool.get("last_used"),
+        "last_dried_at": _extract_extra_str(extra, BAMBU_LAST_DRIED_AT_KEY) or None,
+        "last_dried_temp": _last_dried_temp(extra),
+        "last_dried_hours": _extract_extra_float(extra, BAMBU_LAST_DRIED_HOURS_KEY),
         # encode_time semantics differ: local records NFC write time; Spoolman first_used
         # records first print use — different events; using first_used as best available proxy.
         "encode_time": spool.get("first_used"),

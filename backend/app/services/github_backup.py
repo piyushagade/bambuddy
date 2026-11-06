@@ -788,6 +788,10 @@ class GitHubBackupService:
                 "category": s.category,
                 "low_stock_threshold_pct": s.low_stock_threshold_pct,
                 "storage_location": s.storage_location,
+                # Last drying (#2863).
+                "last_dried_at": str(s.last_dried_at) if s.last_dried_at else None,
+                "last_dried_temp": s.last_dried_temp,
+                "last_dried_hours": s.last_dried_hours,
                 "tag_uid": s.tag_uid,
                 "tray_uuid": s.tray_uuid,
                 "data_origin": s.data_origin,

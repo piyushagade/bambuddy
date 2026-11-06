@@ -1323,6 +1323,11 @@ class GitHubRestoreService:
             for late_field in ("material_number", "category", "low_stock_threshold_pct", "storage_location"):
                 if late_field in entry:
                     fields[late_field] = entry[late_field]
+            # Last drying (#2863), same late-field rule.
+            if "last_dried_at" in entry:
+                fields["last_dried_at"] = _parse_dt(entry.get("last_dried_at"))
+                fields["last_dried_temp"] = entry.get("last_dried_temp")
+                fields["last_dried_hours"] = entry.get("last_dried_hours")
 
             if existing is not None:
                 if old_id is not None:

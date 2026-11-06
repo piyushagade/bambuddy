@@ -5373,6 +5373,14 @@ async def run_migrations(conn):
     await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_username VARCHAR(100)")
     await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_password VARCHAR(500)")
 
+    # Migration: when each spool was last dried, at what temperature and for
+    # how long (#2863). Nullable: no spool has a drying record until one ends.
+    float_type = "REAL" if is_sqlite() else "DOUBLE PRECISION"
+    datetime_type = "DATETIME" if is_sqlite() else "TIMESTAMP"
+    await _safe_execute(conn, f"ALTER TABLE spool ADD COLUMN last_dried_at {datetime_type}")
+    await _safe_execute(conn, "ALTER TABLE spool ADD COLUMN last_dried_temp INTEGER")
+    await _safe_execute(conn, f"ALTER TABLE spool ADD COLUMN last_dried_hours {float_type}")
+
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:
     """Replace the one-tap verdict URLs in the outcome prompt's body (#1898).

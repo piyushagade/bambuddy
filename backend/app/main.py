@@ -40,6 +40,7 @@ from backend.app.api.routes import (
     ha_sensors,
     inventory,
     kprofiles,
+    label_templates,
     labels,
     library,
     library_tags,
@@ -2149,6 +2150,28 @@ async def on_fts_inlet_change(printer_id: int, ams_id: int, inlet: str):
         logger.warning("[Printer %s] Could not re-apply K-profiles after inlet move: %s", printer_id, e)
 
 
+def _slot_feeds_print(printer_id: int, ams_id: int, tray_id: int) -> bool:
+    """Is this slot the one feeding the printer right now?
+
+    ``tray_now`` names one slot for the whole printer, so on a dual-nozzle
+    machine each extruder's own fed slot is asked as well. Only meaningful
+    while a print runs; the caller checks that.
+    """
+    status = printer_manager.get_status(printer_id)
+    if status is None:
+        return False
+    if ams_id == 255:
+        global_id = 254 + tray_id
+    elif ams_id >= 128:
+        global_id = ams_id
+    else:
+        global_id = ams_id * 4 + tray_id
+    if getattr(status, "tray_now", None) == global_id:
+        return True
+    slots = getattr(status, "extruder_slots", None) or {}
+    return any(slot.has_filament and slot.holds(ams_id, tray_id) for slot in slots.values())
+
+
 async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_now: bool) -> None:
     """Unlink built-in inventory assignments whose slot no longer holds their spool.
 
@@ -2315,6 +2338,25 @@ async def _unlink_stale_assignments(printer_id: int, ams_data: list, printing_no
                     loaded = spool_present(current_tray) is True or (
                         cur_state == 11 or (cur_state not in (9, 10) and cur_type.strip())
                     )
+                    # Not into the slot feeding a running print: the printer refuses
+                    # the setting for it (``ams_filament_setting refused``), and a
+                    # spool swapped in after a runout sat through one refused send
+                    # per AMS change. Held, it fires on the first change once the
+                    # print is over (#3434).
+                    if (
+                        not fp_type.strip()
+                        and loaded
+                        and assignment.spool
+                        and printing_now
+                        and _slot_feeds_print(printer_id, assignment.ams_id, assignment.tray_id)
+                    ):
+                        logger.debug(
+                            "Pre-config held for spool %d AMS%d-T%d: the slot is feeding the print",
+                            assignment.spool_id,
+                            assignment.ams_id,
+                            assignment.tray_id,
+                        )
+                        continue
                     if not fp_type.strip() and loaded and assignment.spool:
                         try:
                             from backend.app.api.routes.inventory import (
@@ -2667,6 +2709,10 @@ async def on_ams_change(printer_id: int, ams_data: list):
 
     await _unlink_stale_assignments(printer_id, ams_data, printing_now)
 
+    # Spools whose tag this pass assigned to a slot; their other slots are
+    # released below, once this printer's lock is let go (#3427).
+    rfid_assigned: list[tuple[int, tuple[int, int, int]]] = []
+
     # Auto-manage inventory spools from AMS tray data (skip if Spoolman manages AMS).
     # Serialised per-printer via _ams_assignment_locks: MQTT bursts can deliver
     # two AMS pushes ~30 ms apart, and without the lock both callbacks read
@@ -2839,6 +2885,10 @@ async def on_ams_change(printer_id: int, ams_data: list):
                         if is_bambu_tag(tag_uid, tray_uuid, tray_info_idx):
                             # BL spool with RFID tag: auto-match → inventory match → auto-create
                             spool = await get_spool_by_tag(db, tag_uid, tray_uuid)
+                            # Only a spool already known by this tag is proven to be
+                            # here; a material/colour match or a new spool is not
+                            # grounds to take it out of other slots (#3427).
+                            known_by_tag = spool is not None
                             if not spool:
                                 # Try matching an untagged inventory spool (same material/color)
                                 spool = await find_matching_untagged_spool(db, tray)
@@ -2875,6 +2925,8 @@ async def on_ams_change(printer_id: int, ams_data: list):
                                 tray_info_idx=tray_info_idx,
                             )
                             await db.commit()
+                            if known_by_tag:
+                                rfid_assigned.append((spool.id, (printer_id, ams_id, tray_id)))
                             await ws_manager.broadcast(
                                 {
                                     "type": "spool_auto_assigned",
@@ -2909,6 +2961,15 @@ async def on_ams_change(printer_id: int, ams_data: list):
                         # ghost spools with empty tags on every confirm.
     except Exception as e:
         logger.warning("RFID spool auto-assign failed: %s", e, exc_info=True)
+
+    if rfid_assigned:
+        from backend.app.services.spool_relocation import INTERNAL, release_other_slots
+
+        for spool_id, slot in rfid_assigned:
+            try:
+                await release_other_slots(INTERNAL, spool_id, slot)
+            except Exception as e:
+                logger.warning("Releasing spool %s from its other slots failed: %s", spool_id, e, exc_info=True)
 
     try:
         async with async_session() as db:
@@ -9937,6 +9998,23 @@ async def lifespan(app: FastAPI):
 
     printer_manager.set_drying_complete_callback(on_drying_complete)
 
+    async def on_drying_cycle_end(printer_id: int, cycle):
+        """Mark the spools in an AMS that just finished drying as dried (#2863)."""
+        from backend.app.services.spool_drying import record_drying_cycle
+
+        try:
+            async with async_session() as db:
+                await record_drying_cycle(db, printer_id, cycle)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Failed to record drying for printer %d (AMS %d): %s",
+                printer_id,
+                cycle.ams_id,
+                e,
+            )
+
+    printer_manager.set_drying_cycle_end_callback(on_drying_cycle_end)
+
     async def on_assignment_verified(printer_id: int, ams_id: int, tray_id: int, verified: bool, detail: dict):
         """Surface the read-back result of a spool assignment to the UI (#2582).
 
@@ -10763,6 +10841,7 @@ app.include_router(filaments.router, prefix=app_settings.api_prefix)
 app.include_router(finance.router, prefix=app_settings.api_prefix)
 app.include_router(inventory.router, prefix=app_settings.api_prefix)
 app.include_router(labels.router, prefix=app_settings.api_prefix)
+app.include_router(label_templates.router, prefix=app_settings.api_prefix)
 app.include_router(settings_routes.router, prefix=app_settings.api_prefix)
 app.include_router(cloud.router, prefix=app_settings.api_prefix)
 app.include_router(orca_cloud.router, prefix=app_settings.api_prefix)

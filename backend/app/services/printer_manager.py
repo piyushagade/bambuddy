@@ -11,6 +11,7 @@ from backend.app.models.printer import Printer
 from backend.app.services.bambu_mqtt import (
     STAGE_NAMES,
     BambuMQTTClient,
+    DryingCycleEnd,
     MQTTLogEntry,
     PrinterState,
     get_stage_name,
@@ -406,6 +407,7 @@ class PrinterManager:
         self._on_print_progress: Callable[[int, int], None] | None = None
         self._on_bed_temp_update: Callable[[int, float], None] | None = None
         self._on_drying_complete: Callable[[int, int], None] | None = None
+        self._on_drying_cycle_end: Callable[[int, DryingCycleEnd], None] | None = None
         self._on_assignment_verified: Callable[[int, int, int, bool, dict], None] | None = None
         self._on_tray_change: Callable[[int, int, int], None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -678,6 +680,14 @@ class PrinterManager:
         """
         self._on_drying_complete = callback
 
+    def set_drying_cycle_end_callback(self, callback: Callable[[int, DryingCycleEnd], None]):
+        """Set callback for the end of an AMS drying cycle (#2863).
+
+        Receives ``(printer_id, DryingCycleEnd)`` on the same edge as the
+        drying-complete callback, with what was seen of the cycle.
+        """
+        self._on_drying_cycle_end = callback
+
     def set_assignment_verified_callback(self, callback: Callable[[int, int, int, bool, dict], None]):
         """Set callback for spool-assignment read-back verification (#2582).
 
@@ -795,6 +805,10 @@ class PrinterManager:
             if self._on_drying_complete:
                 self._schedule_async(self._on_drying_complete(printer_id, ams_id))
 
+        def on_drying_cycle_end(cycle: DryingCycleEnd):
+            if self._on_drying_cycle_end:
+                self._schedule_async(self._on_drying_cycle_end(printer_id, cycle))
+
         def on_assignment_verified(ams_id: int, tray_id: int, verified: bool, detail: dict):
             if self._on_assignment_verified:
                 self._schedule_async(self._on_assignment_verified(printer_id, ams_id, tray_id, verified, detail))
@@ -844,6 +858,7 @@ class PrinterManager:
             on_print_progress=on_print_progress,
             on_bed_temp_update=on_bed_temp_update,
             on_drying_complete=on_drying_complete,
+            on_drying_cycle_end=on_drying_cycle_end,
             on_print_running_observed=on_print_running_observed,
             on_finish_photo_moment=on_finish_photo_moment,
             on_assignment_verified=on_assignment_verified,

@@ -702,6 +702,26 @@ def resolve_rack_plan_mapping(
     return wire, None
 
 
+@dataclass(frozen=True)
+class DryingCycleEnd:
+    """What Bambuddy saw of one AMS drying cycle, reported when it ends (#2863).
+
+    ``peak_minutes`` is the highest ``dry_time`` observed during the cycle and
+    ``remaining_minutes`` the last one before the drop to 0. ``start_seen`` says
+    whether the countdown was watched from its first minute; when it was not
+    (Bambuddy started mid-cycle) the peak is only a lower bound on the length.
+    ``target_temp`` / ``target_hours`` are known only for cycles Bambuddy itself
+    started, because the printer never echoes them.
+    """
+
+    ams_id: int
+    remaining_minutes: int
+    peak_minutes: int
+    start_seen: bool
+    target_temp: int | None = None
+    target_hours: int | None = None
+
+
 @dataclass
 class MQTTLogEntry:
     """Log entry for MQTT message debugging."""
@@ -1256,6 +1276,7 @@ class BambuMQTTClient:
         on_print_progress: Callable[[int], None] | None = None,
         on_bed_temp_update: Callable[[float], None] | None = None,
         on_drying_complete: Callable[[int], None] | None = None,
+        on_drying_cycle_end: Callable[[DryingCycleEnd], None] | None = None,
         on_print_running_observed: Callable[[dict], None] | None = None,
         on_finish_photo_moment: Callable[[dict], None] | None = None,
         on_assignment_verified: Callable[[int, int, bool, dict], None] | None = None,
@@ -1288,6 +1309,9 @@ class BambuMQTTClient:
         # the drying cycle just finished (auto- or manually-triggered).
         # Receives the AMS id of the unit that finished drying.
         self.on_drying_complete = on_drying_complete
+        # #2863: fired on the same edge with what was seen of the cycle, so the
+        # spools in that AMS can be stamped as dried.
+        self.on_drying_cycle_end = on_drying_cycle_end
         # #1485 follow-up: fired the first time we see RUNNING state in a
         # session WHEN on_print_start was suppressed (Bambuddy started mid-
         # print, the #1304 first-push guard skipped the start event). Lets
@@ -1348,6 +1372,11 @@ class BambuMQTTClient:
         # is indistinguishable from the firmware abandoning it — so the cycle-end
         # log would otherwise blame the printer for our own decision (#2770).
         self._drying_stops_sent: set[int] = set()
+        # Per-AMS record of the cycle in progress: the highest dry_time seen,
+        # whether its first minute was observed, and the target we sent for it.
+        # The target is copied here when the countdown starts because a stop
+        # drops _drying_targets before the cycle ends (#2863).
+        self._dry_cycles: dict[int, dict[str, object]] = {}
         # Stage numbers this printer has reported that STAGE_NAMES has no entry
         # for, so each is reported once rather than on every transition into it.
         self._unnamed_stages_seen: set[int] = set()
@@ -3806,8 +3835,22 @@ class BambuMQTTClient:
                     ams_unit.get("dry_status"),
                 )
                 continue
+            seen_before = ams_id in self._previous_dry_times
             previous = self._previous_dry_times.get(ams_id, 0)
             self._previous_dry_times[ams_id] = current
+            if current > 0:
+                cycle = self._dry_cycles.get(ams_id)
+                if cycle is None or previous == 0:
+                    cycle = {
+                        "peak": current,
+                        # A rise from an observed 0 is the cycle's first minute.
+                        # A first sighting already counting down is not.
+                        "start_seen": seen_before,
+                        "target": self._drying_targets.get(ams_id),
+                    }
+                    self._dry_cycles[ams_id] = cycle
+                elif current > int(cycle["peak"]):
+                    cycle["peak"] = current
             # Stall detection: stamp value CHANGES only — a live countdown
             # decrements once a minute, so repeats of the same value within
             # the minute must not refresh the stamp, and a frame without a
@@ -3824,6 +3867,9 @@ class BambuMQTTClient:
                 self._log_drying_cycle_end(ams_id, previous, ams_unit, self._drying_targets.pop(ams_id, None))
                 if self.on_drying_complete:
                     self.on_drying_complete(ams_id)
+                cycle = self._dry_cycles.pop(ams_id, None) or {"peak": previous, "start_seen": False, "target": None}
+                if self.on_drying_cycle_end:
+                    self.on_drying_cycle_end(self._drying_cycle_end(ams_id, previous, cycle))
 
         # Create a hash of relevant AMS data to detect changes.
         # Hash the MERGED state, not the raw incoming ams_list: a removal signalled
@@ -3860,6 +3906,27 @@ class BambuMQTTClient:
         # it would miss exactly the confirmation we are after.
         if self._pending_assignments:
             self._check_assignment_verifications()
+
+    @staticmethod
+    def _drying_cycle_end(ams_id: int, remaining: int, cycle: dict[str, object]) -> DryingCycleEnd:
+        """Build the cycle-end report from the record kept while it ran."""
+        target = cycle.get("target")
+        target_temp: int | None = None
+        target_hours: int | None = None
+        if isinstance(target, dict):
+            try:
+                target_temp = int(target.get("temp") or 0) or None
+                target_hours = int(target.get("duration_hours") or 0) or None
+            except (TypeError, ValueError):
+                target_temp = target_hours = None
+        return DryingCycleEnd(
+            ams_id=ams_id,
+            remaining_minutes=remaining,
+            peak_minutes=max(int(cycle.get("peak") or 0), remaining),
+            start_seen=bool(cycle.get("start_seen")),
+            target_temp=target_temp,
+            target_hours=target_hours,
+        )
 
     def _log_drying_cycle_end(
         self,
@@ -6744,6 +6811,10 @@ class BambuMQTTClient:
                 "duration_hours": int(duration),
             }
             self._drying_stops_sent.discard(ams_id)
+            # A start sent while a cycle is still counting down replaces it
+            # without dry_time passing through 0; begin a fresh record so the
+            # new target and length are the ones reported (#2863).
+            self._dry_cycles.pop(ams_id, None)
         else:
             self._drying_targets.pop(ams_id, None)
             # Remember that this cycle's end is ours, so the cycle-end log

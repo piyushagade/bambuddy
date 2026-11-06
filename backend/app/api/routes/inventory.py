@@ -1666,6 +1666,11 @@ async def update_spool(
     # Auto-lock weight when user explicitly sets weight_used
     if "weight_used" in update_data and "weight_locked" not in update_data:
         update_data["weight_locked"] = True
+    # A drying date set by hand is not the AMS cycle the temperature and
+    # hours describe, so they go with it (#2863).
+    if "last_dried_at" in update_data:
+        update_data["last_dried_temp"] = None
+        update_data["last_dried_hours"] = None
 
     for field, value in update_data.items():
         setattr(spool, field, value)
@@ -1827,6 +1832,11 @@ async def bulk_update_spools(
     # per-spool PATCH behaviour so bulk edits don't desync the lock state.
     if "weight_used" in prepared and "weight_locked" not in prepared:
         prepared["weight_locked"] = True
+    # Same rule as the per-spool PATCH: a hand-set drying date drops the
+    # temperature and hours of the AMS cycle it replaces (#2863).
+    if "last_dried_at" in prepared:
+        prepared["last_dried_temp"] = None
+        prepared["last_dried_hours"] = None
 
     result = await db.execute(select(Spool).where(Spool.id.in_(payload.ids)))
     spools = {s.id: s for s in result.scalars().all()}

@@ -8505,3 +8505,110 @@ class TestAmsFilamentSettingRefusalLogging:
 
         assert self._refusals(caplog) == []
         assert "extrusion_cali_sel" not in caplog.text
+
+
+class TestDryingCycleEndReport:
+    """#2863 — the cycle-end report carries what was seen of the cycle, so the
+    spools in that AMS can be stamped as dried."""
+
+    @pytest.fixture
+    def mqtt_client(self):
+        from backend.app.services.bambu_mqtt import BambuMQTTClient
+
+        reports: list = []
+        client = BambuMQTTClient(
+            ip_address="192.168.1.100",
+            serial_number="TEST-DRYING-END",
+            access_code="12345678",
+            on_drying_cycle_end=reports.append,
+        )
+        client._client = MagicMock()
+        client._cycle_reports = reports
+        return client
+
+    @staticmethod
+    def _push(client, dry_time, info=None):
+        unit = {"id": "0", "dry_time": dry_time, "tray": []}
+        if info is not None:
+            unit["info"] = info
+        client._handle_ams_data({"ams": [unit]})
+
+    def test_cycle_watched_from_its_start(self, mqtt_client):
+        self._push(mqtt_client, 0)
+        self._push(mqtt_client, 360)
+        self._push(mqtt_client, 200)
+        self._push(mqtt_client, 1)
+        self._push(mqtt_client, 0)
+
+        [report] = mqtt_client._cycle_reports
+        assert report.ams_id == 0
+        assert report.peak_minutes == 360
+        assert report.remaining_minutes == 1
+        assert report.start_seen is True
+        assert report.target_temp is None
+
+    def test_first_sighting_mid_cycle_is_not_the_start(self, mqtt_client):
+        """Bambuddy came up while the AMS was already drying."""
+        self._push(mqtt_client, 200)
+        self._push(mqtt_client, 0)
+
+        [report] = mqtt_client._cycle_reports
+        assert report.start_seen is False
+        assert report.peak_minutes == 200
+
+    def test_target_survives_a_stop_sent_by_bambuddy(self, mqtt_client):
+        """A stop drops _drying_targets before the countdown reaches 0; the
+        report must still carry the temperature the cycle ran at."""
+        self._push(mqtt_client, 0)
+        mqtt_client.send_drying_command(0, 55, 8, mode=1, filament="PLA")
+        self._push(mqtt_client, 480)
+        self._push(mqtt_client, 100)
+        mqtt_client.send_drying_command(0, 0, 0, mode=0)
+        self._push(mqtt_client, 0)
+
+        [report] = mqtt_client._cycle_reports
+        assert report.target_temp == 55
+        assert report.target_hours == 8
+        assert report.remaining_minutes == 100
+
+    def test_transient_zero_does_not_split_the_cycle(self, mqtt_client):
+        """#2759's 720 → 0 → 719 blip while Checking is one cycle, not two."""
+        self._push(mqtt_client, 0)
+        self._push(mqtt_client, 720, info="11402113")
+        self._push(mqtt_client, 0, info="11402113")
+        self._push(mqtt_client, 719, info="11402123")
+        self._push(mqtt_client, 0, info="11402103")
+
+        [report] = mqtt_client._cycle_reports
+        assert report.peak_minutes == 720
+        assert report.start_seen is True
+
+    def test_next_cycle_starts_fresh(self, mqtt_client):
+        self._push(mqtt_client, 0)
+        mqtt_client.send_drying_command(0, 55, 8, mode=1, filament="PLA")
+        self._push(mqtt_client, 480)
+        self._push(mqtt_client, 0)
+        # Started from the printer screen this time: no target of ours.
+        self._push(mqtt_client, 120)
+        self._push(mqtt_client, 0)
+
+        first, second = mqtt_client._cycle_reports
+        assert first.target_temp == 55
+        assert second.target_temp is None
+        assert second.peak_minutes == 120
+
+    def test_new_start_during_a_live_cycle_begins_a_fresh_record(self, mqtt_client):
+        """A start sent while a cycle still counts down replaces it without
+        dry_time passing through 0; the report is about the new run."""
+        self._push(mqtt_client, 0)
+        mqtt_client.send_drying_command(0, 55, 8, mode=1, filament="PLA")
+        self._push(mqtt_client, 480)
+        self._push(mqtt_client, 400)
+        mqtt_client.send_drying_command(0, 65, 2, mode=1, filament="PETG")
+        self._push(mqtt_client, 120)
+        self._push(mqtt_client, 0)
+
+        [report] = mqtt_client._cycle_reports
+        assert report.target_temp == 65
+        assert report.target_hours == 2
+        assert report.peak_minutes == 120

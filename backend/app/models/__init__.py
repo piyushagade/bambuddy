@@ -11,6 +11,7 @@ from backend.app.models.filament import Filament
 from backend.app.models.github_backup import GitHubBackupConfig, GitHubBackupLog
 from backend.app.models.group import Group, user_groups
 from backend.app.models.kprofile_note import KProfileNote
+from backend.app.models.label_template import LabelTemplate
 from backend.app.models.library import FileVariantGroup, LibraryFile, LibraryFolder, LibraryFolderPermission
 from backend.app.models.local_preset import LocalPreset
 from backend.app.models.location import Location
@@ -75,6 +76,7 @@ __all__ = [
     "LibraryFolderPermission",
     "LibraryFile",
     "FileVariantGroup",
+    "LabelTemplate",
     "Location",
     "User",
     "Group",

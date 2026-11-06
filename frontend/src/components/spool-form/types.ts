@@ -47,6 +47,9 @@ export interface SpoolFormData {
   location_id: number | null;
   allowed_group_ids: number[];
   allowed_user_ids: number[];
+  // Last drying (#2863), as a datetime-local value in the browser's time zone.
+  // Empty means never dried. Only shown and sent when editing.
+  last_dried_at: string;
   // When set the spool is linked to a specific Spoolman filament catalog entry;
   // the backend skips find_or_create_filament() and uses this ID directly.
   spoolman_filament_id: number | null;
@@ -73,6 +76,7 @@ export const defaultFormData: SpoolFormData = {
   location_id: null,
   allowed_group_ids: [],
   allowed_user_ids: [],
+  last_dried_at: '',
   spoolman_filament_id: null,
 };
 
@@ -226,6 +230,9 @@ export interface AdditionalSectionProps extends SectionProps {
   globalLowStockThreshold: number;
   availableLocations?: { id: number; name: string }[];
   onCreateLocation?: (name: string) => Promise<{ id: number; name: string } | null>;
+  // When true the "Last dried" field is shown. Edit mode only: a new spool
+  // has no drying record to correct (#2863).
+  showLastDried?: boolean;
   // When true the material number input is hidden: in Spoolman mode the
   // number is Spoolman's filament-level article_number, maintained in
   // Spoolman itself and shown read-only in the list (#2870).

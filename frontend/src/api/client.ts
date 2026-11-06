@@ -3819,9 +3819,37 @@ export const DEFAULT_SPOOL_LABEL_FIELDS: SpoolLabelField[] = [
   'spool_id',
 ];
 
+// A sheet of identical labels in a grid, in millimetres (#3296). Mirror of
+// backend.app.schemas.label_template.SheetLayoutSpec.
+export type LabelPageSize = 'a4' | 'letter';
+export interface LabelSheetLayout {
+  page: LabelPageSize;
+  label_w_mm: number;
+  label_h_mm: number;
+  cols: number;
+  rows: number;
+  top_mm: number;
+  left_mm: number;
+  col_gap_mm: number;
+  row_gap_mm: number;
+}
+
+// A custom sheet saved under a name, shared by everyone on the install.
+export interface SavedLabelTemplate {
+  id: number;
+  name: string;
+  layout: LabelSheetLayout;
+  created_at: string;
+  updated_at: string;
+}
+
+// A built-in template, or "custom" with the sheet itself in ``layout``.
+export type SpoolLabelRequestTemplate = SpoolLabelTemplate | 'custom';
+
 export interface PrintSpoolLabelsRequest {
   spool_ids: number[];
-  template: SpoolLabelTemplate;
+  template: SpoolLabelRequestTemplate;
+  layout?: LabelSheetLayout;
   monochrome: boolean;
   starting_position: number;
   fields?: SpoolLabelField[];
@@ -3831,7 +3859,8 @@ export interface PrintSpoolLabelsRequest {
 
 export interface PreviewSpoolLabelRequest {
   spool_id: number;
-  template: SpoolLabelTemplate;
+  template: SpoolLabelRequestTemplate;
+  layout?: LabelSheetLayout;
   monochrome: boolean;
   fields: SpoolLabelField[];
 }
@@ -3872,6 +3901,11 @@ export interface InventorySpool {
   note: string | null;
   added_full: boolean | null;
   last_used: string | null;
+  // Last drying (#2863): stamped when an AMS drying run of at least half its
+  // length ends, or set by hand. Temperature and hours are null when unknown.
+  last_dried_at?: string | null;
+  last_dried_temp?: number | null;
+  last_dried_hours?: number | null;
   encode_time: string | null;
   tag_uid: string | null;
   tray_uuid: string | null;
@@ -7168,6 +7202,12 @@ export const api = {
     postForBlob('/inventory/labels/preview', data, signal),
   previewSpoolmanSpoolLabel: (data: PreviewSpoolLabelRequest, signal?: AbortSignal): Promise<Blob> =>
     postForBlob('/spoolman/labels/preview', data, signal),
+  getLabelTemplates: () => request<SavedLabelTemplate[]>('/label-templates'),
+  createLabelTemplate: (data: { name: string; layout: LabelSheetLayout }) =>
+    request<SavedLabelTemplate>('/label-templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateLabelTemplate: (id: number, data: { name: string; layout: LabelSheetLayout }) =>
+    request<SavedLabelTemplate>(`/label-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteLabelTemplate: (id: number) => request<void>(`/label-templates/${id}`, { method: 'DELETE' }),
   getSpoolCatalog: () =>
     request<SpoolCatalogEntry[]>('/inventory/catalog'),
   addCatalogEntry: (data: { name: string; weight: number }) =>

@@ -3071,3 +3071,43 @@ class TestPerSpoolCoreWeight:
 
         assert response.status_code == 200
         assert mock_spoolman_client.update_spool_full.call_args.kwargs["remaining_weight"] == 620.0
+
+
+class TestSpoolmanLastDried:
+    """#2863 — a drying date set by hand round-trips through spool.extra."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_hand_set_date_writes_utc_and_clears_temperature_and_hours(
+        self,
+        async_client: AsyncClient,
+        spoolman_settings,
+        mock_spoolman_client,
+    ):
+        response = await async_client.patch(
+            "/api/v1/spoolman/inventory/spools/42", json={"last_dried_at": "2026-10-06T14:30:00+02:00"}
+        )
+
+        assert response.status_code == 200
+        mock_spoolman_client.merge_spool_extra.assert_called_once_with(
+            42,
+            {
+                "bambu_last_dried_at": json.dumps("2026-10-06T12:30:00"),
+                "bambu_last_dried_temp": json.dumps(""),
+                "bambu_last_dried_hours": json.dumps(""),
+            },
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_null_clears_the_date(
+        self,
+        async_client: AsyncClient,
+        spoolman_settings,
+        mock_spoolman_client,
+    ):
+        response = await async_client.patch("/api/v1/spoolman/inventory/spools/42", json={"last_dried_at": None})
+
+        assert response.status_code == 200
+        fields = mock_spoolman_client.merge_spool_extra.call_args.args[1]
+        assert fields["bambu_last_dried_at"] == json.dumps("")
