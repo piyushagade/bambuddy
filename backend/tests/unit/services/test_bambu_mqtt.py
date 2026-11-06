@@ -2691,6 +2691,23 @@ class TestResolveLocalSlotFromMapping:
         # AMS-HT id=128: snow = 128*256 + 0 = 32768
         assert BambuMQTTClient._resolve_local_slot_from_mapping(0, [32768]) == 128
 
+    def test_units_narrow_ambiguous_match(self):
+        from backend.app.services.bambu_mqtt import BambuMQTTClient
+
+        # AMS0 slot1 and AMS2 slot1 both mapped; only AMS 2 is on this extruder
+        assert BambuMQTTClient._resolve_local_slot_from_mapping(1, [1, 513], [1, 2]) == 9
+
+    def test_units_do_not_drop_a_single_match(self):
+        from backend.app.services.bambu_mqtt import BambuMQTTClient
+
+        # One candidate stands even when the extruder map doesn't list its unit
+        assert BambuMQTTClient._resolve_local_slot_from_mapping(2, [514], [0]) == 10
+
+    def test_units_still_ambiguous_returns_none(self):
+        from backend.app.services.bambu_mqtt import BambuMQTTClient
+
+        assert BambuMQTTClient._resolve_local_slot_from_mapping(3, [3, 259], [0, 1]) is None
+
 
 # ---------------------------------------------------------------------------
 # 3. H2D Pro — initial state detection
@@ -2843,10 +2860,16 @@ class TestTrayNowDualNozzleH2DSetup:
         }
         mqtt_client._process_message(payload)
 
-        # Dual-nozzle was detected; AMS 0 on right extruder (active by default);
-        # snow is 0xFF00FF (unloaded), so falls through to ams_extruder_map fallback.
-        # Single AMS on extruder 0 → global_id = 0*4+2 = 2
+        # Dual-nozzle was detected; snow is 0xFF00FF (unloaded), so the
+        # ams_extruder_map fallback runs. The map is built from this same
+        # report only after tray_now, so the slot can't be placed yet and
+        # nothing is guessed (#3242).
         assert mqtt_client._is_dual_nozzle is True
+        assert mqtt_client.state.ams_extruder_map == {"0": 0}
+        assert mqtt_client.state.tray_now == 255
+
+        # The next report finds AMS 0 alone on the active extruder → 0*4+2 = 2
+        mqtt_client._process_message(_ams_payload(2))
         assert mqtt_client.state.tray_now == 2
 
 
@@ -3062,12 +3085,21 @@ class TestTrayNowDualNozzleH2DFallback(_H2DFixtureMixin):
         h2d_client._process_message(_ams_payload(1))
         assert h2d_client.state.tray_now == 5
 
-    def test_no_ams_on_extruder_uses_raw_slot(self, h2d_client):
-        """No AMS mapped to the active extruder → raw slot as global ID."""
+    def test_no_ams_on_extruder_keeps_current(self, h2d_client):
+        """No AMS mapped to the active extruder → the slot can't be placed, keep current (#3242)."""
         # All AMS on left extruder, but right is active
         h2d_client.state.ams_extruder_map = {"0": 1, "128": 1}
+        h2d_client.state.tray_now = 255
         h2d_client._process_message(_ams_payload(2))
-        assert h2d_client.state.tray_now == 2
+        assert h2d_client.state.tray_now == 255
+
+    def test_no_ams_on_extruder_resolved_from_mapping(self, h2d_client):
+        """No AMS the map knows of, but the print's mapping names one tray at the slot (#3242)."""
+        h2d_client.state.ams_extruder_map = {"0": 1, "128": 1}
+        h2d_client.state.raw_data["mapping"] = [514]  # AMS 2 slot 2
+        h2d_client._was_running = True
+        h2d_client._process_message(_ams_payload(2))
+        assert h2d_client.state.tray_now == 10
 
     def test_single_ams_ht_on_extruder_returns_unit_id(self, h2d_client):
         """AMS-HT 128 alone on left extruder, slot 0 → global ID 128 (not 512)."""
@@ -3106,7 +3138,74 @@ class TestTrayNowDualNozzleH2DFallback(_H2DFixtureMixin):
         h2d_client.state.tray_now = 255
         # Slot 3 → excludes AMS-HT, but AMS 0 and AMS 1 both remain → ambiguous
         h2d_client._process_message(_ams_payload(3))
-        assert h2d_client.state.tray_now == 3  # raw slot fallback
+        assert h2d_client.state.tray_now == 255  # kept, never the bare slot (#3242)
+
+    def test_multiple_ams_resolved_from_mapping(self, h2d_client):
+        """#3242: three AMS on one extruder, the print feeds from AMS 2 slot 1.
+        The printer's mapping names that tray, so AMS 0 slot 1 is never marked."""
+        h2d_client.state.ams_extruder_map = {"0": 0, "1": 0, "2": 0}
+        h2d_client.state.raw_data["mapping"] = [65535, 513]  # AMS 2 slot 1
+        h2d_client._was_running = True
+        h2d_client._process_message(_ams_payload(1))
+        assert h2d_client.state.tray_now == 9
+
+    def test_mapping_ignored_while_idle(self, h2d_client):
+        """An idle H2 keeps reporting the previous print's mapping. A spool
+        swap at AMS 0 slot 1 must not be placed on that print's AMS 2 tray."""
+        h2d_client.state.ams_extruder_map = {"0": 0, "1": 0, "2": 0}
+        h2d_client.state.raw_data["mapping"] = [513]  # left over: AMS 2 slot 1
+        h2d_client.state.tray_now = 255
+        assert h2d_client._was_running is False
+        h2d_client._process_message(_ams_payload(1))
+        assert h2d_client.state.tray_now == 255
+
+    def test_mapping_ignored_after_print_completed(self, h2d_client):
+        h2d_client.state.ams_extruder_map = {"0": 0, "1": 0, "2": 0}
+        h2d_client.state.raw_data["mapping"] = [513]
+        h2d_client.state.tray_now = 255
+        h2d_client._was_running = True
+        h2d_client._completion_triggered = True
+        h2d_client._process_message(_ams_payload(1))
+        assert h2d_client.state.tray_now == 255
+
+    def test_mapping_narrowed_to_active_extruder(self, h2d_client):
+        """Two mapped trays share the slot; only one is on the active extruder."""
+        h2d_client.state.ams_extruder_map = {"0": 1, "1": 0, "2": 0}
+        h2d_client.state.raw_data["mapping"] = [1, 513]  # AMS 0 slot 1 (left), AMS 2 slot 1 (right)
+        h2d_client._was_running = True
+        h2d_client._process_message(_ams_payload(1))
+        assert h2d_client.state.tray_now == 9
+
+    def test_ambiguous_mapping_keeps_current(self, h2d_client):
+        """Multi-colour print: the mapping has the slot on two units of this extruder.
+        Keep the tray that was loaded until snow names the new one."""
+        h2d_client.state.ams_extruder_map = {"0": 0, "1": 0}
+        h2d_client.state.raw_data["mapping"] = [3, 259, 256]  # AMS 0 slot 3, AMS 1 slot 3, AMS 1 slot 0
+        h2d_client.state.tray_now = 4
+        h2d_client._was_running = True
+        h2d_client._process_message(_ams_payload(3))
+        assert h2d_client.state.tray_now == 4
+
+    def test_ambiguous_slot_stays_out_of_tray_change_log(self, h2d_client):
+        """#3242: a mid-print filament change reports the slot about a second
+        before snow. The guess must not land in the usage change log."""
+        h2d_client.state.ams_extruder_map = {"0": 0, "1": 0}
+        h2d_client.state.tray_now = 5
+        h2d_client.state.last_loaded_tray = 5
+        h2d_client.state.tray_change_log = [(5, 0)]
+        h2d_client._was_running = True
+        h2d_client._completion_triggered = False
+        h2d_client.state.layer_num = 120
+
+        h2d_client._process_message(_ams_payload(3))
+        assert h2d_client.state.tray_now == 5
+        assert h2d_client.state.tray_change_log == [(5, 0)]
+
+        # Snow arrives and names AMS 1 slot 3
+        h2d_client._process_message(_extruder_info_payload([{"id": 0, "snow": 0x0103}, {"id": 1, "snow": 0xFFFF}]))
+        h2d_client._process_message(_ams_payload(3))
+        assert h2d_client.state.tray_now == 7
+        assert h2d_client.state.tray_change_log == [(5, 0), (7, 120)]
 
 
 # ---------------------------------------------------------------------------
@@ -7093,6 +7192,84 @@ class TestCommandAckIsNotTelemetry:
         mqtt_client._process_message({"print": {"cfg": "C0340FC219"}})  # bit18=1
 
         assert mqtt_client.state.ams_filament_backup is True
+
+    @staticmethod
+    def _full_status(**fields):
+        """A full status report: home_flag is only read from one (>30 keys)."""
+        frame = {"command": "push_status", **{f"filler_{i}": 0 for i in range(30)}}
+        frame.update(fields)
+        return {"print": frame}
+
+    def test_full_status_home_flag_sets_backup_state_without_cfg(self, mqtt_client):
+        """P1S / P1P / A1 never send cfg; home_flag bit 10 carries the state (#3259)."""
+        assert mqtt_client.state.ams_filament_backup is None
+
+        mqtt_client._process_message(self._full_status(home_flag=7554719))  # bit10=1
+
+        assert mqtt_client.state.ams_filament_backup is True
+
+        mqtt_client._process_message(self._full_status(home_flag=7554719 & ~(1 << 10)))
+
+        assert mqtt_client.state.ams_filament_backup is False
+
+    def test_small_frame_home_flag_is_ignored(self, mqtt_client):
+        """Heartbeat-style frames carry a partial home_flag (H2D, SD-card badge)."""
+        mqtt_client.state.ams_filament_backup = True
+
+        mqtt_client._process_message({"print": {"command": "push_status", "home_flag": 0}})
+
+        assert mqtt_client.state.ams_filament_backup is True
+
+    def test_home_flag_ignored_once_printer_sent_cfg(self, mqtt_client):
+        """Printers that send cfg keep reading it alone, even in full reports without it."""
+        mqtt_client._process_message(self._full_status(cfg="C0340FC219", home_flag=1 << 10))  # bit18=1
+        assert mqtt_client.state.ams_filament_backup is True
+
+        mqtt_client._process_message(self._full_status(home_flag=0))
+
+        assert mqtt_client.state.ams_filament_backup is True
+
+    def test_cfg_wins_over_home_flag_in_same_frame(self, mqtt_client):
+        mqtt_client._process_message(self._full_status(cfg="C0340BC219", home_flag=1 << 10))  # bit18=0
+
+        assert mqtt_client.state.ams_filament_backup is False
+
+    def test_ack_home_flag_is_not_read_as_backup_state(self, mqtt_client):
+        frame = self._full_status(home_flag=7554719)
+        frame["print"]["command"] = "project_file"
+
+        mqtt_client._process_message(frame)
+
+        assert mqtt_client.state.ams_filament_backup is None
+
+    def test_home_flag_respects_toggle_hold(self, mqtt_client):
+        """A stale home_flag right after a toggle must not flip the badge back."""
+        mqtt_client.set_ams_filament_backup(True)
+
+        mqtt_client._process_message(self._full_status(home_flag=7554719 & ~(1 << 10)))
+
+        assert mqtt_client.state.ams_filament_backup is True
+
+    def test_home_flag_probe_logs_each_change_with_frame_size(self, mqtt_client, caplog):
+        """#3259 probe: small frames are logged too, but only when home_flag changes."""
+        caplog.set_level(logging.DEBUG, logger="backend.app.services.bambu_mqtt")
+
+        mqtt_client._process_message(self._full_status(home_flag=7554719))  # bit10=1
+        mqtt_client._process_message({"print": {"command": "push_status", "home_flag": 7554719}})
+        mqtt_client._process_message({"print": {"command": "push_status", "home_flag": -1024}})
+
+        probes = [r.getMessage() for r in caplog.records if "home_flag probe" in r.getMessage()]
+        assert len(probes) == 2
+        assert "0x0073469F bit10=1 keys=32" in probes[0]
+        assert "0xFFFFFC00 bit10=1 keys=2" in probes[1]
+
+    def test_home_flag_probe_silent_once_printer_sent_cfg(self, mqtt_client, caplog):
+        caplog.set_level(logging.DEBUG, logger="backend.app.services.bambu_mqtt")
+
+        mqtt_client._process_message(self._full_status(cfg="C0340FC219"))
+        mqtt_client._process_message({"print": {"command": "push_status", "home_flag": 0}})
+
+        assert not [r for r in caplog.records if "home_flag probe" in r.getMessage()]
 
     def test_project_file_ack_does_not_clear_timelapse_state(self, mqtt_client):
         """The ack echoes the per-job timelapse request, not the recorder."""

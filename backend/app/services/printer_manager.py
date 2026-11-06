@@ -706,6 +706,11 @@ class PrinterManager:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
 
             def handle_exception(f):
+                # Stopping the loop cancels callbacks still pending. That is
+                # shutdown, not a failure (#3243), and concurrent.futures'
+                # CancelledError is an Exception, so it would be logged below.
+                if f.cancelled():
+                    return
                 try:
                     # This will re-raise any exception from the coroutine
                     f.result()
@@ -798,7 +803,7 @@ class PrinterManager:
             if self._on_tray_change:
                 self._schedule_async(self._on_tray_change(printer_id, tray_global, layer_num))
 
-        if getattr(printer, "is_remote", False) and printer.remote_server_url and printer.remote_printer_id:
+        if getattr(printer, "is_remote", False) is True and printer.remote_server_url and printer.remote_printer_id:
             from backend.app.services.remote_bambuddy import RemoteBambuddyClient
 
             remote_client = RemoteBambuddyClient(

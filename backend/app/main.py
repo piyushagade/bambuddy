@@ -477,13 +477,18 @@ _kill_switch_setting_cache: tuple[bool, float] | None = None
 # provider notification when the immediate attempt failed.
 _kill_switch_notification_tasks: dict[int, asyncio.Task[bool]] = {}
 
-# Track HMS errors that have been notified: {printer_id: set of error codes}
-# This prevents sending duplicate notifications for the same error
-_notified_hms_errors: dict[int, set[str]] = {}
-# Track when HMS errors were last seen: {printer_id: timestamp}
-# Used to debounce clearing — prevents flapping errors from re-triggering notifications
-_hms_last_seen: dict[int, float] = {}
-_HMS_CLEAR_GRACE_SECONDS = 30.0
+# HMS faults already notified, with when each was last seen:
+# {printer_id: {fault key: timestamp}}. Tracked per fault, not per printer: a
+# fault that flickers beside a held notice was forgotten on every gap and
+# notified on every return (#3226). The window is long because the measured
+# gaps reach 64 s.
+_notified_hms_errors: dict[int, dict[str, float]] = {}
+_HMS_CLEAR_GRACE_SECONDS = 600.0
+# The print state each printer was last seen in, and the faults recorded before
+# it last changed, which are forgotten as soon as they are gone (see
+# _take_new_hms_faults).
+_hms_print_state: dict[int, str] = {}
+_hms_forget_when_gone: dict[int, set[str]] = {}
 
 # Track timelapse file baselines at print start: {printer_id: set of video filenames}
 # Used for snapshot-diff detection at print completion
@@ -1493,18 +1498,46 @@ def _hms_errors_to_notify(errors: list, new_error_codes: set[str]) -> list:
     return [e for e in errors if _hms_notify_key(e) in new_error_codes and _hms_fault_counts(e)]
 
 
-def _take_new_hms_faults(printer_id: int, errors: list) -> list:
+def _take_new_hms_faults(printer_id: int, errors: list, print_state: str | None = None) -> list:
     """The faults on this printer not notified yet, and record them as notified.
 
     Tracking is updated before anything is sent, so concurrent status callbacks
-    cannot notify the same fault twice. The set is replaced, not extended: a
-    fault that clears and later returns is notified again, and the grace period
-    in the caller keeps a fault that flickers off for a moment from doing that.
+    cannot notify the same fault twice. A notified fault is forgotten once it
+    has been gone for ``_HMS_CLEAR_GRACE_SECONDS``, so one that flickers off
+    and on is notified once (#3226), while one that clears and comes back much
+    later is notified again.
+
+    When ``print_state`` changes (a print resumed, started or finished), every
+    fault recorded so far is forgotten the first time it is gone, without the
+    wait: a runout fixed before resuming must be notified if it happens again a
+    few minutes later, while the printer sits paused. Not only the faults gone
+    at the change itself, because the update that flips the state can still
+    carry the old fault (a ``print_error`` entry stays until a payload brings
+    ``hms``).
     """
+    now = time.time()
     current = {_hms_notify_key(e) for e in errors}
-    new = current - _notified_hms_errors.get(printer_id, set())
-    _notified_hms_errors[printer_id] = current
-    _hms_last_seen[printer_id] = time.time()
+    seen = _notified_hms_errors.setdefault(printer_id, {})
+    forget_when_gone = _hms_forget_when_gone.setdefault(printer_id, set())
+
+    if print_state is not None:
+        print_state = print_state.upper()
+        if _hms_print_state.get(printer_id, print_state) != print_state:
+            forget_when_gone.update(seen)
+        _hms_print_state[printer_id] = print_state
+
+    for key, last_seen in list(seen.items()):
+        if key not in current and (key in forget_when_gone or now - last_seen >= _HMS_CLEAR_GRACE_SECONDS):
+            del seen[key]
+            forget_when_gone.discard(key)
+
+    new = current - seen.keys()
+    for key in current:
+        seen[key] = now
+    if not seen:
+        _notified_hms_errors.pop(printer_id, None)
+    if not forget_when_gone:
+        _hms_forget_when_gone.pop(printer_id, None)
     return _hms_errors_to_notify(errors, new)
 
 
@@ -1927,7 +1960,7 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
     # Check for new HMS errors and send notifications
     current_hms_errors = getattr(state, "hms_errors", []) or []
     if current_hms_errors:
-        new_errors = _take_new_hms_faults(printer_id, current_hms_errors)
+        new_errors = _take_new_hms_faults(printer_id, current_hms_errors, state.state)
 
         if new_errors:
             try:
@@ -2009,15 +2042,10 @@ async def on_printer_status_change(printer_id: int, state: PrinterState):
                 logging.getLogger(__name__).warning(f"HMS error notification failed: {e}")
 
     else:
-        # No HMS errors — only clear tracking after a grace period to prevent
-        # flapping errors (brief hms:[] gaps) from re-triggering notifications.
-        # Some HMS codes (e.g. chamber temp regulation during PETG prints) toggle
-        # on/off every few seconds as conditions fluctuate around thresholds.
-        if printer_id in _notified_hms_errors:
-            last_seen = _hms_last_seen.get(printer_id, 0)
-            if time.time() - last_seen >= _HMS_CLEAR_GRACE_SECONDS:
-                _notified_hms_errors.pop(printer_id, None)
-                _hms_last_seen.pop(printer_id, None)
+        # No HMS errors: nothing to send, but faults gone long enough (or gone
+        # across a print state change) are forgotten. Some codes, e.g. chamber
+        # temperature regulation during PETG prints, toggle every few seconds.
+        _take_new_hms_faults(printer_id, [], state.state)
 
     await ws_manager.send_printer_status(
         printer_id,
@@ -4538,6 +4566,12 @@ async def on_print_start(printer_id: int, data: dict):
         # subtask_id is missing ("0" / local / non-cloud prints).
         if existing_archive is None:
             check_name = subtask_name or filename.split("/")[-1].replace(".gcode", "").replace(".3mf", "")
+            archive_filenames = [f"{check_name}.3mf", f"{check_name}.gcode.3mf"]
+            # A print started from the printer's screen names its file in full,
+            # so the forms above double its extension. The file itself is the
+            # one exact match, and nothing looser is added (#3009).
+            if _subtask_is_the_file(subtask_name, filename):
+                archive_filenames.append(subtask_name)
             existing = await db.execute(
                 select(PrintArchive)
                 .where(PrintArchive.printer_id == printer_id)
@@ -4545,12 +4579,7 @@ async def on_print_start(printer_id: int, data: dict):
                 .where(
                     or_(
                         PrintArchive.print_name == check_name,
-                        PrintArchive.filename.in_(
-                            [
-                                f"{check_name}.3mf",
-                                f"{check_name}.gcode.3mf",
-                            ]
-                        ),
+                        PrintArchive.filename.in_(archive_filenames),
                     )
                 )
                 .order_by(PrintArchive.created_at.desc())
@@ -4651,9 +4680,15 @@ async def on_print_start(printer_id: int, data: dict):
         # Bambu printers typically store files as "Name.gcode.3mf"
         # The subtask_name is usually the best source for the filename
         if subtask_name:
-            # Try common Bambu naming patterns
-            possible_names.append(f"{subtask_name}.gcode.3mf")
-            possible_names.append(f"{subtask_name}.3mf")
+            if _subtask_is_the_file(subtask_name, filename):
+                # A print started from the printer's own screen reports the
+                # file's full name, extension included. That is the file, so
+                # no extension is appended to it (#3009).
+                possible_names.append(subtask_name)
+            else:
+                # Try common Bambu naming patterns
+                possible_names.append(f"{subtask_name}.gcode.3mf")
+                possible_names.append(f"{subtask_name}.3mf")
 
         # Try original filename with .3mf extension
         if filename:
@@ -6321,6 +6356,46 @@ async def prime_kprofile_table(printer_id: int) -> int:
     return primed
 
 
+def _sd_files_in_use(state) -> set[str]:
+    """Names of the SD-card files the printer may be printing right now (#3009).
+
+    The post-print cleanup works out what to delete from the finished archive,
+    not from the printer. When reconciliation closes an old archive because the
+    printer has moved on to a new job, and that job is the same file reprinted
+    from the printer's screen, the cleanup would delete the file mid-print.
+
+    Empty unless the printer is busy: on an ordinary completion the state is
+    FINISH or FAILED and nothing is held back. ``gcode_file`` arrives as a bare
+    name, a path or a URL depending on firmware, and some report only the
+    plate's G-code, so the job name is matched as well, in the same spellings
+    the cleanup tries. Names are lower-cased; the card's FAT filesystem
+    ignores case.
+    """
+
+    def _text(value) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    if state is None:
+        return set()
+    current_state = _text(getattr(state, "state", None)).upper()
+    if current_state in ("", "UNKNOWN", "IDLE", "FINISH", "FAILED"):
+        return set()
+    in_use: set[str] = set()
+    gcode_file = _text(getattr(state, "gcode_file", None))
+    if gcode_file:
+        # Drop a scheme by hand: urlparse would cut a name at "#" or "?",
+        # both legal in a file name, and raises on some inputs.
+        name = PurePosixPath(gcode_file.split("://", 1)[-1]).name
+        if name:
+            in_use.add(name.lower())
+    subtask_name = _text(getattr(state, "subtask_name", None))
+    if subtask_name:
+        for name in (subtask_name, subtask_name.replace(" ", "_")):
+            for ext in (".3mf", ".gcode"):
+                in_use.add(f"{name}{ext}".lower())
+    return in_use
+
+
 async def reconcile_stale_active_prints(printer_id: int) -> int:
     """Synthesise ``on_print_complete`` for archives whose print can't be
     running on the printer anymore.
@@ -6842,6 +6917,19 @@ def _subtask_name_from_filename(filename: str) -> str:
     return name
 
 
+def _subtask_is_the_file(subtask_name: str, filename: str) -> bool:
+    """Whether the subtask name is the printed 3MF's own file name.
+
+    A print started from the printer's screen reports the same full name, with
+    its extension, as both subtask and file (#3009). A dispatched print reports
+    a bare subtask name; one that merely ends in ".3mf" can be a model named
+    that, whose file is ``Foo.3mf.gcode.3mf``, so it does not count.
+    """
+    if not subtask_name or not subtask_name.lower().endswith(".3mf"):
+        return False
+    return PurePosixPath((filename or "").split("://", 1)[-1]).name == subtask_name
+
+
 # How the printer marks a subtask name it had to cut short. Observed on real
 # hardware at ~100 characters, but the cut-off is not a fixed character count
 # (a name with multibyte characters came back at 98), so match the marker
@@ -6861,8 +6949,12 @@ def _normalise_subtask_name(name: str) -> str:
     directory search normalises both sides before comparing. This exists so
     the completion check reads the same rule from the same place instead of
     growing its own, which is exactly how it came to disagree (#2829).
+
+    A space at either end is substituted too: ``Part .gcode.3mf`` is
+    dispatched as ``Part `` and echoed as ``Part_``. Underscores at the ends
+    are dropped after the substitution so both sides agree (#3241).
     """
-    return name.strip().replace(" ", "_").casefold()
+    return name.strip().replace(" ", "_").strip("_").casefold()
 
 
 def _subtask_names_match(expected: str, observed: str) -> bool:
@@ -6881,7 +6973,13 @@ def _subtask_names_match(expected: str, observed: str) -> bool:
     # echoes, and an archive whose own filename was recorded from a previous
     # truncated echo carries the marker too.
     for full, cut in ((expected_n, observed_n), (observed_n, expected_n)):
-        if cut.endswith(_SUBTASK_TRUNCATION_MARKER) and full.startswith(cut[: -len(_SUBTASK_TRUNCATION_MARKER)]):
+        if not cut.endswith(_SUBTASK_TRUNCATION_MARKER):
+            continue
+        # The full side has lost its edge underscores; a cut that lands right
+        # after one keeps it, so drop it here too (#3241). Nothing left before
+        # the marker is no evidence of anything, and must not match every name.
+        kept = cut[: -len(_SUBTASK_TRUNCATION_MARKER)].rstrip("_")
+        if kept and full.startswith(kept):
             return True
     return False
 
@@ -6967,6 +7065,121 @@ async def _recover_fallback_from_cache_before_eviction(printer_id: int, data: di
                 return
         except Exception as e:
             logger.debug("[RECOVER] Pre-eviction recovery for %s failed: %s", name, e)
+
+
+async def _cleanup_sd_card_after_print(
+    printer_id: int, subtask_name: str | None, archive_id: int | None, logger
+) -> None:
+    """Delete a finished print's file from the printer's SD card."""
+    # Cleanup: delete uploaded file from printer SD card to prevent phantom prints (Issue #374, #1542)
+    # The print scheduler uploads files to the SD card root (/). Some printers (e.g. P1S, A1)
+    # auto-start files found in root on power cycle, causing ghost prints.
+    # Must run before the archive_id early-return so it executes even when archiving is disabled.
+    try:
+        if subtask_name:
+            archive_filename: str | None = None
+            async with async_session() as db:
+                from backend.app.models.archive import PrintArchive
+                from backend.app.models.printer import Printer
+
+                result = await db.execute(select(Printer).where(Printer.id == printer_id))
+                printer = result.scalar_one_or_none()
+                if archive_id:
+                    archive_row = await db.execute(select(PrintArchive.filename).where(PrintArchive.id == archive_id))
+                    archive_filename = archive_row.scalar_one_or_none()
+
+            if printer:
+                from backend.app.services.bambu_ftp import DeleteResult, delete_file_async
+                from backend.app.utils.filename import derive_remote_filename
+
+                # Primary candidate: the exact path the dispatcher uploaded to
+                # (derived from archive.filename via the same rule as upload).
+                # Without it, a library row that ended up with a doubled
+                # .gcode.3mf (#1542) leaves the real file behind because the
+                # subtask_name + ext fallbacks below don't match what's on the
+                # SD card. Fallbacks remain for archive-less prints (subtask
+                # never resolved to an archive) and for older naming variants.
+                candidate_paths: list[str] = []
+                if archive_filename:
+                    candidate_paths.append(f"/{derive_remote_filename(archive_filename)}")
+                for ext in (".3mf", ".gcode"):
+                    fallback = f"/{subtask_name}{ext}"
+                    if fallback not in candidate_paths:
+                        candidate_paths.append(fallback)
+
+                # Three outcomes track across all candidates so the final log
+                # line reflects what actually happened. The A1 in #1721 always
+                # ends here with ``any_not_found=True`` and the others False
+                # — its firmware auto-cleans the SD card before our cleanup
+                # runs, every candidate FTP-DELE returns 550, and the old
+                # code burned 3 retries × 2 s × 3 candidates per print
+                # logging a misleading "may linger" WARNING on a successful
+                # print.
+                any_deleted = False
+                any_real_failure = False
+                any_not_found = False
+
+                files_in_use = _sd_files_in_use(printer_manager.get_status(printer_id))
+
+                for remote_path in candidate_paths:
+                    if PurePosixPath(remote_path).name.lower() in files_in_use:
+                        logger.info(
+                            "SD card cleanup: keeping %s on printer %s, which is printing it now",
+                            remote_path,
+                            printer.name,
+                        )
+                        continue
+                    # Retry only the FAILED case — 550 NOT_FOUND will never
+                    # recover by waiting, so a "file isn't here" answer
+                    # advances immediately to the next candidate without
+                    # consuming the retry budget.
+                    for attempt in range(1, 4):
+                        try:
+                            delete_result = await delete_file_async(
+                                printer.ip_address,
+                                printer.access_code,
+                                remote_path,
+                                printer_model=printer.model,
+                            )
+                        except Exception as e:
+                            delete_result = DeleteResult.FAILED
+                            logger.warning(
+                                "SD card cleanup attempt %d/3 raised for %s: %s",
+                                attempt,
+                                remote_path,
+                                e,
+                            )
+
+                        if delete_result == DeleteResult.DELETED:
+                            any_deleted = True
+                            logger.info("Deleted %s from printer %s SD card", remote_path, printer.name)
+                            break
+                        if delete_result == DeleteResult.NOT_FOUND:
+                            any_not_found = True
+                            break  # 550 will not recover; try next candidate
+                        # FAILED: real error — retry with backoff, then give up
+                        if attempt < 3:
+                            await asyncio.sleep(2)
+                        else:
+                            any_real_failure = True
+                            logger.warning(
+                                "SD card cleanup failed after 3 attempts for %s "
+                                "(network/auth/transient error — file may linger on SD card)",
+                                remote_path,
+                            )
+
+                if not any_deleted and not any_real_failure and any_not_found:
+                    # Every candidate said "not here." Either the printer
+                    # firmware swept the SD card itself (common on A1) or the
+                    # dispatcher's upload path doesn't match our candidate
+                    # rule. Either way: nothing to clean up, no warning.
+                    logger.debug(
+                        "SD card cleanup: nothing to delete on %s — every candidate returned 550 "
+                        "(printer likely self-cleaned)",
+                        printer.name,
+                    )
+    except Exception as e:
+        logger.warning("SD card file cleanup failed for printer %s: %s", printer_id, e)
 
 
 async def on_print_complete(printer_id: int, data: dict):
@@ -7162,106 +7375,7 @@ async def on_print_complete(printer_id: int, data: dict):
                 if archive:
                     archive_id = archive.id
 
-    # Cleanup: delete uploaded file from printer SD card to prevent phantom prints (Issue #374, #1542)
-    # The print scheduler uploads files to the SD card root (/). Some printers (e.g. P1S, A1)
-    # auto-start files found in root on power cycle, causing ghost prints.
-    # Must run before the archive_id early-return so it executes even when archiving is disabled.
-    try:
-        if subtask_name:
-            archive_filename: str | None = None
-            async with async_session() as db:
-                from backend.app.models.archive import PrintArchive
-                from backend.app.models.printer import Printer
-
-                result = await db.execute(select(Printer).where(Printer.id == printer_id))
-                printer = result.scalar_one_or_none()
-                if archive_id:
-                    archive_row = await db.execute(select(PrintArchive.filename).where(PrintArchive.id == archive_id))
-                    archive_filename = archive_row.scalar_one_or_none()
-
-            if printer:
-                from backend.app.services.bambu_ftp import DeleteResult, delete_file_async
-                from backend.app.utils.filename import derive_remote_filename
-
-                # Primary candidate: the exact path the dispatcher uploaded to
-                # (derived from archive.filename via the same rule as upload).
-                # Without it, a library row that ended up with a doubled
-                # .gcode.3mf (#1542) leaves the real file behind because the
-                # subtask_name + ext fallbacks below don't match what's on the
-                # SD card. Fallbacks remain for archive-less prints (subtask
-                # never resolved to an archive) and for older naming variants.
-                candidate_paths: list[str] = []
-                if archive_filename:
-                    candidate_paths.append(f"/{derive_remote_filename(archive_filename)}")
-                for ext in (".3mf", ".gcode"):
-                    fallback = f"/{subtask_name}{ext}"
-                    if fallback not in candidate_paths:
-                        candidate_paths.append(fallback)
-
-                # Three outcomes track across all candidates so the final log
-                # line reflects what actually happened. The A1 in #1721 always
-                # ends here with ``any_not_found=True`` and the others False
-                # — its firmware auto-cleans the SD card before our cleanup
-                # runs, every candidate FTP-DELE returns 550, and the old
-                # code burned 3 retries × 2 s × 3 candidates per print
-                # logging a misleading "may linger" WARNING on a successful
-                # print.
-                any_deleted = False
-                any_real_failure = False
-                any_not_found = False
-
-                for remote_path in candidate_paths:
-                    # Retry only the FAILED case — 550 NOT_FOUND will never
-                    # recover by waiting, so a "file isn't here" answer
-                    # advances immediately to the next candidate without
-                    # consuming the retry budget.
-                    for attempt in range(1, 4):
-                        try:
-                            delete_result = await delete_file_async(
-                                printer.ip_address,
-                                printer.access_code,
-                                remote_path,
-                                printer_model=printer.model,
-                            )
-                        except Exception as e:
-                            delete_result = DeleteResult.FAILED
-                            logger.warning(
-                                "SD card cleanup attempt %d/3 raised for %s: %s",
-                                attempt,
-                                remote_path,
-                                e,
-                            )
-
-                        if delete_result == DeleteResult.DELETED:
-                            any_deleted = True
-                            logger.info("Deleted %s from printer %s SD card", remote_path, printer.name)
-                            break
-                        if delete_result == DeleteResult.NOT_FOUND:
-                            any_not_found = True
-                            break  # 550 will not recover; try next candidate
-                        # FAILED: real error — retry with backoff, then give up
-                        if attempt < 3:
-                            await asyncio.sleep(2)
-                        else:
-                            any_real_failure = True
-                            logger.warning(
-                                "SD card cleanup failed after 3 attempts for %s "
-                                "(network/auth/transient error — file may linger on SD card)",
-                                remote_path,
-                            )
-
-                if not any_deleted and not any_real_failure and any_not_found:
-                    # Every candidate said "not here." Either the printer
-                    # firmware swept the SD card itself (common on A1) or the
-                    # dispatcher's upload path doesn't match our candidate
-                    # rule. Either way: nothing to clean up, no warning.
-                    logger.debug(
-                        "SD card cleanup: nothing to delete on %s — every candidate returned 550 "
-                        "(printer likely self-cleaned)",
-                        printer.name,
-                    )
-    except Exception as e:
-        logger.warning("SD card file cleanup failed for printer %s: %s", printer_id, e)
+    await _cleanup_sd_card_after_print(printer_id, subtask_name, archive_id, logger)
 
     log_timing("SD card cleanup")
 
@@ -9593,6 +9707,12 @@ async def lifespan(app: FastAPI):
     from backend.app.core.asyncio_handlers import install_proactor_reset_filter, warn_if_running_on_uvloop
 
     install_proactor_reset_filter()
+
+    # Before anything opens files or sockets in bulk: a soft limit of 1024 is
+    # what turned descriptor exhaustion into a corrupted database (#2883).
+    from backend.app.core.fd_limit import raise_open_file_limit
+
+    raise_open_file_limit()
 
     # Before init_db, so the warning is near the top of the log rather than
     # below a migration run. See warn_if_running_on_uvloop for what is at stake.

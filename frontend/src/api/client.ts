@@ -1822,6 +1822,9 @@ export interface SlicerSetting {
   user_id: string | null;
   updated_time: string | null;
   is_custom: boolean;
+  // The id Bambu Studio puts in an AMS slot for the preset; not derivable
+  // from setting_id for every preset (#3387). Absent from older backends.
+  filament_id?: string | null;
 }
 
 export interface SpoolCatalogEntry {
@@ -1962,10 +1965,10 @@ export interface SliceRequest {
   plate?: number;
   export_3mf?: boolean;
   // Build-plate override (#1337). When omitted, the slicer uses the process
-  // preset's curr_bed_type as-is. Canonical values match BambuStudio /
-  // OrcaSlicer's enum: "Cool Plate", "Engineering Plate", "High Temp Plate",
-  // "Textured PEI Plate", "Smooth PEI Plate", "Cool Plate (SuperTack)",
-  // "Supertack Plate".
+  // preset's curr_bed_type as-is. A name from BambuStudio / OrcaSlicer's
+  // enum: "Cool Plate", "Engineering Plate", "High Temp Plate" (Smooth PEI),
+  // "Textured PEI Plate", "Supertack Plate", or OrcaSlicer's "Textured Cool
+  // Plate" (refused when Bambu Studio slices); the backend refuses others (#3359).
   bed_type?: string | null;
   // "Slice as designed" (#2611). 3MF only: slice using the file's embedded
   // project_settings.config (the designer's own wall count, infill, etc.)
@@ -2008,22 +2011,65 @@ export interface UnifiedPreset {
   // the process / filament dropdowns by the selected printer using this when
   // present (#1325).
   compatible_printers?: string[] | null;
+  // Printer presets only: the preset it was saved from, for the local and
+  // OrcaSlicer Cloud tiers (#3250).
+  inherits?: string | null;
 }
 export interface UnifiedPresetsBySlot {
   printer: UnifiedPreset[];
   process: UnifiedPreset[];
   filament: UnifiedPreset[];
 }
+// What is loaded in each connected printer, for the SliceModal's
+// "only connected printers" / "only loaded spools" filters (#3172).
+export interface LoadedSpoolPreset {
+  preset_id: string;
+  preset_name: string;
+  preset_source: string;
+  tray_info_idx?: string | null;
+}
+export interface LoadedSpoolTray {
+  ams_id: number;
+  tray_id: number;
+  tray_type: string | null;
+  tray_sub_brands: string | null;
+  tray_color: string | null;
+  tray_info_idx: string | null;
+  exists: boolean | null;
+  state: number | null;
+  saved_preset: LoadedSpoolPreset | null;
+}
+export interface LoadedSpoolUnit {
+  id: number;
+  is_ams_ht: boolean;
+  trays: LoadedSpoolTray[];
+}
+export interface LoadedSpoolPrinter {
+  id: number;
+  name: string;
+  model: string | null;
+  ams: LoadedSpoolUnit[];
+  // Holders with a spool in them; external_holders counts all of them (two
+  // on a dual-nozzle printer, labelled left and right).
+  external: LoadedSpoolTray[];
+  external_holders: number;
+}
+export interface LoadedSpoolsResponse {
+  printers: LoadedSpoolPrinter[];
+}
 export interface UnifiedPresetsResponse {
   // Priority order: local > orca_cloud > cloud > standard. No cross-tier
-  // dedup — every tier surfaces its full list so the user can pick from
-  // any source. The order drives auto-pick + visual group rendering only.
+  // dedup (apart from stock_aliases below) — every tier surfaces its full
+  // list so the user can pick from any source. The order drives auto-pick + visual group rendering only.
   orca_cloud: UnifiedPresetsBySlot;
   cloud: UnifiedPresetsBySlot;
   local: UnifiedPresetsBySlot;
   standard: UnifiedPresetsBySlot;
   cloud_status: SlicerCloudStatus;
   orca_cloud_status: SlicerCloudStatus;
+  // Standard presets that Bambu Cloud's stock list also has are left out of
+  // the standard tier (#3386); each "standard:<id>" maps to its cloud twin.
+  stock_aliases?: Record<string, PresetRef>;
 }
 
 // Slicer Pipelines (#1425) — named bundles of preset slots the SliceModal
@@ -8462,6 +8508,8 @@ export const api = {
   // `@BBL <code>` suffix against the selected printer-preset name (#1325).
   getSlicerPrinterModels: () =>
     request<Record<string, string>>('/slicer/printer-models'),
+  getSlicerLoadedSpools: () =>
+    request<LoadedSpoolsResponse>('/slicer/loaded-spools'),
 
   /**
    * Effective values of a process preset, with its `inherits:` chain flattened
