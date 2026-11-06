@@ -29,6 +29,18 @@ class UserEmailPreference(Base):
     notify_print_complete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_print_failed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_print_stopped: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_print_progress: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_first_layer_complete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_print_confirm_request: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Build plate notifications (can only be toggled off by an administrator)
+    notify_plate_clear_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_plate_not_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Print queue notifications (only for jobs submitted by this user)
+    notify_queue_waiting: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_queue_skipped: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_queue_failed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

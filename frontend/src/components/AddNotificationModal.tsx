@@ -12,7 +12,7 @@ interface AddNotificationModalProps {
   onClose: () => void;
 }
 
-const PROVIDER_VALUES: ProviderType[] = ['email', 'telegram', 'discord', 'ntfy', 'pushover', 'bark', 'callmebot', 'webhook', 'homeassistant'];
+const PROVIDER_VALUES: ProviderType[] = ['email', 'resend', 'mailgun', 'telegram', 'discord', 'ntfy', 'pushover', 'bark', 'callmebot', 'webhook', 'homeassistant'];
 
 export function AddNotificationModal({ provider, onClose }: AddNotificationModalProps) {
   const { t } = useTranslation();
@@ -303,6 +303,27 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
           { key: 'password', label: 'Password', placeholder: 'App password', type: 'password', required: false },
           { key: 'from_email', label: 'From Email', placeholder: 'your@email.com', type: 'text', required: true },
           { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+        ];
+      case 'resend':
+        return [
+          { key: 'api_key', label: 'Resend API Key', placeholder: 're_123456789...', type: 'password', required: true },
+          { key: 'from_email', label: 'From Email', placeholder: 'noreply@yourdomain.com', type: 'text', required: true },
+          { key: 'from_name', label: 'From Name', placeholder: 'Bambuddy', type: 'text', required: false },
+          { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+          { key: 'reply_to', label: 'Reply-To Email', placeholder: 'support@yourdomain.com', type: 'text', required: false },
+        ];
+      case 'mailgun':
+        return [
+          { key: 'api_key', label: 'Mailgun API Key', placeholder: 'key-...', type: 'password', required: true },
+          { key: 'domain', label: 'Mailgun Domain', placeholder: 'mg.example.com', type: 'text', required: true },
+          { key: 'region', label: 'Mailgun Region', type: 'select', required: false, options: [
+            { value: 'us', label: 'US (api.mailgun.net)' },
+            { value: 'eu', label: 'EU (api.eu.mailgun.net)' },
+          ]},
+          { key: 'from_email', label: 'From Email', placeholder: 'noreply@mg.example.com', type: 'text', required: true },
+          { key: 'from_name', label: 'From Name', placeholder: 'Bambuddy', type: 'text', required: false },
+          { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+          { key: 'reply_to', label: 'Reply-To Email', placeholder: 'support@example.com', type: 'text', required: false },
         ];
       case 'discord':
         return [

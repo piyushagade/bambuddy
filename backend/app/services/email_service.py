@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import logging
 import re
@@ -14,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,8 @@ from backend.app.models.settings import Settings
 from backend.app.schemas.auth import SMTPSettings
 
 logger = logging.getLogger(__name__)
+
+_USER_AGENT = "Bambuddy/1.0 (+https://github.com/maziggy/bambuddy)"
 
 
 def generate_secure_password(length: int = 16) -> str:
@@ -89,8 +93,19 @@ def render_template(template_str: str, variables: dict[str, Any]) -> str:
     return result
 
 
+def _format_from_address(from_name: str | None, from_email: str) -> str:
+    """Format a From header from optional display name and email address."""
+    cleaned_email = (from_email or "").strip()
+    if "<" in cleaned_email and ">" in cleaned_email:
+        return cleaned_email
+    cleaned_name = (from_name or "").strip()
+    if cleaned_name:
+        return f"{cleaned_name} <{cleaned_email}>"
+    return cleaned_email
+
+
 async def get_smtp_settings(db: AsyncSession) -> SMTPSettings | None:
-    """Get SMTP settings from database.
+    """Get email gateway settings (SMTP, Resend, or Mailgun) from database.
 
     Args:
         db: Database session
@@ -98,80 +113,239 @@ async def get_smtp_settings(db: AsyncSession) -> SMTPSettings | None:
     Returns:
         SMTPSettings object or None if not configured
     """
-    # Fetch all SMTP-related settings
-    result = await db.execute(
-        select(Settings).where(
-            Settings.key.in_(
-                [
-                    "smtp_host",
-                    "smtp_port",
-                    "smtp_username",
-                    "smtp_password",
-                    "smtp_use_tls",
-                    "smtp_security",
-                    "smtp_auth_enabled",
-                    "smtp_from_email",
-                    "smtp_from_name",
-                ]
+    with db.no_autoflush:
+        result = await db.execute(
+            select(Settings).where(
+                Settings.key.in_(
+                    [
+                        "email_provider",
+                        "smtp_host",
+                        "smtp_port",
+                        "smtp_username",
+                        "smtp_password",
+                        "smtp_use_tls",
+                        "smtp_security",
+                        "smtp_auth_enabled",
+                        "smtp_from_email",
+                        "smtp_from_name",
+                        "smtp_reply_to",
+                        "resend_api_key",
+                        "mailgun_api_key",
+                        "mailgun_domain",
+                        "mailgun_region",
+                    ]
+                )
             )
         )
-    )
     settings_dict = {s.key: s.value for s in result.scalars().all()}
 
-    # Check if minimum required settings are present
-    required_keys = ["smtp_host", "smtp_port", "smtp_from_email"]
-    if not all(key in settings_dict for key in required_keys):
+    provider = (settings_dict.get("email_provider") or "smtp").strip().lower()
+    if provider not in ("smtp", "resend", "mailgun"):
+        provider = "smtp"
+
+    from_email = (settings_dict.get("smtp_from_email") or "").strip()
+    if not from_email:
         return None
+
+    if provider == "smtp":
+        if not settings_dict.get("smtp_host") or not settings_dict.get("smtp_port"):
+            return None
+    elif provider == "resend":
+        if not settings_dict.get("resend_api_key"):
+            return None
+    elif provider == "mailgun":
+        if not settings_dict.get("mailgun_api_key") or not settings_dict.get("mailgun_domain"):
+            return None
 
     # Handle migration: convert old smtp_use_tls to smtp_security if needed
     smtp_security = settings_dict.get("smtp_security")
     if not smtp_security:
-        # Migrate from old smtp_use_tls format
         smtp_use_tls = settings_dict.get("smtp_use_tls", "true").lower() == "true"
         smtp_security = "starttls" if smtp_use_tls else "ssl"
 
     smtp_auth_enabled = settings_dict.get("smtp_auth_enabled", "true").lower() == "true"
+    try:
+        smtp_port = int(settings_dict.get("smtp_port") or 587)
+    except (TypeError, ValueError):
+        smtp_port = 587
+
+    mailgun_region = (settings_dict.get("mailgun_region") or "us").strip().lower()
+    if mailgun_region not in ("us", "eu"):
+        mailgun_region = "us"
 
     return SMTPSettings(
-        smtp_host=settings_dict["smtp_host"],
-        smtp_port=int(settings_dict["smtp_port"]),
+        email_provider=provider,  # type: ignore[arg-type]
+        smtp_host=settings_dict.get("smtp_host", ""),
+        smtp_port=smtp_port,
         smtp_username=settings_dict.get("smtp_username"),
         smtp_password=settings_dict.get("smtp_password"),
         smtp_security=smtp_security,
         smtp_auth_enabled=smtp_auth_enabled,
-        smtp_from_email=settings_dict["smtp_from_email"],
+        smtp_from_email=from_email,
         smtp_from_name=settings_dict.get("smtp_from_name", "BamBuddy"),
+        smtp_reply_to=settings_dict.get("smtp_reply_to") or None,
+        resend_api_key=settings_dict.get("resend_api_key"),
+        mailgun_api_key=settings_dict.get("mailgun_api_key"),
+        mailgun_domain=settings_dict.get("mailgun_domain"),
+        mailgun_region=mailgun_region,  # type: ignore[arg-type]
+        smtp_password_configured=bool(settings_dict.get("smtp_password")),
+        resend_api_key_configured=bool(settings_dict.get("resend_api_key")),
+        mailgun_api_key_configured=bool(settings_dict.get("mailgun_api_key")),
     )
 
 
 async def save_smtp_settings(db: AsyncSession, smtp_settings: SMTPSettings) -> None:
-    """Save SMTP settings to database.
+    """Save email gateway settings (SMTP, Resend, or Mailgun) to database.
 
     Args:
         db: Database session
-        smtp_settings: SMTP settings to save
+        smtp_settings: Email gateway settings to save
     """
     from backend.app.core.db_dialect import upsert_setting
 
-    settings_data = {
-        "smtp_host": smtp_settings.smtp_host,
-        "smtp_port": str(smtp_settings.smtp_port),
-        "smtp_security": smtp_settings.smtp_security,
+    provider = (getattr(smtp_settings, "email_provider", None) or "smtp").strip().lower()
+    if provider not in ("smtp", "resend", "mailgun"):
+        provider = "smtp"
+
+    settings_data: dict[str, str] = {
+        "email_provider": provider,
+        "smtp_host": smtp_settings.smtp_host or "",
+        "smtp_port": str(smtp_settings.smtp_port or 587),
+        "smtp_security": smtp_settings.smtp_security or "starttls",
         "smtp_auth_enabled": "true" if smtp_settings.smtp_auth_enabled else "false",
         "smtp_from_email": smtp_settings.smtp_from_email,
-        "smtp_from_name": smtp_settings.smtp_from_name,
+        "smtp_from_name": smtp_settings.smtp_from_name or "BamBuddy",
+        "smtp_reply_to": (getattr(smtp_settings, "smtp_reply_to", None) or "").strip(),
+        "mailgun_domain": (getattr(smtp_settings, "mailgun_domain", None) or "").strip(),
+        "mailgun_region": (getattr(smtp_settings, "mailgun_region", None) or "us").strip().lower(),
     }
 
-    # Only save username if auth is enabled or if provided
-    if smtp_settings.smtp_username:
+    if smtp_settings.smtp_username is not None:
         settings_data["smtp_username"] = smtp_settings.smtp_username
 
-    # Only save password if provided
+    # Only overwrite secrets when non-empty values are provided
     if smtp_settings.smtp_password:
         settings_data["smtp_password"] = smtp_settings.smtp_password
+    if getattr(smtp_settings, "resend_api_key", None):
+        settings_data["resend_api_key"] = smtp_settings.resend_api_key  # type: ignore[assignment]
+    if getattr(smtp_settings, "mailgun_api_key", None):
+        settings_data["mailgun_api_key"] = smtp_settings.mailgun_api_key  # type: ignore[assignment]
 
     for key, value in settings_data.items():
         await upsert_setting(db, Settings, key, value)
+
+
+def send_via_resend_sync(
+    *,
+    api_key: str,
+    from_email: str,
+    from_name: str | None,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    body_html: str | None = None,
+    reply_to: str | None = None,
+    image_data: bytes | None = None,
+    image_cid: str = "bambuddy-inline-photo",
+) -> None:
+    """Send an email via the Resend HTTP API (https://api.resend.com/emails)."""
+    if not api_key or not api_key.strip():
+        raise ValueError("Resend API key is required")
+    recipients = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+    if not recipients:
+        raise ValueError("Recipient email address is required")
+
+    payload: dict[str, Any] = {
+        "from": _format_from_address(from_name, from_email),
+        "to": recipients,
+        "subject": subject,
+        "text": body_text,
+    }
+    if body_html:
+        payload["html"] = body_html
+    if reply_to and reply_to.strip():
+        payload["reply_to"] = reply_to.strip()
+    if image_data and body_html:
+        att: dict[str, Any] = {
+            "filename": "photo.jpg",
+            "content": base64.b64encode(image_data).decode("ascii"),
+            "content_type": "image/jpeg",
+        }
+        if image_cid:
+            att["content_id"] = image_cid
+        payload["attachments"] = [att]
+
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+        "User-Agent": _USER_AGENT,
+    }
+    with httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
+        response = client.post("https://api.resend.com/emails", json=payload, headers=headers)
+    if response.status_code not in (200, 201, 202):
+        detail = response.text[:200]
+        try:
+            body_json = response.json()
+            if isinstance(body_json, dict) and body_json.get("message"):
+                detail = str(body_json["message"])
+        except Exception:
+            pass
+        raise RuntimeError(f"Resend API error (HTTP {response.status_code}): {detail}")
+
+
+def send_via_mailgun_sync(
+    *,
+    api_key: str,
+    domain: str,
+    region: str = "us",
+    from_email: str,
+    from_name: str | None,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    body_html: str | None = None,
+    reply_to: str | None = None,
+    image_data: bytes | None = None,
+    image_cid: str = "bambuddy-inline-photo",
+) -> None:
+    """Send an email via the Mailgun HTTP API."""
+    if not api_key or not api_key.strip():
+        raise ValueError("Mailgun API key is required")
+    if not domain or not domain.strip():
+        raise ValueError("Mailgun domain is required")
+    recipients = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+    if not recipients:
+        raise ValueError("Recipient email address is required")
+
+    base_url = "https://api.eu.mailgun.net" if (region or "us").strip().lower() == "eu" else "https://api.mailgun.net"
+    url = f"{base_url}/v3/{domain.strip()}/messages"
+
+    data: dict[str, Any] = {
+        "from": _format_from_address(from_name, from_email),
+        "to": recipients,
+        "subject": subject,
+        "text": body_text,
+    }
+    if body_html:
+        data["html"] = body_html
+    if reply_to and reply_to.strip():
+        data["h:Reply-To"] = reply_to.strip()
+
+    files = None
+    if image_data and body_html:
+        files = [("inline", (image_cid, image_data, "image/jpeg"))]
+
+    with httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0), headers={"User-Agent": _USER_AGENT}) as client:
+        response = client.post(url, auth=("api", api_key.strip()), data=data, files=files)
+    if response.status_code not in (200, 201, 202):
+        detail = response.text[:200]
+        try:
+            body_json = response.json()
+            if isinstance(body_json, dict) and body_json.get("message"):
+                detail = str(body_json["message"])
+        except Exception:
+            pass
+        raise RuntimeError(f"Mailgun API error (HTTP {response.status_code}): {detail}")
 
 
 def send_email(
@@ -183,10 +357,10 @@ def send_email(
     image_data: bytes | None = None,
     image_cid: str = "bambuddy-inline-photo",
 ) -> None:
-    """Send an email using SMTP.
+    """Send an email using the configured email gateway (SMTP, Resend, or Mailgun).
 
     Args:
-        smtp_settings: SMTP configuration
+        smtp_settings: Email gateway configuration
         to_email: Recipient email address
         subject: Email subject
         body_text: Plain text body
@@ -199,38 +373,78 @@ def send_email(
     Raises:
         Exception: If email sending fails
     """
-    if image_data and body_html:
-        # multipart/related wraps multipart/alternative so the inline image
-        # travels with the HTML part without becoming a visible attachment.
-        msg = MIMEMultipart("related")
-        msg["From"] = f"{smtp_settings.smtp_from_name} <{smtp_settings.smtp_from_email}>"
-        msg["To"] = to_email
-        msg["Subject"] = subject
+    provider = (getattr(smtp_settings, "email_provider", None) or "smtp").strip().lower()
+    reply_to = getattr(smtp_settings, "smtp_reply_to", None)
 
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(body_text, "plain"))
-        alt.attach(MIMEText(body_html, "html"))
-        msg.attach(alt)
-
-        img = MIMEImage(image_data, _subtype="jpeg")
-        img.add_header("Content-ID", f"<{image_cid}>")
-        img.add_header("Content-Disposition", "inline", filename="photo.jpg")
-        msg.attach(img)
-    else:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"{smtp_settings.smtp_from_name} <{smtp_settings.smtp_from_email}>"
-        msg["To"] = to_email
-        msg["Subject"] = subject
-
-        # Attach plain text part
-        msg.attach(MIMEText(body_text, "plain"))
-
-        # Attach HTML part if provided
-        if body_html:
-            msg.attach(MIMEText(body_html, "html"))
-
-    # Send email
     try:
+        if provider == "resend":
+            send_via_resend_sync(
+                api_key=getattr(smtp_settings, "resend_api_key", None) or "",
+                from_email=smtp_settings.smtp_from_email,
+                from_name=getattr(smtp_settings, "smtp_from_name", "BamBuddy"),
+                to_email=to_email,
+                subject=subject,
+                body_text=body_text,
+                body_html=body_html,
+                reply_to=reply_to,
+                image_data=image_data,
+                image_cid=image_cid,
+            )
+            logger.info("Email sent successfully via Resend to %s", to_email)
+            return
+
+        if provider == "mailgun":
+            send_via_mailgun_sync(
+                api_key=getattr(smtp_settings, "mailgun_api_key", None) or "",
+                domain=getattr(smtp_settings, "mailgun_domain", None) or "",
+                region=getattr(smtp_settings, "mailgun_region", "us") or "us",
+                from_email=smtp_settings.smtp_from_email,
+                from_name=getattr(smtp_settings, "smtp_from_name", "BamBuddy"),
+                to_email=to_email,
+                subject=subject,
+                body_text=body_text,
+                body_html=body_html,
+                reply_to=reply_to,
+                image_data=image_data,
+                image_cid=image_cid,
+            )
+            logger.info("Email sent successfully via Mailgun to %s", to_email)
+            return
+
+        if image_data and body_html:
+            # multipart/related wraps multipart/alternative so the inline image
+            # travels with the HTML part without becoming a visible attachment.
+            msg = MIMEMultipart("related")
+            msg["From"] = _format_from_address(smtp_settings.smtp_from_name, smtp_settings.smtp_from_email)
+            msg["To"] = to_email
+            msg["Subject"] = subject
+            if reply_to:
+                msg["Reply-To"] = reply_to
+
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body_text, "plain"))
+            alt.attach(MIMEText(body_html, "html"))
+            msg.attach(alt)
+
+            img = MIMEImage(image_data, _subtype="jpeg")
+            img.add_header("Content-ID", f"<{image_cid}>")
+            img.add_header("Content-Disposition", "inline", filename="photo.jpg")
+            msg.attach(img)
+        else:
+            msg = MIMEMultipart("alternative")
+            msg["From"] = _format_from_address(smtp_settings.smtp_from_name, smtp_settings.smtp_from_email)
+            msg["To"] = to_email
+            msg["Subject"] = subject
+            if reply_to:
+                msg["Reply-To"] = reply_to
+
+            # Attach plain text part
+            msg.attach(MIMEText(body_text, "plain"))
+
+            # Attach HTML part if provided
+            if body_html:
+                msg.attach(MIMEText(body_html, "html"))
+
         security = smtp_settings.smtp_security
         auth_enabled = smtp_settings.smtp_auth_enabled
 
@@ -644,18 +858,49 @@ async def send_user_print_notification(
     text_body = render_template(template.body_template, all_variables)
 
     finish_photo_url = variables.get("finish_photo_url")
-    inline_photo = bool(image_data and finish_photo_url and finish_photo_url in text_body)
+    inline_photo_by_url = bool(image_data and finish_photo_url and finish_photo_url in text_body)
+    inline_photo_by_event = bool(
+        image_data
+        and not inline_photo_by_url
+        and event_type
+        in (
+            "user_plate_not_empty",
+            "user_print_progress",
+            "user_first_layer_complete",
+            "user_print_confirm_request",
+        )
+    )
+    inline_photo = inline_photo_by_url or inline_photo_by_event
 
     # Build HTML body — content comes entirely from the database template
     escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
-    if inline_photo:
+    img_tag = (
+        '<img src="cid:bambuddy-user-print-photo" '
+        'alt="Printer camera snapshot" '
+        'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+    )
+    if inline_photo_by_url and finish_photo_url:
         escaped_url = html.escape(finish_photo_url)
-        img_tag = (
-            '<img src="cid:bambuddy-user-print-photo" '
-            'alt="Printer camera snapshot" '
-            'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
-        )
         escaped_text_body = escaped_text_body.replace(escaped_url, img_tag)
+    elif inline_photo_by_event:
+        escaped_text_body = f'{escaped_text_body}<div style="margin-top: 20px;">{img_tag}</div>'
+
+    action_buttons_html = ""
+    if event_type == "user_print_confirm_request":
+        good_url = variables.get("good_url")
+        reject_url = variables.get("reject_url")
+        confirm_url = variables.get("confirm_url")
+        if good_url and reject_url:
+            action_buttons_html = f"""
+        <div style="text-align: center; margin: 24px 0;">
+            <a href="{html.escape(str(good_url))}" style="display: inline-block; background-color: #1db954; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-right: 12px;">👍 Good</a>
+            <a href="{html.escape(str(reject_url))}" style="display: inline-block; background-color: #e53e3e; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">👎 Reject</a>
+        </div>"""
+        elif confirm_url:
+            action_buttons_html = f"""
+        <div style="text-align: center; margin: 24px 0;">
+            <a href="{html.escape(str(confirm_url))}" style="display: inline-block; background-color: #1db954; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Confirm Print Outcome</a>
+        </div>"""
 
     html_body = f"""<!DOCTYPE html>
 <html>
@@ -668,7 +913,7 @@ async def send_user_print_notification(
         <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
     </div>
     <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>
+        <div style="font-size: 16px;">{escaped_text_body}</div>{action_buttons_html}
     </div>
 </body>
 </html>

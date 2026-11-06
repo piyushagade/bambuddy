@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Mail, Send, Lock, Unlock, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 import { api } from '../api/client';
-import type { SMTPSettings, TestSMTPRequest } from '../api/client';
+import type { EmailGatewayProvider, SMTPSettings, TestSMTPRequest } from '../api/client';
 import { Card, CardContent, CardHeader } from './Card';
 import { Button } from './Button';
 import { useToast } from '../contexts/ToastContext';
@@ -29,6 +29,7 @@ export function EmailSettings() {
   const queryClient = useQueryClient();
 
   const [smtpSettings, setSMTPSettings] = useState<SMTPSettings>({
+    email_provider: 'smtp',
     smtp_host: '',
     smtp_port: 587,
     smtp_username: '',
@@ -37,6 +38,11 @@ export function EmailSettings() {
     smtp_auth_enabled: true,
     smtp_from_email: '',
     smtp_from_name: 'BamBuddy',
+    smtp_reply_to: '',
+    resend_api_key: '',
+    mailgun_api_key: '',
+    mailgun_domain: '',
+    mailgun_region: 'us',
   });
   const [testEmail, setTestEmail] = useState('');
 
@@ -59,7 +65,13 @@ export function EmailSettings() {
     if (existingSettings) {
       setSMTPSettings({
         ...existingSettings,
+        email_provider: existingSettings.email_provider || 'smtp',
         smtp_password: '', // Never show password
+        resend_api_key: '', // Never show API key
+        mailgun_api_key: '', // Never show API key
+        smtp_reply_to: existingSettings.smtp_reply_to || '',
+        mailgun_domain: existingSettings.mailgun_domain || '',
+        mailgun_region: existingSettings.mailgun_region || 'us',
       });
     }
   }, [existingSettings]);
@@ -127,15 +139,34 @@ export function EmailSettings() {
   });
 
   const handleSave = () => {
-    // Validate required fields
-    if (!smtpSettings.smtp_host || !smtpSettings.smtp_from_email) {
+    const provider = smtpSettings.email_provider || 'smtp';
+    if (!smtpSettings.smtp_from_email) {
       showToast(t('settings.email.errors.requiredFields'), 'error');
       return;
     }
-    // Validate auth fields when authentication is enabled
-    if (smtpSettings.smtp_auth_enabled && (!smtpSettings.smtp_username)) {
-      showToast(t('settings.email.errors.usernameRequired'), 'error');
-      return;
+    if (provider === 'smtp') {
+      if (!smtpSettings.smtp_host) {
+        showToast(t('settings.email.errors.requiredFields'), 'error');
+        return;
+      }
+      if (smtpSettings.smtp_auth_enabled && !smtpSettings.smtp_username) {
+        showToast(t('settings.email.errors.usernameRequired'), 'error');
+        return;
+      }
+    } else if (provider === 'resend') {
+      if (!smtpSettings.resend_api_key && !existingSettings?.resend_api_key_configured) {
+        showToast(t('settings.email.errors.resendApiKeyRequired', 'Resend API key is required'), 'error');
+        return;
+      }
+    } else if (provider === 'mailgun') {
+      if (!smtpSettings.mailgun_domain) {
+        showToast(t('settings.email.errors.mailgunDomainRequired', 'Mailgun domain is required'), 'error');
+        return;
+      }
+      if (!smtpSettings.mailgun_api_key && !existingSettings?.mailgun_api_key_configured) {
+        showToast(t('settings.email.errors.mailgunApiKeyRequired', 'Mailgun API key is required'), 'error');
+        return;
+      }
     }
     saveMutation.mutate(smtpSettings);
   };
@@ -243,109 +274,196 @@ export function EmailSettings() {
         </CardContent>
       </Card>
 
-      {/* SMTP Config + Test SMTP side-by-side on lg+ */}
+      {/* Email Gateway Config + Test side-by-side on lg+ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
         <Card id="card-smtp-config">
           <CardHeader>
             <h2 className="text-lg font-semibold text-white">
-              {t('settings.email.smtpSettings') || 'SMTP Configuration'}
+              {t('settings.email.gatewaySettings', 'Email Gateway Configuration')}
             </h2>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {/* Authentication - at the top */}
+              {/* Email Provider Selection */}
               <div>
                 <label className="block text-sm font-medium text-white mb-1">
-                  {t('settings.email.authentication') || 'Authentication'}
+                  {t('settings.email.provider', 'Email Gateway Provider')}
                 </label>
                 <select
-                  value={smtpSettings.smtp_auth_enabled ? 'true' : 'false'}
-                  onChange={(e) => handleAuthChange(e.target.value === 'true')}
+                  value={smtpSettings.email_provider || 'smtp'}
+                  onChange={(e) =>
+                    setSMTPSettings({
+                      ...smtpSettings,
+                      email_provider: e.target.value as EmailGatewayProvider,
+                    })
+                  }
                   className={inputClasses}
                 >
-                  <option value="true">{t('settings.email.authOptions.enabled')}</option>
-                  <option value="false">{t('settings.email.authOptions.disabled')}</option>
+                  <option value="smtp">{t('settings.email.providers.smtp', 'SMTP Server')}</option>
+                  <option value="resend">{t('settings.email.providers.resend', 'Resend (HTTP API)')}</option>
+                  <option value="mailgun">{t('settings.email.providers.mailgun', 'Mailgun (HTTP API)')}</option>
                 </select>
               </div>
 
-              {/* Username / Password - dimmed when auth disabled */}
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity ${!smtpSettings.smtp_auth_enabled ? 'opacity-40 pointer-events-none' : ''}`}>
+              {(smtpSettings.email_provider || 'smtp') === 'smtp' && (
+                <>
+                  {/* Authentication - at the top */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1">
+                      {t('settings.email.authentication') || 'Authentication'}
+                    </label>
+                    <select
+                      value={smtpSettings.smtp_auth_enabled ? 'true' : 'false'}
+                      onChange={(e) => handleAuthChange(e.target.value === 'true')}
+                      className={inputClasses}
+                    >
+                      <option value="true">{t('settings.email.authOptions.enabled')}</option>
+                      <option value="false">{t('settings.email.authOptions.disabled')}</option>
+                    </select>
+                  </div>
+
+                  {/* Username / Password - dimmed when auth disabled */}
+                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity ${!smtpSettings.smtp_auth_enabled ? 'opacity-40 pointer-events-none' : ''}`}>
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.username') || 'Username'}
+                      </label>
+                      <input
+                        type="text"
+                        value={smtpSettings.smtp_username || ''}
+                        onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_username: e.target.value })}
+                        placeholder="your.email@gmail.com"
+                        disabled={!smtpSettings.smtp_auth_enabled}
+                        className={smtpSettings.smtp_auth_enabled ? inputClasses : disabledInputClasses}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.password') || 'Password'}
+                      </label>
+                      <input
+                        type="password"
+                        value={smtpSettings.smtp_password || ''}
+                        onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_password: e.target.value })}
+                        placeholder={existingSettings?.smtp_password_configured || existingSettings ? '••••••••' : 'App password'}
+                        disabled={!smtpSettings.smtp_auth_enabled}
+                        className={smtpSettings.smtp_auth_enabled ? inputClasses : disabledInputClasses}
+                      />
+                    </div>
+                  </div>
+
+                  {/* SMTP Server / Port */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.smtpHost') || 'SMTP Server'} *
+                      </label>
+                      <input
+                        type="text"
+                        value={smtpSettings.smtp_host}
+                        onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_host: e.target.value })}
+                        placeholder="smtp.gmail.com"
+                        className={inputClasses}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.smtpPort') || 'SMTP Port'}
+                      </label>
+                      <NumberInput
+                        value={smtpSettings.smtp_port}
+                        onChange={handlePortChange}
+                        min={1}
+                        max={65535}
+                        fallback={587}
+                        placeholder="587"
+                        className={inputClasses}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Security */}
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1">
+                      {t('settings.email.security') || 'Security'}
+                    </label>
+                    <select
+                      value={smtpSettings.smtp_security}
+                      onChange={(e) => handleSecurityChange(e.target.value as 'starttls' | 'ssl' | 'none')}
+                      className={inputClasses}
+                    >
+                      <option value="starttls">{t('settings.email.securityOptions.starttls')}</option>
+                      <option value="ssl">{t('settings.email.securityOptions.ssl')}</option>
+                      <option value="none">{t('settings.email.securityOptions.none')}</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {smtpSettings.email_provider === 'resend' && (
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">
-                    {t('settings.email.username') || 'Username'}
-                  </label>
-                  <input
-                    type="text"
-                    value={smtpSettings.smtp_username || ''}
-                    onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_username: e.target.value })}
-                    placeholder="your.email@gmail.com"
-                    disabled={!smtpSettings.smtp_auth_enabled}
-                    className={smtpSettings.smtp_auth_enabled ? inputClasses : disabledInputClasses}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-1">
-                    {t('settings.email.password') || 'Password'}
+                    {t('settings.email.resendApiKey', 'Resend API Key')} *
                   </label>
                   <input
                     type="password"
-                    value={smtpSettings.smtp_password || ''}
-                    onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_password: e.target.value })}
-                    placeholder={existingSettings ? '••••••••' : 'App password'}
-                    disabled={!smtpSettings.smtp_auth_enabled}
-                    className={smtpSettings.smtp_auth_enabled ? inputClasses : disabledInputClasses}
-                  />
-                </div>
-              </div>
-
-              {/* SMTP Server / Port */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-white mb-1">
-                    {t('settings.email.smtpHost') || 'SMTP Server'} *
-                  </label>
-                  <input
-                    type="text"
-                    value={smtpSettings.smtp_host}
-                    onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_host: e.target.value })}
-                    placeholder="smtp.gmail.com"
+                    value={smtpSettings.resend_api_key || ''}
+                    onChange={(e) => setSMTPSettings({ ...smtpSettings, resend_api_key: e.target.value })}
+                    placeholder={existingSettings?.resend_api_key_configured ? '••••••••' : 're_123456789...'}
                     className={inputClasses}
                   />
+                  <p className="text-xs text-bambu-gray mt-1">
+                    {t('settings.email.resendApiKeyHelp', 'Create an API key in your Resend dashboard with sending access for your verified domain.')}
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-1">
-                    {t('settings.email.smtpPort') || 'SMTP Port'}
-                  </label>
-                  <NumberInput
-                    value={smtpSettings.smtp_port}
-                    onChange={handlePortChange}
-                    min={1}
-                    max={65535}
-                    fallback={587}
-                    placeholder="587"
-                    className={inputClasses}
-                  />
-                </div>
-              </div>
+              )}
 
-              {/* Security */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-1">
-                  {t('settings.email.security') || 'Security'}
-                </label>
-                <select
-                  value={smtpSettings.smtp_security}
-                  onChange={(e) => handleSecurityChange(e.target.value as 'starttls' | 'ssl' | 'none')}
-                  className={inputClasses}
-                >
-                  <option value="starttls">{t('settings.email.securityOptions.starttls')}</option>
-                  <option value="ssl">{t('settings.email.securityOptions.ssl')}</option>
-                  <option value="none">{t('settings.email.securityOptions.none')}</option>
-                </select>
-              </div>
+              {smtpSettings.email_provider === 'mailgun' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.mailgunDomain', 'Mailgun Domain')} *
+                      </label>
+                      <input
+                        type="text"
+                        value={smtpSettings.mailgun_domain || ''}
+                        onChange={(e) => setSMTPSettings({ ...smtpSettings, mailgun_domain: e.target.value })}
+                        placeholder="mg.example.com"
+                        className={inputClasses}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-1">
+                        {t('settings.email.mailgunRegion', 'Mailgun Region')}
+                      </label>
+                      <select
+                        value={smtpSettings.mailgun_region || 'us'}
+                        onChange={(e) => setSMTPSettings({ ...smtpSettings, mailgun_region: e.target.value as 'us' | 'eu' })}
+                        className={inputClasses}
+                      >
+                        <option value="us">{t('settings.email.mailgunRegions.us', 'US (api.mailgun.net)')}</option>
+                        <option value="eu">{t('settings.email.mailgunRegions.eu', 'EU (api.eu.mailgun.net)')}</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-white mb-1">
+                      {t('settings.email.mailgunApiKey', 'Mailgun API Key')} *
+                    </label>
+                    <input
+                      type="password"
+                      value={smtpSettings.mailgun_api_key || ''}
+                      onChange={(e) => setSMTPSettings({ ...smtpSettings, mailgun_api_key: e.target.value })}
+                      placeholder={existingSettings?.mailgun_api_key_configured ? '••••••••' : 'key-...'}
+                      className={inputClasses}
+                    />
+                  </div>
+                </>
+              )}
 
-              {/* From Email / Name */}
+              {/* From Email / Name / Reply-To */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-white mb-1">
@@ -355,7 +473,7 @@ export function EmailSettings() {
                     type="email"
                     value={smtpSettings.smtp_from_email}
                     onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_from_email: e.target.value })}
-                    placeholder="your@email.com"
+                    placeholder="noreply@yourdomain.com"
                     className={inputClasses}
                   />
                 </div>
@@ -371,6 +489,19 @@ export function EmailSettings() {
                     className={inputClasses}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">
+                  {t('settings.email.replyTo', 'Reply-To Email (Optional)')}
+                </label>
+                <input
+                  type="email"
+                  value={smtpSettings.smtp_reply_to || ''}
+                  onChange={(e) => setSMTPSettings({ ...smtpSettings, smtp_reply_to: e.target.value })}
+                  placeholder="support@yourdomain.com"
+                  className={inputClasses}
+                />
               </div>
 
               <div className="flex gap-2">

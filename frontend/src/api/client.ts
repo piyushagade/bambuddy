@@ -3123,7 +3123,7 @@ export interface Filament {
 }
 
 // Notification Provider types
-export type ProviderType = 'callmebot' | 'ntfy' | 'pushover' | 'telegram' | 'email' | 'discord' | 'webhook' | 'homeassistant' | 'bark';
+export type ProviderType = 'callmebot' | 'ntfy' | 'pushover' | 'telegram' | 'email' | 'resend' | 'mailgun' | 'discord' | 'webhook' | 'homeassistant' | 'bark';
 // How a Telegram provider collects the outcome verdict (#3046)
 export type TelegramVerdictMode = 'buttons' | 'reactions' | 'both';
 
@@ -4556,6 +4556,14 @@ export interface UserEmailPreferences {
   notify_print_complete: boolean;
   notify_print_failed: boolean;
   notify_print_stopped: boolean;
+  notify_print_progress?: boolean;
+  notify_first_layer_complete?: boolean;
+  notify_print_confirm_request?: boolean;
+  notify_plate_clear_required?: boolean;
+  notify_plate_not_empty?: boolean;
+  notify_queue_waiting?: boolean;
+  notify_queue_skipped?: boolean;
+  notify_queue_failed?: boolean;
 }
 
 // Auth types
@@ -4651,7 +4659,10 @@ export interface ResetPasswordResponse {
   message: string;
 }
 
+export type EmailGatewayProvider = 'smtp' | 'resend' | 'mailgun';
+
 export interface SMTPSettings {
+  email_provider?: EmailGatewayProvider;
   smtp_host: string;
   smtp_port: number;
   smtp_username?: string;
@@ -4660,6 +4671,14 @@ export interface SMTPSettings {
   smtp_auth_enabled: boolean;
   smtp_from_email: string;
   smtp_from_name: string;
+  smtp_reply_to?: string | null;
+  resend_api_key?: string | null;
+  mailgun_api_key?: string | null;
+  mailgun_domain?: string | null;
+  mailgun_region?: 'us' | 'eu';
+  smtp_password_configured?: boolean;
+  resend_api_key_configured?: boolean;
+  mailgun_api_key_configured?: boolean;
 }
 
 // 2FA / MFA interfaces
@@ -4789,6 +4808,7 @@ export interface TestSMTPResponse {
 export interface AdvancedAuthStatus {
   advanced_auth_enabled: boolean;
   smtp_configured: boolean;
+  email_provider?: EmailGatewayProvider | null;
   // #1589: false hides the username/password form on the LoginPage; the env
   // var BAMBUDDY_LOCAL_LOGIN=true on the server flips this back to true so
   // the recovery path remains visible.
@@ -5069,6 +5089,13 @@ export const api = {
     request<UserEmailPreferences>('/user-notifications/preferences'),
   updateUserEmailPreferences: (data: UserEmailPreferences) =>
     request<UserEmailPreferences>('/user-notifications/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  getAdminUserEmailPreferences: (userId: number) =>
+    request<UserEmailPreferences>(`/user-notifications/preferences/${userId}`),
+  updateAdminUserEmailPreferences: (userId: number, data: UserEmailPreferences) =>
+    request<UserEmailPreferences>(`/user-notifications/preferences/${userId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),

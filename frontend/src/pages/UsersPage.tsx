@@ -12,6 +12,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Card, CardContent, CardHeader } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
+import { AdminUserPlateNotificationsSection } from '../components/AdminUserPlateNotificationsSection';
 import { EnrollmentInvitesModal, RosterImportModal } from '../components/CohortOnboardingModals';
 import { LdapUserPicker } from '../components/LdapUserPicker';
 import {
@@ -428,7 +429,7 @@ export function UsersPage() {
                             {t('users.delete')}
                           </Button>
                         )}
-                        {advancedAuthStatus?.advanced_auth_enabled && user.email && user.id !== currentUser?.id && (
+                        {(advancedAuthStatus?.advanced_auth_enabled || advancedAuthStatus?.smtp_configured) && user.email && user.id !== currentUser?.id && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -581,6 +582,9 @@ export function UsersPage() {
                   value={formData.expires_at || ''}
                   onChange={(expires_at) => setFormData({ ...formData, expires_at })}
                 />
+                {currentUser?.is_admin && editingUserId && (
+                  <AdminUserPlateNotificationsSection userId={editingUserId} />
+                )}
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
                     {t('users.form.groups')}
@@ -760,6 +764,9 @@ export function UsersPage() {
                   value={formData.expires_at || ''}
                   onChange={(expires_at) => setFormData({ ...formData, expires_at })}
                 />
+                {currentUser?.is_admin && editingUserId && (
+                  <AdminUserPlateNotificationsSection userId={editingUserId} />
+                )}
                 <div>
                   <label className="block text-sm font-medium text-white mb-2">
                     {t('users.form.groups')}

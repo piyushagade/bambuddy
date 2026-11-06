@@ -243,3 +243,179 @@ class TestSMTPSettingsPersistence:
 
         result = await get_smtp_settings(db_session)
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_save_and_retrieve_resend_gateway_settings(self, db_session):
+        """Save Resend gateway settings and preserve API key on subsequent update."""
+        from backend.app.schemas.auth import SMTPSettings
+        from backend.app.services.email_service import get_smtp_settings, save_smtp_settings
+
+        settings = SMTPSettings(
+            email_provider="resend",
+            smtp_from_email="prints@example.com",
+            smtp_from_name="BamBuddy Prints",
+            smtp_reply_to="help@example.com",
+            resend_api_key="re_test_key_123",
+        )
+        await save_smtp_settings(db_session, settings)
+        await db_session.commit()
+
+        retrieved = await get_smtp_settings(db_session)
+        assert retrieved is not None
+        assert retrieved.email_provider == "resend"
+        assert retrieved.resend_api_key == "re_test_key_123"
+        assert retrieved.resend_api_key_configured is True
+        assert retrieved.smtp_from_email == "prints@example.com"
+        assert retrieved.smtp_reply_to == "help@example.com"
+
+        # Update without re-sending API key — existing key must be preserved
+        updated = SMTPSettings(
+            email_provider="resend",
+            smtp_from_email="updated@example.com",
+            smtp_from_name="BamBuddy Prints",
+        )
+        await save_smtp_settings(db_session, updated)
+        await db_session.commit()
+
+        retrieved2 = await get_smtp_settings(db_session)
+        assert retrieved2 is not None
+        assert retrieved2.smtp_from_email == "updated@example.com"
+        assert retrieved2.resend_api_key == "re_test_key_123"
+
+    @pytest.mark.asyncio
+    async def test_save_and_retrieve_mailgun_gateway_settings(self, db_session):
+        """Save Mailgun gateway settings (EU region) and retrieve them."""
+        from backend.app.schemas.auth import SMTPSettings
+        from backend.app.services.email_service import get_smtp_settings, save_smtp_settings
+
+        settings = SMTPSettings(
+            email_provider="mailgun",
+            smtp_from_email="noreply@mg.example.com",
+            smtp_from_name="BamBuddy",
+            mailgun_api_key="key-mailgun-secret",
+            mailgun_domain="mg.example.com",
+            mailgun_region="eu",
+        )
+        await save_smtp_settings(db_session, settings)
+        await db_session.commit()
+
+        retrieved = await get_smtp_settings(db_session)
+        assert retrieved is not None
+        assert retrieved.email_provider == "mailgun"
+        assert retrieved.mailgun_api_key == "key-mailgun-secret"
+        assert retrieved.mailgun_api_key_configured is True
+        assert retrieved.mailgun_domain == "mg.example.com"
+        assert retrieved.mailgun_region == "eu"
+
+
+class TestResendAndMailgunDelivery:
+    """Tests for Resend and Mailgun HTTP API email delivery."""
+
+    def test_send_email_via_resend_with_inline_image(self):
+        from unittest.mock import MagicMock
+
+        from backend.app.schemas.auth import SMTPSettings
+        from backend.app.services.email_service import send_email
+
+        settings = SMTPSettings(
+            email_provider="resend",
+            smtp_from_email="noreply@example.com",
+            smtp_from_name="BamBuddy",
+            smtp_reply_to="reply@example.com",
+            resend_api_key="re_123",
+        )
+        mock_resp = MagicMock(status_code=200, text='{"id":"123"}')
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        with patch("backend.app.services.email_service.httpx.Client", return_value=mock_client):
+            send_email(
+                settings,
+                "user@example.com",
+                "Print Complete",
+                "Plain body",
+                '<img src="cid:snap1">',
+                image_data=b"\xff\xd8jpeg",
+                image_cid="snap1",
+            )
+
+        mock_client.post.assert_called_once()
+        assert mock_client.post.call_args.args[0] == "https://api.resend.com/emails"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["from"] == "BamBuddy <noreply@example.com>"
+        assert payload["to"] == ["user@example.com"]
+        assert payload["reply_to"] == "reply@example.com"
+        assert payload["attachments"][0]["content_id"] == "snap1"
+
+    def test_send_email_via_mailgun_eu_region(self):
+        from unittest.mock import MagicMock
+
+        from backend.app.schemas.auth import SMTPSettings
+        from backend.app.services.email_service import send_email
+
+        settings = SMTPSettings(
+            email_provider="mailgun",
+            smtp_from_email="noreply@mg.example.com",
+            smtp_from_name="BamBuddy",
+            mailgun_api_key="key-xyz",
+            mailgun_domain="mg.example.com",
+            mailgun_region="eu",
+        )
+        mock_resp = MagicMock(status_code=200, text='{"message":"Queued"}')
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        with patch("backend.app.services.email_service.httpx.Client", return_value=mock_client):
+            send_email(
+                settings,
+                "user@example.com",
+                "Plate Clear Required",
+                "Please clear the build plate",
+                "<p>Please clear the build plate</p>",
+            )
+
+        mock_client.post.assert_called_once()
+        assert mock_client.post.call_args.args[0] == "https://api.eu.mailgun.net/v3/mg.example.com/messages"
+        assert mock_client.post.call_args.kwargs["auth"] == ("api", "key-xyz")
+        assert mock_client.post.call_args.kwargs["data"]["to"] == ["user@example.com"]
+
+    @pytest.mark.asyncio
+    async def test_notification_service_resend_and_mailgun_providers(self):
+        from unittest.mock import MagicMock
+
+        from backend.app.services.notification_service import NotificationService
+
+        service = NotificationService()
+        mock_resp = MagicMock(status_code=200, text="ok")
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch.object(service, "_get_client", new_callable=AsyncMock, return_value=mock_client):
+            ok_r, msg_r = await service._send_resend(
+                {
+                    "api_key": "re_abc",
+                    "from_email": "from@example.com",
+                    "to_email": "to@example.com",
+                },
+                "Test Title",
+                "Test Body",
+                image_data=b"\xff\xd8jpeg",
+            )
+            assert ok_r is True
+            assert "Resend" in msg_r
+
+            ok_m, msg_m = await service._send_mailgun(
+                {
+                    "api_key": "key-abc",
+                    "domain": "mg.example.com",
+                    "region": "us",
+                    "from_email": "from@mg.example.com",
+                    "to_email": "to@example.com",
+                },
+                "Test Title",
+                "Test Body",
+                image_data=b"\xff\xd8jpeg",
+            )
+            assert ok_m is True
+            assert "Mailgun" in msg_m
+            assert mock_client.post.call_count == 2

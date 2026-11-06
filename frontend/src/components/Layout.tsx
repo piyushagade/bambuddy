@@ -427,8 +427,8 @@ export function Layout() {
           : hasPermission(required);
         if (!granted) return true;
       }
-      // notifications nav item also requires advanced auth to be enabled and user_notifications_enabled setting
-      if (id === 'notifications' && (!authEnabled || !advancedAuthStatus?.advanced_auth_enabled || (uiFlags?.user_notifications_enabled === false))) return true;
+      // notifications nav item requires an email gateway (or advanced auth) and user_notifications_enabled setting
+      if (id === 'notifications' && (!authEnabled || (!advancedAuthStatus?.advanced_auth_enabled && !advancedAuthStatus?.smtp_configured) || (uiFlags?.user_notifications_enabled === false))) return true;
       // Finance is off by default and the page is meaningless without it, so it
       // stays hidden until billing is explicitly on. Tested for `true` rather
       // than `!== false` on purpose: the flags are undefined on the first

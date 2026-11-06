@@ -1617,6 +1617,7 @@ class PrintScheduler:
                         target_model=(entry[1] if entry else "") or "",
                         waiting_reason=reason,
                         db=db,
+                        created_by_id=item.created_by_id,
                     )
                 except Exception as e:
                     # A queue that cannot say why it is waiting is the bug being
@@ -1942,6 +1943,7 @@ class PrintScheduler:
                                 printer_name=printer.name if printer else "Unknown",
                                 reason="Previous print failed or was aborted",
                                 db=db,
+                                created_by_id=item.created_by_id,
                             )
                             continue
 
@@ -2150,6 +2152,7 @@ class PrintScheduler:
                                 target_model=_candidate_model_label(candidates) or item.target_model,
                                 waiting_reason=waiting_reason,
                                 db=db,
+                                created_by_id=item.created_by_id,
                             )
 
                     if printer_id:
@@ -2185,6 +2188,7 @@ class PrintScheduler:
                                     printer_name=printer.name if printer else "Unknown",
                                     reason="Previous print failed or was aborted",
                                     db=db,
+                                    created_by_id=item.created_by_id,
                                 )
                                 continue
 
@@ -3494,6 +3498,7 @@ class PrintScheduler:
             printer_name=printer.name if printer else "Unknown",
             reason=message,
             db=db,
+            created_by_id=item.created_by_id,
         )
         try:
             await ws_manager.send_queue_item_failed(
@@ -7152,6 +7157,7 @@ class PrintScheduler:
                     printer_name=printer.name if printer else "Unknown",
                     reason=reason,
                     db=db,
+                    created_by_id=item.created_by_id,
                 )
         except Exception as e:
             logger.warning("Queue item %s: give-up notification failed: %s", queue_item_id, e)
@@ -7220,6 +7226,7 @@ class PrintScheduler:
                     target_model=(printer.model if printer else "") or "",
                     waiting_reason="filament_short",
                     db=db,
+                    created_by_id=item.created_by_id,
                 )
             except Exception as e:
                 logger.debug("filament_short notification failed for item %s: %s", item.id, e)
@@ -7659,6 +7666,7 @@ class PrintScheduler:
                     printer_name=printer.name,
                     reason=mismatch_msg,
                     db=db,
+                    created_by_id=item.created_by_id,
                 )
                 try:
                     await ws_manager.send_queue_item_failed(
@@ -7903,6 +7911,7 @@ class PrintScheduler:
                 # something different from the UI is its own small bug (#2899).
                 reason=error_msg,
                 db=db,
+                created_by_id=item.created_by_id,
             )
             try:
                 await ws_manager.send_queue_item_failed(
@@ -8152,6 +8161,7 @@ class PrintScheduler:
                         printer_name=printer.name,
                         reason=item.error_message,
                         db=db,
+                        created_by_id=item.created_by_id,
                     )
                     try:
                         await ws_manager.send_queue_item_failed(
@@ -8435,6 +8445,7 @@ class PrintScheduler:
                 printer_name=printer.name,
                 reason="Failed to send print command to printer - check printer connection and status",
                 db=db,
+                created_by_id=item.created_by_id,
             )
             try:
                 await ws_manager.send_queue_item_failed(

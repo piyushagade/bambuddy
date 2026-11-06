@@ -3608,6 +3608,22 @@ async def run_migrations(conn):
     except (OperationalError, ProgrammingError):
         pass  # Column already exists or table created with full schema
 
+    # Migration: Add extended user email notification preference columns
+    for _user_pref_col in (
+        "notify_print_progress",
+        "notify_first_layer_complete",
+        "notify_print_confirm_request",
+        "notify_plate_clear_required",
+        "notify_plate_not_empty",
+        "notify_queue_waiting",
+        "notify_queue_skipped",
+        "notify_queue_failed",
+    ):
+        await _safe_execute(
+            conn,
+            f"ALTER TABLE user_email_preferences ADD COLUMN {_user_pref_col} BOOLEAN DEFAULT TRUE NOT NULL",
+        )
+
     # Migration: Add camera_rotation column to printers
     await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN camera_rotation INTEGER DEFAULT 0")
 

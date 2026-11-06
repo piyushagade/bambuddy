@@ -40,6 +40,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { PopupModal } from '../components/PopupModal';
 import { ApiKeyQRCodeModal } from '../components/ApiKeyQRCodeModal';
 import { CreateUserAdvancedAuthModal } from '../components/CreateUserAdvancedAuthModal';
+import { AdminUserPlateNotificationsSection } from '../components/AdminUserPlateNotificationsSection';
 import { RosterImportModal, EnrollmentInvitesModal, RedeemInviteModal } from '../components/CohortOnboardingModals';
 import { UsersManagerModal, GroupsManagerModal } from '../components/UsersGroupsManagerModals';
 import { UserExpirationBadge, UserExpirationField, datetimeLocalToIso, isoToDatetimeLocal } from '../components/UserExpirationField';
@@ -4315,11 +4316,11 @@ export function SettingsPage() {
             {/* User Notifications Toggle */}
             <Card className="mb-4">
               <CardContent className="py-3">
-                <div className={`flex items-center justify-between ${!advancedAuthStatus?.advanced_auth_enabled ? 'opacity-50' : ''}`}>
+                <div className={`flex items-center justify-between ${(!advancedAuthStatus?.advanced_auth_enabled && !advancedAuthStatus?.smtp_configured) ? 'opacity-50' : ''}`}>
                   <div>
                     <p className="text-white text-sm font-medium">{t('settings.userNotificationsEnabled')}</p>
                     <p className="text-xs text-bambu-gray">
-                      {!advancedAuthStatus?.advanced_auth_enabled
+                      {!advancedAuthStatus?.advanced_auth_enabled && !advancedAuthStatus?.smtp_configured
                         ? t('settings.userNotificationsDisabledHint')
                         : t('settings.userNotificationsEnabledDescription')}
                     </p>
@@ -4329,7 +4330,7 @@ export function SettingsPage() {
                       type="checkbox"
                       className="sr-only peer"
                       checked={localSettings.user_notifications_enabled ?? true}
-                      disabled={!advancedAuthStatus?.advanced_auth_enabled}
+                      disabled={!advancedAuthStatus?.advanced_auth_enabled && !advancedAuthStatus?.smtp_configured}
                       onChange={(e) => updateSetting('user_notifications_enabled', e.target.checked)}
                     />
                     <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green peer-disabled:cursor-not-allowed"></div>
@@ -6706,7 +6707,7 @@ export function SettingsPage() {
             >
               <Mail className="w-4 h-4" />
               {t('settings.tabs.emailAuth') || 'Email Authentication'}
-              {advancedAuthStatus?.advanced_auth_enabled && (
+              {(advancedAuthStatus?.advanced_auth_enabled || advancedAuthStatus?.smtp_configured) && (
                 <span className="w-2 h-2 rounded-full bg-green-400" />
               )}
             </button>
@@ -7742,12 +7743,14 @@ export function SettingsPage() {
               </>
             )}
 
-            {/* Info box about auto-generated password when Advanced Auth is enabled */}
-            {advancedAuthStatus?.advanced_auth_enabled && (
+            {/* Info box about auto-generated password when Advanced Auth is enabled, or Email Reset when gateway is configured */}
+            {(advancedAuthStatus?.advanced_auth_enabled || (advancedAuthStatus?.smtp_configured && userFormData.email)) && (
               <div className="bg-bambu-dark-secondary/50 border border-bambu-green/20 rounded-lg p-3 space-y-3">
-                <p className="text-sm text-bambu-gray">
-                  {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
-                </p>
+                {advancedAuthStatus?.advanced_auth_enabled && (
+                  <p className="text-sm text-bambu-gray">
+                    {t('users.form.passwordManagedByAdvancedAuth') || 'Password is managed by Advanced Authentication. Use "Reset Password" to send a new password to the user via email.'}
+                  </p>
+                )}
                 <Button
                   variant="secondary"
                   size="sm"
@@ -7768,6 +7771,10 @@ export function SettingsPage() {
                   )}
                 </Button>
               </div>
+            )}
+
+            {isAdmin && editingUserId && (
+              <AdminUserPlateNotificationsSection userId={editingUserId} />
             )}
 
             {/* Groups Field */}

@@ -16,6 +16,8 @@ class ProviderType(StrEnum):
     PUSHOVER = "pushover"
     TELEGRAM = "telegram"
     EMAIL = "email"
+    RESEND = "resend"
+    MAILGUN = "mailgun"
     DISCORD = "discord"
     WEBHOOK = "webhook"
     HOMEASSISTANT = "homeassistant"
@@ -403,6 +405,28 @@ class EmailConfig(BaseModel):
     from_email: str = Field(..., description="From email address")
     to_email: str = Field(..., description="Recipient email address")
     use_tls: bool = Field(default=True, description="Use TLS encryption")
+
+
+class ResendConfig(BaseModel):
+    """Resend email API configuration."""
+
+    api_key: str = Field(..., description="Resend API key (starts with re_)")
+    from_email: str = Field(..., description="Verified sender email address")
+    from_name: str | None = Field(default="Bambuddy", description="Sender display name")
+    to_email: str = Field(..., description="Recipient email address")
+    reply_to: str | None = Field(default=None, description="Optional Reply-To email address")
+
+
+class MailgunConfig(BaseModel):
+    """Mailgun email API configuration."""
+
+    api_key: str = Field(..., description="Mailgun API key")
+    domain: str = Field(..., description="Mailgun sending domain (e.g., mg.example.com)")
+    region: Literal["us", "eu"] = Field(default="us", description="Mailgun API region ('us' or 'eu')")
+    from_email: str = Field(..., description="Sender email address")
+    from_name: str | None = Field(default="Bambuddy", description="Sender display name")
+    to_email: str = Field(..., description="Recipient email address")
+    reply_to: str | None = Field(default=None, description="Optional Reply-To email address")
 
 
 # Notification Log schemas

@@ -893,7 +893,7 @@ export function LoginPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {advancedAuthStatus?.advanced_auth_enabled ? (
+              {advancedAuthStatus?.advanced_auth_enabled || advancedAuthStatus?.smtp_configured ? (
                 <form onSubmit={handleForgotPassword} className="space-y-4">
                   <p className="text-bambu-gray text-sm">
                     {t('login.forgotPasswordEmailMessage')}

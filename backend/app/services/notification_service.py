@@ -354,6 +354,10 @@ class NotificationService:
                 return await self._send_telegram(config, f"*{title}*\n{message}", image_data=image_data)
             elif provider_type == "email":
                 return await self._send_email(config, title, message, image_data=image_data)
+            elif provider_type == "resend":
+                return await self._send_resend(config, title, message, image_data=image_data)
+            elif provider_type == "mailgun":
+                return await self._send_mailgun(config, title, message, image_data=image_data)
             elif provider_type == "discord":
                 return await self._send_discord(config, title, message, image_data=image_data)
             elif provider_type == "webhook":
@@ -936,6 +940,138 @@ class NotificationService:
         except Exception as e:
             return False, f"Email error: {str(e)}"
 
+    async def _send_resend(
+        self,
+        config: dict,
+        subject: str,
+        body: str,
+        image_data: bytes | None = None,
+        finish_photo_url: str | None = None,
+    ) -> tuple[bool, str]:
+        """Send notification via Resend HTTP REST API."""
+        import base64
+
+        api_key = (config.get("api_key") or "").strip()
+        from_email = (config.get("from_email") or "").strip()
+        from_name = (config.get("from_name") or "Bambuddy").strip()
+        to_email = (config.get("to_email") or "").strip()
+        reply_to = (config.get("reply_to") or "").strip()
+
+        if not all([api_key, from_email, to_email]):
+            return False, "Resend API key, from email, and to email are required"
+
+        from_header = f"{from_name} <{from_email}>" if from_name else from_email
+        payload: dict[str, Any] = {
+            "from": from_header,
+            "to": [addr.strip() for addr in to_email.split(",") if addr.strip()],
+            "subject": f"[Bambuddy] {subject}",
+            "text": body,
+        }
+        if reply_to:
+            payload["reply_to"] = reply_to
+
+        inline_by_url = bool(image_data and finish_photo_url and finish_photo_url in body)
+        if image_data:
+            escaped_body = html.escape(body).replace("\n", "<br>\n")
+            img_tag = (
+                '<img src="cid:bambuddy-finish-photo" '
+                'alt="Printer camera snapshot" '
+                'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+            )
+            if inline_by_url and finish_photo_url:
+                escaped_url = html.escape(finish_photo_url)
+                html_content = escaped_body.replace(escaped_url, img_tag)
+            else:
+                html_content = f"{escaped_body}<p>{img_tag}</p>"
+            payload["html"] = f"<html><body><p>{html_content}</p></body></html>"
+            payload["attachments"] = [
+                {
+                    "filename": "finish-photo.jpg",
+                    "content": base64.b64encode(image_data).decode("ascii"),
+                    "content_id": "bambuddy-finish-photo",
+                }
+            ]
+
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            if response.status_code in (200, 201, 202):
+                return True, "Email sent successfully via Resend"
+            return False, f"Resend error ({response.status_code}): {response.text[:200]}"
+        except Exception as e:
+            return False, f"Resend error: {str(e)}"
+
+    async def _send_mailgun(
+        self,
+        config: dict,
+        subject: str,
+        body: str,
+        image_data: bytes | None = None,
+        finish_photo_url: str | None = None,
+    ) -> tuple[bool, str]:
+        """Send notification via Mailgun HTTP REST API."""
+        api_key = (config.get("api_key") or "").strip()
+        domain = (config.get("domain") or "").strip()
+        region = (config.get("region") or "us").strip().lower()
+        from_email = (config.get("from_email") or "").strip()
+        from_name = (config.get("from_name") or "Bambuddy").strip()
+        to_email = (config.get("to_email") or "").strip()
+        reply_to = (config.get("reply_to") or "").strip()
+
+        if not all([api_key, domain, from_email, to_email]):
+            return False, "Mailgun API key, domain, from email, and to email are required"
+
+        base_url = "https://api.eu.mailgun.net" if region == "eu" else "https://api.mailgun.net"
+        url = f"{base_url}/v3/{domain}/messages"
+        from_header = f"{from_name} <{from_email}>" if from_name else from_email
+
+        data: dict[str, Any] = {
+            "from": from_header,
+            "to": [addr.strip() for addr in to_email.split(",") if addr.strip()],
+            "subject": f"[Bambuddy] {subject}",
+            "text": body,
+        }
+        if reply_to:
+            data["h:Reply-To"] = reply_to
+
+        files = None
+        inline_by_url = bool(image_data and finish_photo_url and finish_photo_url in body)
+        if image_data:
+            escaped_body = html.escape(body).replace("\n", "<br>\n")
+            img_tag = (
+                '<img src="cid:finish-photo.jpg" '
+                'alt="Printer camera snapshot" '
+                'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+            )
+            if inline_by_url and finish_photo_url:
+                escaped_url = html.escape(finish_photo_url)
+                html_content = escaped_body.replace(escaped_url, img_tag)
+            else:
+                html_content = f"{escaped_body}<p>{img_tag}</p>"
+            data["html"] = f"<html><body><p>{html_content}</p></body></html>"
+            files = [("inline", ("finish-photo.jpg", image_data, "image/jpeg"))]
+
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                url,
+                auth=("api", api_key),
+                data=data,
+                files=files,
+            )
+            if response.status_code in (200, 201, 202):
+                return True, "Email sent successfully via Mailgun"
+            return False, f"Mailgun error ({response.status_code}): {response.text[:200]}"
+        except Exception as e:
+            return False, f"Mailgun error: {str(e)}"
+
     async def _send_discord(
         self, config: dict, title: str, message: str, image_data: bytes | None = None
     ) -> tuple[bool, str]:
@@ -1357,6 +1493,16 @@ class NotificationService:
                 # URL and inline-embed the photo only in that case.
                 finish_photo_url = (variables or {}).get("finish_photo_url")
                 return await self._send_email(
+                    config, title, message, image_data=image_data, finish_photo_url=finish_photo_url
+                )
+            elif provider.provider_type == "resend":
+                finish_photo_url = (variables or {}).get("finish_photo_url")
+                return await self._send_resend(
+                    config, title, message, image_data=image_data, finish_photo_url=finish_photo_url
+                )
+            elif provider.provider_type == "mailgun":
+                finish_photo_url = (variables or {}).get("finish_photo_url")
+                return await self._send_mailgun(
                     config, title, message, image_data=image_data, finish_photo_url=finish_photo_url
                 )
             elif provider.provider_type == "discord":
@@ -1791,8 +1937,6 @@ class NotificationService:
         provider in reaction mode (#3046) tie the sent message to the archive.
         """
         providers = await self._get_providers_for_event(db, "on_print_confirm_request", printer_id)
-        if not providers:
-            return
 
         subtask_name = data.get("subtask_name")
         if subtask_name:
@@ -1816,18 +1960,40 @@ class NotificationService:
                 variables["finish_photo_url"] = archive_data["finish_photo_url"]
             image_data = archive_data.get("image_data")
 
-        title, message = await self._build_message_from_template(db, "print_confirm_request", variables)
-        await self._send_to_providers(
-            providers,
-            title,
-            message,
-            db,
-            "print_confirm_request",
-            printer_id,
-            printer_name,
-            image_data=image_data,
-            variables=variables,
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "print_confirm_request", variables)
+            await self._send_to_providers(
+                providers,
+                title,
+                message,
+                db,
+                "print_confirm_request",
+                printer_id,
+                printer_name,
+                image_data=image_data,
+                variables=variables,
+            )
+
+        if isinstance(db, AsyncSession):
+            created_by_id = None
+            if archive_id is not None:
+                with db.no_autoflush:
+                    arch = await db.get(PrintArchive, archive_id)
+                if arch and arch.created_by_id is not None:
+                    created_by_id = arch.created_by_id
+            if created_by_id is None:
+                created_by_id, _ = await self.resolve_printer_job_user_id(db, printer_id, include_finished=True)
+            if created_by_id is not None:
+                await self.send_user_print_email(
+                    "user_print_confirm_request",
+                    created_by_id,
+                    printer_name,
+                    filename,
+                    db,
+                    image_data=image_data,
+                    finish_photo_url=variables.get("finish_photo_url"),
+                    extra_variables=variables,
+                )
 
     async def on_print_progress(
         self,
@@ -1841,7 +2007,7 @@ class NotificationService:
     ):
         """Handle print progress milestone (25%, 50%, 75%)."""
         providers = await self._get_providers_for_event(db, "on_print_progress", printer_id)
-        if not providers:
+        if not providers and not isinstance(db, AsyncSession):
             return
 
         eta_str = await self._format_eta(remaining_time, db)
@@ -1854,18 +2020,32 @@ class NotificationService:
             "eta": eta_str,
         }
 
-        title, message = await self._build_message_from_template(db, "print_progress", variables)
-        await self._send_to_providers(
-            providers,
-            title,
-            message,
-            db,
-            "print_progress",
-            printer_id,
-            printer_name,
-            image_data=image_data,
-            variables=variables,
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "print_progress", variables)
+            await self._send_to_providers(
+                providers,
+                title,
+                message,
+                db,
+                "print_progress",
+                printer_id,
+                printer_name,
+                image_data=image_data,
+                variables=variables,
+            )
+
+        if isinstance(db, AsyncSession):
+            created_by_id, _ = await self.resolve_printer_job_user_id(db, printer_id)
+            if created_by_id is not None:
+                await self.send_user_print_email(
+                    "user_print_progress",
+                    created_by_id,
+                    printer_name,
+                    filename,
+                    db,
+                    image_data=image_data,
+                    extra_variables=variables,
+                )
 
     async def on_print_missing_spool_assignment(
         self,
@@ -2037,7 +2217,7 @@ class NotificationService:
     ):
         """Handle plate not empty event - objects detected on build plate before print."""
         providers = await self._get_providers_for_event(db, "on_plate_not_empty", printer_id)
-        if not providers:
+        if not providers and not isinstance(db, AsyncSession):
             return
 
         variables = {
@@ -2045,19 +2225,35 @@ class NotificationService:
             "difference_percent": f"{difference_percent:.1f}" if difference_percent else "N/A",
         }
 
-        title, message = await self._build_message_from_template(db, "plate_not_empty", variables)
-        await self._send_to_providers(
-            providers,
-            title,
-            message,
-            db,
-            "plate_not_empty",
-            printer_id,
-            printer_name,
-            force_immediate=True,
-            image_data=image_data,
-            variables=variables,
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "plate_not_empty", variables)
+            await self._send_to_providers(
+                providers,
+                title,
+                message,
+                db,
+                "plate_not_empty",
+                printer_id,
+                printer_name,
+                force_immediate=True,
+                image_data=image_data,
+                variables=variables,
+            )
+
+        if isinstance(db, AsyncSession):
+            created_by_id, filename = await self.resolve_printer_job_user_id(
+                db, printer_id, include_finished=True
+            )
+            if created_by_id is not None:
+                await self.send_user_print_email(
+                    "user_plate_not_empty",
+                    created_by_id,
+                    printer_name,
+                    filename,
+                    db,
+                    image_data=image_data,
+                    extra_variables=variables,
+                )
 
     async def on_plate_clear_required(
         self,
@@ -2075,22 +2271,33 @@ class NotificationService:
         print-complete notification, so opting in is a deliberate choice.
         """
         providers = await self._get_providers_for_event(db, "on_plate_clear_required", printer_id)
-        if not providers:
-            return
+        if providers:
+            variables = {"printer": printer_name}
 
-        variables = {"printer": printer_name}
+            title, message = await self._build_message_from_template(db, "plate_clear_required", variables)
+            await self._send_to_providers(
+                providers,
+                title,
+                message,
+                db,
+                "plate_clear_required",
+                printer_id,
+                printer_name,
+                variables=variables,
+            )
 
-        title, message = await self._build_message_from_template(db, "plate_clear_required", variables)
-        await self._send_to_providers(
-            providers,
-            title,
-            message,
-            db,
-            "plate_clear_required",
-            printer_id,
-            printer_name,
-            variables=variables,
-        )
+        if isinstance(db, AsyncSession):
+            created_by_id, filename = await self.resolve_printer_job_user_id(
+                db, printer_id, include_finished=True
+            )
+            if created_by_id is not None:
+                await self.send_user_print_email(
+                    "user_plate_clear_required",
+                    created_by_id,
+                    printer_name,
+                    filename,
+                    db,
+                )
 
     async def on_filament_low(
         self,
@@ -2447,7 +2654,7 @@ class NotificationService:
     ):
         """Handle first layer complete event."""
         providers = await self._get_providers_for_event(db, "on_first_layer_complete", printer_id)
-        if not providers:
+        if not providers and not isinstance(db, AsyncSession):
             return
 
         variables = {
@@ -2456,22 +2663,75 @@ class NotificationService:
             "total_layers": str(total_layers),
         }
 
-        title, message = await self._build_message_from_template(db, "first_layer_complete", variables)
-        await self._send_to_providers(
-            providers,
-            title,
-            message,
-            db,
-            "first_layer_complete",
-            printer_id,
-            printer_name,
-            image_data=image_data,
-            variables=variables,
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "first_layer_complete", variables)
+            await self._send_to_providers(
+                providers,
+                title,
+                message,
+                db,
+                "first_layer_complete",
+                printer_id,
+                printer_name,
+                image_data=image_data,
+                variables=variables,
+            )
+
+        if isinstance(db, AsyncSession):
+            created_by_id, _ = await self.resolve_printer_job_user_id(db, printer_id)
+            if created_by_id is not None:
+                await self.send_user_print_email(
+                    "user_first_layer_complete",
+                    created_by_id,
+                    printer_name,
+                    filename,
+                    db,
+                    image_data=image_data,
+                    extra_variables=variables,
+                )
 
     def clear_template_cache(self):
         """Clear the template cache. Call this when templates are updated."""
         self._template_cache.clear()
+
+    async def resolve_printer_job_user_id(
+        self,
+        db: AsyncSession,
+        printer_id: int,
+        *,
+        include_finished: bool = False,
+    ) -> tuple[int | None, str]:
+        """Resolve (created_by_id, filename) for the active or latest print on a printer."""
+        try:
+            from backend.app.models.print_queue import PrintQueueItem
+
+            with db.no_autoflush:
+                archive_query = select(PrintArchive).where(
+                    PrintArchive.printer_id == printer_id,
+                    PrintArchive.created_by_id.is_not(None),
+                )
+                if not include_finished:
+                    archive_query = archive_query.where(PrintArchive.status == "printing")
+                archive_query = archive_query.order_by(PrintArchive.id.desc()).limit(1)
+                archive_res = await db.execute(archive_query)
+                archive = archive_res.scalar_one_or_none()
+                if archive and archive.created_by_id is not None:
+                    return archive.created_by_id, archive.print_name or archive.filename or "Unknown"
+
+                queue_query = select(PrintQueueItem).where(
+                    PrintQueueItem.printer_id == printer_id,
+                    PrintQueueItem.created_by_id.is_not(None),
+                )
+                if not include_finished:
+                    queue_query = queue_query.where(PrintQueueItem.status == "printing")
+                queue_query = queue_query.order_by(PrintQueueItem.id.desc()).limit(1)
+                queue_res = await db.execute(queue_query)
+                queue_item = queue_res.scalar_one_or_none()
+                if queue_item and queue_item.created_by_id is not None:
+                    return queue_item.created_by_id, "Queued Print"
+        except Exception as e:
+            logger.debug("Could not resolve job user for printer %s: %s", printer_id, e)
+        return None, "Unknown"
 
     async def send_user_print_email(
         self,
@@ -2482,12 +2742,13 @@ class NotificationService:
         db: AsyncSession,
         image_data: bytes | None = None,
         finish_photo_url: str | None = None,
+        extra_variables: dict[str, Any] | None = None,
     ) -> None:
-        """Send a print event email notification to the user who submitted the job.
+        """Send a print or queue event email notification to the user who submitted the job.
 
         Args:
-            event_type: 'user_print_start', 'user_print_complete', 'user_print_failed', or 'user_print_stopped'
-            created_by_id: User ID who submitted the print job (from archive)
+            event_type: User notification event type (e.g., 'user_print_start', 'user_plate_clear_required')
+            created_by_id: User ID who submitted the print job (from archive or queue item)
             printer_name: Name of the printer
             filename: Raw filename or subtask name
             db: Database session
@@ -2495,43 +2756,40 @@ class NotificationService:
             finish_photo_url: The same snapshot's public URL — only used so the
                 template can reference {finish_photo_url}, which is what opts
                 the email into inlining the photo (see send_user_print_notification).
+            extra_variables: Additional template variables (progress, eta, confirm_url, reason, etc.)
         """
         if created_by_id is None:
             logger.debug("[EMAIL] Skipping user print email (%s): no created_by_id", event_type)
             return
 
         try:
-            # Check if advanced auth is enabled - required for user email notifications
             from backend.app.models.settings import Settings
 
-            result = await db.execute(select(Settings).where(Settings.key == "advanced_auth_enabled"))
-            setting = result.scalar_one_or_none()
-            if not setting or setting.value.lower() != "true":
-                logger.debug("[EMAIL] Skipping user print email (%s): advanced_auth not enabled", event_type)
-                return
-
-            # Check if user notifications are enabled (admin-controlled toggle)
-            notif_enabled_result = await db.execute(
-                select(Settings).where(Settings.key == "user_notifications_enabled")
-            )
+            # Check if user notifications are enabled (admin-controlled toggle, default enabled)
+            with db.no_autoflush:
+                notif_enabled_result = await db.execute(
+                    select(Settings).where(Settings.key == "user_notifications_enabled")
+                )
             notif_enabled_setting = notif_enabled_result.scalar_one_or_none()
             if notif_enabled_setting and notif_enabled_setting.value.lower() == "false":
                 logger.debug("[EMAIL] Skipping user print email (%s): user_notifications_enabled is false", event_type)
                 return
 
-            # Check SMTP settings are configured - required for sending emails
+            # Check email gateway settings are configured - required for sending emails
             from backend.app.services.email_service import get_smtp_settings, send_user_print_notification
 
-            smtp_settings = await get_smtp_settings(db)
+            with db.no_autoflush:
+                smtp_settings = await get_smtp_settings(db)
             if not smtp_settings:
-                logger.debug("[EMAIL] Skipping user print email (%s): SMTP settings not configured", event_type)
+                logger.debug("[EMAIL] Skipping user print email (%s): email gateway settings not configured", event_type)
                 return
 
             # Load user preferences
             from backend.app.models.user import User
             from backend.app.models.user_email_pref import UserEmailPreference
 
-            user_result = await db.execute(select(User).where(User.id == created_by_id))
+            with db.no_autoflush:
+                user_result = await db.execute(select(User).where(User.id == created_by_id))
             user = user_result.scalar_one_or_none()
             if user is None or not user.email:
                 logger.debug(
@@ -2542,21 +2800,31 @@ class NotificationService:
                 return
 
             # Load user's notification preferences
-            pref_result = await db.execute(
-                select(UserEmailPreference).where(UserEmailPreference.user_id == created_by_id)
-            )
+            with db.no_autoflush:
+                pref_result = await db.execute(
+                    select(UserEmailPreference).where(UserEmailPreference.user_id == created_by_id)
+                )
             pref = pref_result.scalar_one_or_none()
 
             # Determine if this event type should be sent
+            pref_field_map = {
+                "user_print_start": "notify_print_start",
+                "user_print_complete": "notify_print_complete",
+                "user_print_failed": "notify_print_failed",
+                "user_print_stopped": "notify_print_stopped",
+                "user_print_progress": "notify_print_progress",
+                "user_first_layer_complete": "notify_first_layer_complete",
+                "user_print_confirm_request": "notify_print_confirm_request",
+                "user_plate_clear_required": "notify_plate_clear_required",
+                "user_plate_not_empty": "notify_plate_not_empty",
+                "user_queue_job_waiting": "notify_queue_waiting",
+                "user_queue_job_skipped": "notify_queue_skipped",
+                "user_queue_job_failed": "notify_queue_failed",
+            }
+            pref_attr = pref_field_map.get(event_type)
             should_send = False
-            if event_type == "user_print_start":
-                should_send = pref is None or pref.notify_print_start
-            elif event_type == "user_print_complete":
-                should_send = pref is None or pref.notify_print_complete
-            elif event_type == "user_print_failed":
-                should_send = pref is None or pref.notify_print_failed
-            elif event_type == "user_print_stopped":
-                should_send = pref is None or pref.notify_print_stopped
+            if pref_attr:
+                should_send = pref is None or bool(getattr(pref, pref_attr, True))
 
             if not should_send:
                 logger.debug(
@@ -2576,12 +2844,16 @@ class NotificationService:
             )
 
             # Build variables
-            variables = {
+            cleaned_filename = self._clean_filename(filename)
+            variables: dict[str, Any] = {
                 "printer": printer_name,
-                "filename": self._clean_filename(filename),
+                "filename": cleaned_filename,
+                "job_name": cleaned_filename,
             }
             if finish_photo_url:
                 variables["finish_photo_url"] = finish_photo_url
+            if extra_variables:
+                variables.update(extra_variables)
 
             # Send the email
             await send_user_print_notification(
@@ -2679,10 +2951,11 @@ class NotificationService:
         target_model: str,
         waiting_reason: str,
         db: AsyncSession,
+        created_by_id: int | None = None,
     ):
         """Handle job waiting for filament event."""
         providers = await self._get_providers_for_event(db, "on_queue_job_waiting", None)
-        if not providers:
+        if not providers and (created_by_id is None or not isinstance(db, AsyncSession)):
             return
 
         variables = {
@@ -2691,8 +2964,19 @@ class NotificationService:
             "waiting_reason": waiting_reason,
         }
 
-        title, message = await self._build_message_from_template(db, "queue_job_waiting", variables)
-        await self._send_to_providers(providers, title, message, db, "queue_job_waiting", variables=variables)
+        if providers:
+            title, message = await self._build_message_from_template(db, "queue_job_waiting", variables)
+            await self._send_to_providers(providers, title, message, db, "queue_job_waiting", variables=variables)
+
+        if created_by_id is not None and isinstance(db, AsyncSession):
+            await self.send_user_print_email(
+                "user_queue_job_waiting",
+                created_by_id,
+                target_model or "Queue",
+                job_name,
+                db,
+                extra_variables=variables,
+            )
 
     async def on_queue_job_skipped(
         self,
@@ -2701,10 +2985,11 @@ class NotificationService:
         printer_name: str,
         reason: str,
         db: AsyncSession,
+        created_by_id: int | None = None,
     ):
         """Handle job skipped event (e.g., previous print failed)."""
         providers = await self._get_providers_for_event(db, "on_queue_job_skipped", printer_id)
-        if not providers:
+        if not providers and (created_by_id is None or not isinstance(db, AsyncSession)):
             return
 
         variables = {
@@ -2713,10 +2998,21 @@ class NotificationService:
             "reason": reason,
         }
 
-        title, message = await self._build_message_from_template(db, "queue_job_skipped", variables)
-        await self._send_to_providers(
-            providers, title, message, db, "queue_job_skipped", printer_id, printer_name, variables=variables
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "queue_job_skipped", variables)
+            await self._send_to_providers(
+                providers, title, message, db, "queue_job_skipped", printer_id, printer_name, variables=variables
+            )
+
+        if created_by_id is not None and isinstance(db, AsyncSession):
+            await self.send_user_print_email(
+                "user_queue_job_skipped",
+                created_by_id,
+                printer_name,
+                job_name,
+                db,
+                extra_variables=variables,
+            )
 
     async def on_queue_job_failed(
         self,
@@ -2725,10 +3021,11 @@ class NotificationService:
         printer_name: str | None,
         reason: str,
         db: AsyncSession,
+        created_by_id: int | None = None,
     ):
         """Handle job failed to start event (upload error, etc.)."""
         providers = await self._get_providers_for_event(db, "on_queue_job_failed", printer_id)
-        if not providers:
+        if not providers and (created_by_id is None or not isinstance(db, AsyncSession)):
             return
 
         variables = {
@@ -2737,10 +3034,21 @@ class NotificationService:
             "reason": reason,
         }
 
-        title, message = await self._build_message_from_template(db, "queue_job_failed", variables)
-        await self._send_to_providers(
-            providers, title, message, db, "queue_job_failed", printer_id, printer_name, variables=variables
-        )
+        if providers:
+            title, message = await self._build_message_from_template(db, "queue_job_failed", variables)
+            await self._send_to_providers(
+                providers, title, message, db, "queue_job_failed", printer_id, printer_name, variables=variables
+            )
+
+        if created_by_id is not None and isinstance(db, AsyncSession):
+            await self.send_user_print_email(
+                "user_queue_job_failed",
+                created_by_id,
+                printer_name or "Unknown",
+                job_name,
+                db,
+                extra_variables=variables,
+            )
 
     async def on_queue_completed(
         self,

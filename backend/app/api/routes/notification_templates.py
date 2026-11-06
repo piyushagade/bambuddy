@@ -60,6 +60,14 @@ EVENT_NAMES = {
     "user_print_complete": "User Print Completed Email",
     "user_print_failed": "User Print Failed Email",
     "user_print_stopped": "User Print Stopped Email",
+    "user_print_progress": "User Print Progress Email",
+    "user_first_layer_complete": "User First Layer Complete Email",
+    "user_print_confirm_request": "User Print Outcome Confirmation Email",
+    "user_plate_clear_required": "User Plate Clear Required Email",
+    "user_plate_not_empty": "User Plate Not Empty Email",
+    "user_queue_job_waiting": "User Queue Job Waiting Email",
+    "user_queue_job_skipped": "User Queue Job Skipped Email",
+    "user_queue_job_failed": "User Queue Job Failed Email",
 }
 
 

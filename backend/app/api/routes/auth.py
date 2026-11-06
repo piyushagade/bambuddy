@@ -883,11 +883,13 @@ async def get_smtp_config(
     current_user: User | None = RequirePermissionIfAuthEnabled(Permission.SETTINGS_READ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get SMTP settings (admin only when auth enabled). Password is not returned."""
+    """Get SMTP/Email gateway settings (admin only when auth enabled). Secrets are not returned."""
     smtp_settings = await get_smtp_settings(db)
     if smtp_settings:
-        # Don't return password in response
+        # Don't return secrets in response
         smtp_settings.smtp_password = None
+        smtp_settings.resend_api_key = None
+        smtp_settings.mailgun_api_key = None
     return smtp_settings
 
 
@@ -1009,7 +1011,9 @@ async def get_advanced_auth_status(db: AsyncSession = Depends(get_db)):
     from backend.app.models.settings import Settings as _Settings_for_local_login
 
     advanced_auth_enabled = await is_advanced_auth_enabled(db)
-    smtp_configured = await get_smtp_settings(db) is not None
+    smtp_settings = await get_smtp_settings(db)
+    smtp_configured = smtp_settings is not None
+    email_provider = smtp_settings.email_provider if smtp_settings else None
 
     setting_row = await db.execute(
         select(_Settings_for_local_login).where(_Settings_for_local_login.key == "local_login_enabled")
@@ -1028,6 +1032,7 @@ async def get_advanced_auth_status(db: AsyncSession = Depends(get_db)):
     return {
         "advanced_auth_enabled": advanced_auth_enabled,
         "smtp_configured": smtp_configured,
+        "email_provider": email_provider,
         "local_login_enabled": local_login_enabled,
         "autologin_provider_id": autologin_provider_id,
     }
@@ -1110,12 +1115,13 @@ async def forgot_password(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Local login is disabled — use SSO instead.",
             )
-    # Check if advanced auth is enabled
+    # Check if email gateway or advanced auth is enabled
     advanced_auth = await is_advanced_auth_enabled(db)
-    if not advanced_auth:
+    smtp_settings = await get_smtp_settings(db)
+    if not advanced_auth and smtp_settings is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Advanced authentication is not enabled",
+            detail="Email gateway or advanced authentication is not enabled",
         )
 
     # M-A: Rate-limit by normalised email to prevent reset-email flooding.
@@ -1159,8 +1165,6 @@ async def forgot_password(
     db.add(AuthRateLimitEvent(username=client_ip, event_type=EventType.PASSWORD_RESET_IP))
     await db.commit()
 
-    # Get SMTP settings
-    smtp_settings = await get_smtp_settings(db)
     if not smtp_settings:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1287,16 +1291,15 @@ async def reset_user_password(
             detail="Only admins can reset user passwords",
         )
 
-    # Check if advanced auth is enabled
+    # Check if email gateway or advanced auth is enabled
     advanced_auth = await is_advanced_auth_enabled(db)
-    if not advanced_auth:
+    smtp_settings = await get_smtp_settings(db)
+    if not advanced_auth and smtp_settings is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Advanced authentication is not enabled",
+            detail="Email gateway or advanced authentication is not enabled",
         )
 
-    # Get SMTP settings
-    smtp_settings = await get_smtp_settings(db)
     if not smtp_settings:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -276,14 +276,26 @@ class ResetPasswordResponse(BaseModel):
 
 
 class SMTPSettings(BaseModel):
-    smtp_host: str
-    smtp_port: int
+    email_provider: Literal["smtp", "resend", "mailgun"] = "smtp"
+    smtp_host: str = ""
+    smtp_port: int = 587
     smtp_username: str | None = None  # Optional when auth is disabled
     smtp_password: str | None = None  # Optional for read operations or when auth is disabled
     smtp_security: str = "starttls"  # 'starttls', 'ssl', 'none'
     smtp_auth_enabled: bool = True
     smtp_from_email: str
     smtp_from_name: str = "BamBuddy"
+    smtp_reply_to: str | None = None
+    # Resend HTTP API settings
+    resend_api_key: str | None = None
+    # Mailgun HTTP API settings
+    mailgun_api_key: str | None = None
+    mailgun_domain: str | None = None
+    mailgun_region: Literal["us", "eu"] = "us"
+    # Read-only secret presence flags for UI
+    smtp_password_configured: bool = False
+    resend_api_key_configured: bool = False
+    mailgun_api_key_configured: bool = False
     # Deprecated field for backward compatibility
     smtp_use_tls: bool | None = None
 
