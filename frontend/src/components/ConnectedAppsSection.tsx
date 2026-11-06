@@ -204,7 +204,7 @@ export function ConnectedAppsSection() {
   }
 
   const inputClass =
-    'px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none';
+    'min-w-0 w-full px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none';
 
   return (
     <div className="space-y-4">
@@ -215,7 +215,7 @@ export function ConnectedAppsSection() {
           e.preventDefault();
           if (name.trim() && redirectUri.trim()) create.mutate();
         }}
-        className="grid gap-3 md:grid-cols-[1fr_1.5fr_auto]"
+        className="flex flex-wrap gap-3"
       >
         <input
           type="text"
@@ -225,7 +225,7 @@ export function ConnectedAppsSection() {
           onChange={(e) => setName(e.target.value)}
           placeholder={t('connectedApps.namePlaceholder')}
           aria-label={t('connectedApps.name')}
-          className={inputClass}
+          className={`${inputClass} flex-1 min-w-[160px]`}
         />
         <input
           type="url"
@@ -235,14 +235,14 @@ export function ConnectedAppsSection() {
           onChange={(e) => setRedirectUri(e.target.value)}
           placeholder="http://orders.local:8090/auth/callback"
           aria-label={t('connectedApps.callbackUrl')}
-          className={inputClass}
+          className={`${inputClass} flex-[1.5] min-w-[200px]`}
         />
         <button
           type="submit"
           disabled={create.isPending || !name.trim() || !redirectUri.trim()}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-bambu-green text-white rounded-md hover:bg-bambu-green/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-bambu-green text-white rounded-md hover:bg-bambu-green/90 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4 h-4 shrink-0" />
           {t('connectedApps.add')}
         </button>
       </form>

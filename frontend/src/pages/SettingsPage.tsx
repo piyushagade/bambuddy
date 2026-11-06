@@ -4524,7 +4524,7 @@ export function SettingsPage() {
               (webhook keys, webhook docs) is hidden from users without
               api_keys:read; the Camera Tokens panel is always shown so
               users with camera:view can self-manage their own tokens. */}
-          <div>
+          <div className="min-w-0">
             {hasPermission('api_keys:read') && <>
             <div className="flex items-start justify-between gap-4 mb-6">
               <div className="flex-1">
@@ -4994,7 +4994,7 @@ export function SettingsPage() {
               api_keys:read since the API Browser is the testing surface
               for those keys; non-admins land in this tab only for the
               Camera Tokens panel and don't need the browser. */}
-          {hasPermission('api_keys:read') && <div>
+          {hasPermission('api_keys:read') && <div className="min-w-0">
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2" id="card-apibrowser">
                 <Globe className="w-5 h-5 text-bambu-green" />

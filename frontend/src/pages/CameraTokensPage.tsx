@@ -82,7 +82,7 @@ function CreateTokenForm({ onCreated }: CreateTokenFormProps) {
       <h3 className="text-base font-semibold text-white mb-3">
         {t('cameraTokens.create.title', 'Create new token')}
       </h3>
-      <div className="grid gap-3 md:grid-cols-[1fr_180px_140px_auto]">
+      <div className="flex flex-wrap gap-3">
         <input
           type="text"
           maxLength={100}
@@ -90,13 +90,13 @@ function CreateTokenForm({ onCreated }: CreateTokenFormProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('cameraTokens.create.namePlaceholder', 'e.g. Home Assistant')}
-          className="px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
+          className="flex-1 min-w-[160px] px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
           aria-label={t('cameraTokens.create.nameLabel', 'Token name')}
         />
         <select
           value={scope}
           onChange={(e) => setScope(e.target.value as LongLivedTokenScope)}
-          className="px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
+          className="min-w-[150px] px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
           aria-label={t('cameraTokens.create.scopeLabel', 'Scope')}
         >
           <option value="camera_stream">{t('cameraTokens.scope.camera_stream', 'Camera stream')}</option>
@@ -116,15 +116,15 @@ function CreateTokenForm({ onCreated }: CreateTokenFormProps) {
             // 400s on submit.
             setDays(Math.min(Math.max(next, 1), MAX_LIFETIME_DAYS));
           }}
-          className="px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
+          className="w-24 shrink-0 px-3 py-2 bg-bambu-dark rounded-md text-white border border-bambu-dark-tertiary focus:border-bambu-green focus:outline-none"
           aria-label={t('cameraTokens.create.daysLabel', 'Days until expiry')}
         />
         <button
           type="submit"
           disabled={submitting || !name.trim()}
-          className="flex items-center gap-2 px-4 py-2 bg-bambu-green text-white rounded-md hover:bg-bambu-green/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-bambu-green text-white rounded-md hover:bg-bambu-green/90 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4 h-4 shrink-0" />
           {t('cameraTokens.create.submit', 'Create')}
         </button>
       </div>
