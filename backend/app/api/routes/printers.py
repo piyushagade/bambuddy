@@ -176,7 +176,7 @@ async def discover_remote_server_printers(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning("Remote Bambuddy server discovery failed: %s", exc)
         raise HTTPException(

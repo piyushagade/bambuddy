@@ -3127,7 +3127,7 @@ export function FileManagerPage() {
                 </div>
               ) : (
                 <div className="mt-1 pl-6 pr-2 py-1 text-xs text-bambu-gray/70 italic">
-                  No folders added
+                  No folders shared
                 </div>
               )}
             </div>

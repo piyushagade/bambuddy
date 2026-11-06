@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -115,7 +116,16 @@ async def fetch_remote_printers(
         )
         resp = await http.get(f"{base_url}/api/v1/printers/", headers=headers)
         if resp.status_code in (401, 403):
-            raise PermissionError("Remote Bambuddy server rejected credentials or lacks printers:read permission")
+            host = (urlparse(base_url).hostname or "").lower()
+            loopback_hint = (
+                " (Note: 'localhost' / '127.0.0.1' connects to this Bambuddy server itself, "
+                "not your browser's computer — use the remote machine's LAN or Tailscale IP instead.)"
+                if host in ("localhost", "127.0.0.1", "::1")
+                else ""
+            )
+            raise PermissionError(
+                f"Remote Bambuddy server rejected credentials or lacks printers:read permission{loopback_hint}"
+            )
         resp.raise_for_status()
         printers = resp.json()
         if not isinstance(printers, list):
