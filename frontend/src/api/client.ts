@@ -440,6 +440,12 @@ export interface Printer {
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
   allowed_group_ids?: number[];
   allowed_user_ids?: number[];
+  is_remote?: boolean;
+  remote_server_url?: string | null;
+  remote_printer_id?: number | null;
+  remote_auth_type?: 'api_key' | 'credentials' | null;
+  remote_username?: string | null;
+  has_remote_credentials?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -750,6 +756,31 @@ export interface PrinterCreate {
   plate_detection_roi?: PlateDetectionROI;
   allowed_group_ids?: number[];
   allowed_user_ids?: number[];
+  is_remote?: boolean;
+  remote_server_url?: string | null;
+  remote_printer_id?: number | null;
+  remote_auth_type?: 'api_key' | 'credentials' | null;
+  remote_api_key?: string | null;
+  remote_username?: string | null;
+  remote_password?: string | null;
+}
+
+export interface RemoteServerDiscoverRequest {
+  server_url: string;
+  auth_type: 'api_key' | 'credentials';
+  api_key?: string;
+  username?: string;
+  password?: string;
+}
+
+export interface RemoteDiscoveredPrinter {
+  remote_printer_id: number;
+  name: string;
+  serial_number: string;
+  ip_address: string;
+  model: string | null;
+  location: string | null;
+  is_active: boolean;
 }
 
 // Plate Detection
@@ -5079,6 +5110,11 @@ export const api = {
   getPrinter: (id: number) => request<Printer>(`/printers/${id}`),
   createPrinter: (data: PrinterCreate) =>
     request<Printer>('/printers/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  discoverRemotePrinters: (data: RemoteServerDiscoverRequest) =>
+    request<RemoteDiscoveredPrinter[]>('/printers/remote/discover', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

@@ -5320,6 +5320,15 @@ async def run_migrations(conn):
         await conn.execute(text("UPDATE printers SET allowed_group_ids = '[]' WHERE allowed_group_ids IS NULL"))
         await conn.execute(text("UPDATE printers SET allowed_user_ids = '[]' WHERE allowed_user_ids IS NULL"))
 
+    # Migration: remote Bambuddy server proxy printer columns.
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN is_remote BOOLEAN DEFAULT FALSE")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_server_url VARCHAR(500)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_printer_id INTEGER")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_auth_type VARCHAR(20)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_api_key VARCHAR(500)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_username VARCHAR(100)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN remote_password VARCHAR(500)")
+
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:
     """Replace the one-tap verdict URLs in the outcome prompt's body (#1898).

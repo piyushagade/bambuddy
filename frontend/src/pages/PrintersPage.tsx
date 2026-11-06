@@ -168,7 +168,7 @@ import { ConfirmOutcomeDialog } from '../components/ConfirmOutcomeDialog';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { api, discoveryApi, firmwareApi, withMediaToken, ApiError } from '../api/client';
 import { formatDateOnly, formatDateTime, formatETA, formatDuration, formatDurationFromHours, parseUTCDate } from '../utils/date';
-import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
+import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, DiscoveredPrinter, RemoteDiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -4006,6 +4006,14 @@ function PrinterCard({
                       {Math.round(maintenanceInfo.total_print_hours)}h
                     </span>
                   )}
+                  {printer.is_remote && (
+                    <span
+                      className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-sky-500/20 text-sky-400 font-medium inline-flex items-center gap-0.5"
+                      title={printer.remote_server_url || t('printers.remoteServer.remoteBambuddy')}
+                    >
+                      <span>{t('printers.remoteServer.badge')}</span>
+                    </span>
+                  )}
                   {((printer.allowed_group_ids?.length ?? 0) > 0 || (printer.allowed_user_ids?.length ?? 0) > 0) && (
                     <span
                       className="ml-2 text-amber-400 inline-flex items-center gap-0.5"
@@ -7815,9 +7823,22 @@ export function AddPrinterModal({
     model: '',
     location: '',
     auto_archive: true,
+    is_remote: false,
+    remote_server_url: '',
+    remote_printer_id: undefined,
+    remote_auth_type: 'api_key',
+    remote_api_key: '',
+    remote_username: '',
+    remote_password: '',
     allowed_group_ids: [],
     allowed_user_ids: [],
   });
+
+  // Remote Bambuddy server discovery state
+  const [remoteDiscovering, setRemoteDiscovering] = useState(false);
+  const [remoteDiscovered, setRemoteDiscovered] = useState<RemoteDiscoveredPrinter[]>([]);
+  const [remoteDiscoveryError, setRemoteDiscoveryError] = useState('');
+  const [hasFetchedRemote, setHasFetchedRemote] = useState(false);
 
   // Discovery state
   const [discovering, setDiscovering] = useState(false);
@@ -7866,9 +7887,17 @@ export function AddPrinterModal({
 
   // Filter out already-added printers
   const newPrinters = discovered.filter(p => !existingSerials.includes(p.serial));
+  const remoteNewPrinters = remoteDiscovered.filter(p => !existingSerials.includes(p.serial_number));
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.is_remote) {
+      onAdd({
+        ...form,
+        access_code: form.access_code || 'REMOTE',
+      });
+      return;
+    }
     setCheckingSave(true);
     try {
       const result = await api.diagnoseConnection({
@@ -7886,6 +7915,43 @@ export function AddPrinterModal({
       setCheckingSave(false);
     }
     onAdd(form);
+  };
+
+  const fetchRemotePrinters = async () => {
+    setRemoteDiscoveryError('');
+    setRemoteDiscovered([]);
+    setRemoteDiscovering(true);
+    setHasFetchedRemote(false);
+    try {
+      const printers = await api.discoverRemotePrinters({
+        server_url: (form.remote_server_url || '').trim(),
+        auth_type: form.remote_auth_type || 'api_key',
+        api_key: form.remote_auth_type === 'api_key' ? (form.remote_api_key || '').trim() : undefined,
+        username: form.remote_auth_type === 'credentials' ? (form.remote_username || '').trim() : undefined,
+        password: form.remote_auth_type === 'credentials' ? (form.remote_password || '') : undefined,
+      });
+      setRemoteDiscovered(printers);
+      setHasFetchedRemote(true);
+    } catch (e) {
+      setRemoteDiscoveryError(e instanceof Error ? e.message : t('printers.discovery.failedToStart'));
+      setHasFetchedRemote(true);
+    } finally {
+      setRemoteDiscovering(false);
+    }
+  };
+
+  const selectRemotePrinter = (printer: RemoteDiscoveredPrinter) => {
+    setForm({
+      ...form,
+      name: printer.name || '',
+      serial_number: printer.serial_number || '',
+      ip_address: printer.ip_address || '',
+      model: mapModelCode(printer.model || undefined) || printer.model || '',
+      location: printer.location || form.location || '',
+      remote_printer_id: printer.remote_printer_id,
+      access_code: 'REMOTE',
+    });
+    setRemoteDiscovered([]);
   };
 
   const startDiscovery = async () => {
@@ -8022,7 +8088,181 @@ export function AddPrinterModal({
 
           <form onSubmit={handleAddSubmit} className="flex flex-col flex-1 min-h-0">
             <div className="p-4 space-y-4 overflow-y-auto flex-1">
-              {/* Discovery Section */}
+              {/* Connection Type Toggle */}
+              <div>
+                <label className="block text-sm text-bambu-gray mb-1">
+                  {t('printers.remoteServer.connectionMode')}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, is_remote: false })}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      !form.is_remote
+                        ? 'bg-bambu-green/15 border-bambu-green text-white font-medium'
+                        : 'bg-bambu-dark border-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                    }`}
+                  >
+                    {t('printers.remoteServer.localPrinter')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, is_remote: true })}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                      form.is_remote
+                        ? 'bg-bambu-green/15 border-bambu-green text-white font-medium'
+                        : 'bg-bambu-dark border-bambu-dark-tertiary text-bambu-gray hover:text-white'
+                    }`}
+                  >
+                    {t('printers.remoteServer.remoteBambuddy')}
+                  </button>
+                </div>
+              </div>
+
+              {form.is_remote ? (
+                <div className="pb-4 border-b border-bambu-dark-tertiary space-y-3">
+                  <div>
+                    <label className="block text-sm text-bambu-gray mb-1">
+                      {t('printers.remoteServer.serverUrl')}
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                      value={form.remote_server_url || ''}
+                      onChange={(e) => setForm({ ...form, remote_server_url: e.target.value })}
+                      placeholder={t('printers.remoteServer.serverUrlPlaceholder')}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-bambu-gray mb-1">
+                      {t('printers.remoteServer.authMethod')}
+                    </label>
+                    <select
+                      aria-label={t('printers.remoteServer.authMethod')}
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                      value={form.remote_auth_type || 'api_key'}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          remote_auth_type: e.target.value as 'api_key' | 'credentials',
+                        })
+                      }
+                    >
+                      <option value="api_key">{t('printers.remoteServer.authApiKey')}</option>
+                      <option value="credentials">{t('printers.remoteServer.authCredentials')}</option>
+                    </select>
+                  </div>
+                  {form.remote_auth_type === 'credentials' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm text-bambu-gray mb-1">
+                          {t('printers.remoteServer.username')}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                          value={form.remote_username || ''}
+                          onChange={(e) => setForm({ ...form, remote_username: e.target.value })}
+                          placeholder={t('printers.remoteServer.usernamePlaceholder')}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-bambu-gray mb-1">
+                          {t('printers.remoteServer.password')}
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                          value={form.remote_password || ''}
+                          onChange={(e) => setForm({ ...form, remote_password: e.target.value })}
+                          placeholder={t('printers.remoteServer.passwordPlaceholder')}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm text-bambu-gray mb-1">
+                        {t('printers.remoteServer.apiKey')}
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                        value={form.remote_api_key || ''}
+                        onChange={(e) => setForm({ ...form, remote_api_key: e.target.value })}
+                        placeholder={t('printers.remoteServer.apiKeyPlaceholder')}
+                      />
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={fetchRemotePrinters}
+                    disabled={remoteDiscovering || !(form.remote_server_url || '').trim()}
+                    className="w-full"
+                  >
+                    {remoteDiscovering ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {t('printers.remoteServer.fetchingPrinters')}
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        {t('printers.remoteServer.fetchPrinters')}
+                      </>
+                    )}
+                  </Button>
+
+                  {remoteDiscoveryError && (
+                    <div className="mt-2 text-sm text-red-700 dark:text-red-400">
+                      {remoteDiscoveryError}
+                    </div>
+                  )}
+
+                  {remoteNewPrinters.length > 0 && (
+                    <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
+                      <p className="text-xs text-bambu-gray">
+                        {t('printers.remoteServer.selectRemotePrinter')}
+                      </p>
+                      {remoteNewPrinters.map((printer) => (
+                        <div
+                          key={printer.remote_printer_id}
+                          className="flex items-center justify-between p-2 bg-bambu-dark rounded-lg hover:bg-bambu-dark-secondary cursor-pointer transition-colors"
+                          onClick={() => selectRemotePrinter(printer)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-white text-sm truncate">
+                              {printer.name} (#{printer.remote_printer_id})
+                            </p>
+                            <p className="text-xs text-bambu-gray truncate">
+                              {printer.model || t('printers.discovery.unknown')} • {printer.serial_number} • {printer.ip_address}
+                            </p>
+                          </div>
+                          <ChevronDown className="w-4 h-4 text-bambu-gray -rotate-90 flex-shrink-0 ml-2" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {hasFetchedRemote && !remoteDiscovering && remoteDiscovered.length === 0 && !remoteDiscoveryError && (
+                    <p className="mt-2 text-sm text-bambu-gray text-center">
+                      {t('printers.remoteServer.noPrintersFound')}
+                    </p>
+                  )}
+
+                  {hasFetchedRemote && !remoteDiscovering && remoteDiscovered.length > 0 && remoteNewPrinters.length === 0 && (
+                    <p className="mt-2 text-sm text-bambu-gray text-center">
+                      {t('printers.discovery.allConfigured')}
+                    </p>
+                  )}
+                </div>
+              ) : (
+              /* Discovery Section */
               <div className="pb-4 border-b border-bambu-dark-tertiary">
             {/* Subnet picker — always visible. The dropdown lists detected
                 interface subnets and a "Custom..." sentinel that reveals
@@ -8149,6 +8389,28 @@ export function AddPrinterModal({
               </p>
             )}
           </div>
+          )}
+            {form.is_remote && (
+              <div>
+                <label className="block text-sm text-bambu-gray mb-1">
+                  {t('printers.remoteServer.remotePrinterId')}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                  value={form.remote_printer_id ?? ''}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      remote_printer_id: e.target.value ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  placeholder="1"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.name')}</label>
               <input
@@ -8183,6 +8445,7 @@ export function AddPrinterModal({
                 placeholder="01P00A000000000"
               />
             </div>
+            {!form.is_remote && (
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.accessCode')}</label>
               <input
@@ -8194,6 +8457,7 @@ export function AddPrinterModal({
                 placeholder={t('printers.modal.fromPrinterSettings')}
               />
             </div>
+            )}
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.modal.modelOptional')}</label>
               <select
@@ -8264,6 +8528,7 @@ export function AddPrinterModal({
                 })
               }
             />
+            {!form.is_remote && (
             <button
               type="button"
               onClick={() => setShowDiagnostic(true)}
@@ -8273,6 +8538,7 @@ export function AddPrinterModal({
               <Stethoscope className="w-4 h-4" />
               {t('diagnostic.runButton')}
             </button>
+            )}
             {saveWarning && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 p-3 space-y-3">
                 <div className="flex items-start gap-2">
@@ -8625,6 +8891,13 @@ export function EditPrinterModal({
     location: printer.location || '',
     auto_archive: printer.auto_archive,
     is_active: printer.is_active,
+    is_remote: Boolean(printer.is_remote),
+    remote_server_url: printer.remote_server_url || '',
+    remote_printer_id: printer.remote_printer_id ?? undefined,
+    remote_auth_type: (printer.remote_auth_type || 'api_key') as 'api_key' | 'credentials',
+    remote_api_key: '',
+    remote_username: printer.remote_username || '',
+    remote_password: '',
     allowed_group_ids: printer.allowed_group_ids ?? [],
     allowed_user_ids: printer.allowed_user_ids ?? [],
   });
@@ -8664,6 +8937,22 @@ export function EditPrinterModal({
       allowed_group_ids: form.allowed_group_ids,
       allowed_user_ids: form.allowed_user_ids,
     };
+    if (form.is_remote) {
+      data.is_remote = true;
+      data.remote_server_url = form.remote_server_url.trim();
+      data.remote_printer_id = form.remote_printer_id;
+      data.remote_auth_type = form.remote_auth_type;
+      if (form.remote_auth_type === 'api_key') {
+        if (form.remote_api_key.trim()) {
+          data.remote_api_key = form.remote_api_key.trim();
+        }
+      } else {
+        data.remote_username = form.remote_username.trim();
+        if (form.remote_password) {
+          data.remote_password = form.remote_password;
+        }
+      }
+    }
     // Only include access_code if it was changed
     if (form.access_code) {
       data.access_code = form.access_code;
@@ -8673,6 +8962,10 @@ export function EditPrinterModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.is_remote) {
+      doSave();
+      return;
+    }
     setCheckingSave(true);
     try {
       const result = await api.diagnoseConnection({
@@ -8707,6 +9000,103 @@ export function EditPrinterModal({
           </div>
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
             <div className="p-4 space-y-4 overflow-y-auto flex-1">
+            {form.is_remote && (
+              <div className="pb-4 border-b border-bambu-dark-tertiary space-y-3">
+                <div>
+                  <label className="block text-sm text-bambu-gray mb-1">
+                    {t('printers.remoteServer.serverUrl')}
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                    value={form.remote_server_url}
+                    onChange={(e) => setForm({ ...form, remote_server_url: e.target.value })}
+                    placeholder={t('printers.remoteServer.serverUrlPlaceholder')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-bambu-gray mb-1">
+                    {t('printers.remoteServer.remotePrinterId')}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                    value={form.remote_printer_id ?? ''}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        remote_printer_id: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-bambu-gray mb-1">
+                    {t('printers.remoteServer.authMethod')}
+                  </label>
+                  <select
+                    aria-label={t('printers.remoteServer.authMethod')}
+                    className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                    value={form.remote_auth_type}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        remote_auth_type: e.target.value as 'api_key' | 'credentials',
+                      })
+                    }
+                  >
+                    <option value="api_key">{t('printers.remoteServer.authApiKey')}</option>
+                    <option value="credentials">{t('printers.remoteServer.authCredentials')}</option>
+                  </select>
+                </div>
+                {form.remote_auth_type === 'credentials' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-bambu-gray mb-1">
+                        {t('printers.remoteServer.username')}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                        value={form.remote_username}
+                        onChange={(e) => setForm({ ...form, remote_username: e.target.value })}
+                        placeholder={t('printers.remoteServer.usernamePlaceholder')}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-bambu-gray mb-1">
+                        {t('printers.remoteServer.password')}
+                      </label>
+                      <input
+                        type="password"
+                        className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                        value={form.remote_password}
+                        onChange={(e) => setForm({ ...form, remote_password: e.target.value })}
+                        placeholder={t('printers.remoteServer.passwordLeaveBlank')}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm text-bambu-gray mb-1">
+                      {t('printers.remoteServer.apiKey')}
+                    </label>
+                    <input
+                      type="password"
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none text-sm"
+                      value={form.remote_api_key}
+                      onChange={(e) => setForm({ ...form, remote_api_key: e.target.value })}
+                      placeholder={t('printers.remoteServer.apiKeyLeaveBlank')}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.name')}</label>
               <input
@@ -8740,6 +9130,7 @@ export function EditPrinterModal({
               />
               <p className="text-xs text-bambu-gray mt-1">{t('printers.serialCannotBeChanged')}</p>
             </div>
+            {!form.is_remote && (
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.accessCode')}</label>
               <input
@@ -8750,6 +9141,7 @@ export function EditPrinterModal({
                 placeholder={t('printers.accessCodePlaceholder')}
               />
             </div>
+            )}
             <div>
               <label className="block text-sm text-bambu-gray mb-1">{t('printers.model')}</label>
               <select

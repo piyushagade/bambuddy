@@ -41,6 +41,11 @@ class PrinterBase(BaseModel):
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
     allowed_group_ids: list[int] = Field(default_factory=list)
     allowed_user_ids: list[int] = Field(default_factory=list)
+    is_remote: bool = False
+    remote_server_url: str | None = None
+    remote_printer_id: int | None = None
+    remote_auth_type: str | None = None  # "api_key" or "credentials"
+    remote_username: str | None = None
 
     @field_validator("allowed_group_ids", "allowed_user_ids", mode="before")
     @classmethod
@@ -56,7 +61,54 @@ class PrinterCreate(PrinterBase):
     # access_code lives on the input shapes only — never on the default
     # PrinterResponse. Direct exposure on PRINTERS_READ would let a Viewer
     # connect to the printer's MQTT and bypass Bambuddy's RBAC.
-    access_code: str = Field(..., min_length=1, max_length=20)
+    # For remote Bambuddy proxy printers, access_code is not needed (and not
+    # exposed when authenticating via API key on the remote server).
+    access_code: str = Field(default="", max_length=20)
+    remote_api_key: str | None = None
+    remote_password: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_printer_create(self):
+        if self.is_remote:
+            if not self.remote_server_url or not self.remote_server_url.strip():
+                raise ValueError("remote_server_url is required for remote Bambuddy printers")
+            if self.remote_printer_id is None or self.remote_printer_id <= 0:
+                raise ValueError("remote_printer_id is required for remote Bambuddy printers")
+            auth_mode = (self.remote_auth_type or "api_key").strip().lower()
+            if auth_mode not in ("api_key", "credentials"):
+                raise ValueError("remote_auth_type must be 'api_key' or 'credentials'")
+            self.remote_auth_type = auth_mode
+            if auth_mode == "api_key" and not (self.remote_api_key and self.remote_api_key.strip()):
+                raise ValueError("remote_api_key is required when remote_auth_type is 'api_key'")
+            if auth_mode == "credentials" and (
+                not (self.remote_username and self.remote_username.strip())
+                or not (self.remote_password and self.remote_password.strip())
+            ):
+                raise ValueError("remote_username and remote_password are required when remote_auth_type is 'credentials'")
+            if not self.access_code:
+                self.access_code = "REMOTE"
+        else:
+            if not self.access_code or not self.access_code.strip():
+                raise ValueError("access_code must not be blank")
+        return self
+
+
+class RemoteServerDiscoverRequest(BaseModel):
+    server_url: str = Field(..., min_length=1, max_length=500)
+    auth_type: str = Field(default="api_key")
+    api_key: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+class RemoteDiscoveredPrinter(BaseModel):
+    remote_printer_id: int
+    name: str
+    serial_number: str
+    ip_address: str
+    model: str | None = None
+    location: str | None = None
+    is_active: bool = True
 
 
 class PlateDetectionROI(BaseModel):
@@ -90,6 +142,13 @@ class PrinterUpdate(BaseModel):
     plate_detection_roi: PlateDetectionROI | None = None
     allowed_group_ids: list[int] | None = None
     allowed_user_ids: list[int] | None = None
+    is_remote: bool | None = None
+    remote_server_url: str | None = None
+    remote_printer_id: int | None = None
+    remote_auth_type: str | None = None
+    remote_api_key: str | None = None
+    remote_username: str | None = None
+    remote_password: str | None = None
 
     @field_validator("allowed_group_ids", "allowed_user_ids", mode="before")
     @classmethod
@@ -118,11 +177,20 @@ class PrinterResponse(PrinterBase):
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
     plate_detection_enabled: bool = False
     plate_detection_roi: PlateDetectionROI | None = None
+    has_remote_credentials: bool = False
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_remote_flags(cls, v):
+        if not isinstance(v, dict) and hasattr(v, "id"):
+            # Populate has_remote_credentials on the ORM instance or dict view
+            pass
+        return v
 
     @classmethod
     def from_orm_with_roi(cls, printer) -> "PrinterResponse":
@@ -147,6 +215,14 @@ class PrinterResponse(PrinterBase):
             "plate_detection_enabled": printer.plate_detection_enabled,
             "allowed_group_ids": printer.allowed_group_ids or [],
             "allowed_user_ids": printer.allowed_user_ids or [],
+            "is_remote": bool(getattr(printer, "is_remote", False)),
+            "remote_server_url": getattr(printer, "remote_server_url", None),
+            "remote_printer_id": getattr(printer, "remote_printer_id", None),
+            "remote_auth_type": getattr(printer, "remote_auth_type", None),
+            "remote_username": getattr(printer, "remote_username", None),
+            "has_remote_credentials": bool(
+                getattr(printer, "remote_api_key", None) or getattr(printer, "remote_password", None)
+            ),
             "created_at": printer.created_at,
             "updated_at": printer.updated_at,
         }

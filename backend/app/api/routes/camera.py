@@ -981,6 +981,22 @@ async def camera_stream(
     async with database.async_session() as db:
         printer = await get_printer_or_404(printer_id, db)
 
+    if getattr(printer, "is_remote", False):
+        from backend.app.services.printer_manager import printer_manager
+
+        client = printer_manager.get_client(printer_id)
+        if not client or not getattr(client, "is_remote_client", False):
+            raise HTTPException(status_code=503, detail="Remote printer not connected")
+        return StreamingResponse(
+            client.stream_camera_mjpeg(fps=fps),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
     # Check for external camera first
     if printer.external_camera_enabled and printer.external_camera_url:
         # NB: no `import time` / `import uuid` here, and don't reintroduce them.
@@ -1288,6 +1304,25 @@ async def camera_snapshot(
     # below reads only already-loaded scalar columns (expire_on_commit=False).
     async with database.async_session() as db:
         printer = await get_printer_or_404(printer_id, db)
+
+    if getattr(printer, "is_remote", False):
+        from backend.app.services.printer_manager import printer_manager
+
+        client = printer_manager.get_client(printer_id)
+        if not client or not getattr(client, "is_remote_client", False):
+            raise HTTPException(status_code=503, detail="Remote printer not connected")
+        frame_data = await client.fetch_camera_snapshot(ensure_light=ensure_light)
+        if not frame_data:
+            raise HTTPException(status_code=503, detail="Failed to capture frame from remote printer camera.")
+        return Response(
+            content=frame_data,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     if ensure_light:
         state = printer_manager.get_status(printer_id)

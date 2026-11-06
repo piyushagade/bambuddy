@@ -798,6 +798,33 @@ class PrinterManager:
             if self._on_tray_change:
                 self._schedule_async(self._on_tray_change(printer_id, tray_global, layer_num))
 
+        if getattr(printer, "is_remote", False) and printer.remote_server_url and printer.remote_printer_id:
+            from backend.app.services.remote_bambuddy import RemoteBambuddyClient
+
+            remote_client = RemoteBambuddyClient(
+                server_url=printer.remote_server_url,
+                remote_printer_id=printer.remote_printer_id,
+                auth_type=printer.remote_auth_type,
+                api_key_encrypted=printer.remote_api_key,
+                username=printer.remote_username,
+                password_encrypted=printer.remote_password,
+                serial_number=printer.serial_number,
+                model=printer.model,
+                on_state_change=on_state_change,
+                on_print_start=on_print_start,
+                on_print_complete=on_print_complete,
+                on_ams_change=on_ams_change,
+                on_layer_change=on_layer_change,
+                on_print_progress=on_print_progress,
+                on_bed_temp_update=on_bed_temp_update,
+            )
+            self._clients[printer_id] = remote_client
+            self._models[printer_id] = printer.model
+            self._printer_info[printer_id] = PrinterInfo(printer.name, printer.serial_number)
+            await remote_client.poll_once()
+            remote_client.connect()
+            return remote_client.state.connected
+
         client = BambuMQTTClient(
             ip_address=printer.ip_address,
             serial_number=printer.serial_number,

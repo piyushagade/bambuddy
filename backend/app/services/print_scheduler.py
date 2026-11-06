@@ -7754,26 +7754,32 @@ class PrintScheduler:
         # pending->printing CAS) transparently open a fresh transaction.
         await db.commit()
 
+        remote_client = printer_manager.get_client(printer.id)
+        is_remote_printer = bool(
+            getattr(printer, "is_remote", False) and remote_client and getattr(remote_client, "is_remote_client", False)
+        )
+
         # Delete existing file if present (avoids 553 error on overwrite)
-        try:
-            logger.debug("Queue item %s: Deleting existing file %s if present...", item.id, remote_path)
-            delete_result = await delete_file_async(
-                printer.ip_address,
-                printer.access_code,
-                remote_path,
-                socket_timeout=ftp_timeout,
-                printer_model=printer.model,
-                # This delete and the upload below are one bounded, user-initiated
-                # unit -- at most nine connections -- so neither skips on the
-                # handshake cool-off the opportunistic sweeps rely on. In #2898's
-                # trace this delete took the TLS failure and armed the cool-off,
-                # and the upload's four attempts were then spent against it
-                # without a socket being opened.
-                respect_handshake_cooloff=False,
-            )
-            logger.debug("Queue item %s: Delete result: %s", item.id, delete_result)
-        except Exception as e:
-            logger.debug("Queue item %s: Delete failed (may not exist): %s", item.id, e)
+        if not is_remote_printer:
+            try:
+                logger.debug("Queue item %s: Deleting existing file %s if present...", item.id, remote_path)
+                delete_result = await delete_file_async(
+                    printer.ip_address,
+                    printer.access_code,
+                    remote_path,
+                    socket_timeout=ftp_timeout,
+                    printer_model=printer.model,
+                    # This delete and the upload below are one bounded, user-initiated
+                    # unit -- at most nine connections -- so neither skips on the
+                    # handshake cool-off the opportunistic sweeps rely on. In #2898's
+                    # trace this delete took the TLS failure and armed the cool-off,
+                    # and the upload's four attempts were then spent against it
+                    # without a socket being opened.
+                    respect_handshake_cooloff=False,
+                )
+                logger.debug("Queue item %s: Delete result: %s", item.id, delete_result)
+            except Exception as e:
+                logger.debug("Queue item %s: Delete failed (may not exist): %s", item.id, e)
 
         # Dispatch toast — announce the upload start with the total byte
         # count so the frontend can render an honest progress bar.
@@ -7807,7 +7813,25 @@ class PrintScheduler:
         upload_failure = FtpFailureReport()
 
         try:
-            if ftp_retry_enabled:
+            if is_remote_printer:
+                ams_map_parsed = json.loads(item.ams_mapping) if item.ams_mapping else None
+                uploaded = await remote_client.dispatch_print_file(
+                    file_path,
+                    remote_filename,
+                    plate_id=effective_plate_id,
+                    ams_mapping=ams_map_parsed,
+                    bed_levelling=item.bed_levelling,
+                    flow_cali=item.flow_cali,
+                    vibration_cali=item.vibration_cali,
+                    layer_inspect=item.layer_inspect,
+                    timelapse=item.timelapse,
+                    use_ams=item.use_ams,
+                    nozzle_offset_cali=item.nozzle_offset_cali,
+                    nozzle_mapping=item.nozzle_mapping,
+                )
+                if not uploaded:
+                    upload_error = "Failed to upload and enqueue print on remote Bambuddy server."
+            elif ftp_retry_enabled:
                 uploaded = await with_ftp_retry(
                     upload_file_async,
                     printer.ip_address,

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, String, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -52,6 +52,14 @@ class Printer(Base):
     # Printer-to-group/user access control (empty lists = open access to all users with printer permissions)
     allowed_group_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     allowed_user_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    # Remote Bambuddy server proxy configuration
+    is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
+    remote_server_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    remote_printer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    remote_auth_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "api_key" or "credentials"
+    remote_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Encrypted via mfa_encrypt
+    remote_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    remote_password: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Encrypted via mfa_encrypt
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -68,6 +76,10 @@ class Printer(Base):
         back_populates="printer", cascade="all, delete-orphan"
     )
     ha_sensors: Mapped[list["PrinterHASensor"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+
+    @property
+    def has_remote_credentials(self) -> bool:
+        return bool(self.remote_api_key or self.remote_password)
 
 
 def is_user_authorized_for_printer(printer: "Printer | None", user) -> bool:

@@ -22,6 +22,7 @@ from backend.app.core.auth import (
 )
 from backend.app.core.config import settings
 from backend.app.core.database import get_db
+from backend.app.core.encryption import mfa_encrypt
 from backend.app.core.permissions import Permission
 from backend.app.core.tasks import spawn_background_task
 from backend.app.models.ams_label import AmsLabel
@@ -47,6 +48,8 @@ from backend.app.schemas.printer import (
     PrinterStatus,
     PrinterUpdate,
     PrintOptionsResponse,
+    RemoteDiscoveredPrinter,
+    RemoteServerDiscoverRequest,
     hms_error_responses,
 )
 from backend.app.services import drying_preflight, kprofile_drift
@@ -153,6 +156,35 @@ async def list_printers(
     return [_serialize_printer(p, include_secret=include_secret) for p in printers]
 
 
+@router.post("/remote/discover", response_model=list[RemoteDiscoveredPrinter])
+async def discover_remote_server_printers(
+    req: RemoteServerDiscoverRequest,
+    _=RequirePermissionIfAuthEnabled(Permission.PRINTERS_CREATE),
+):
+    """Connect to another Bambuddy server and list its configured printers."""
+    from backend.app.services.remote_bambuddy import fetch_remote_printers
+
+    try:
+        printers = await fetch_remote_printers(
+            req.server_url,
+            req.auth_type,
+            api_key=req.api_key,
+            username=req.username,
+            password=req.password,
+        )
+        return [RemoteDiscoveredPrinter(**p) for p in printers]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Remote Bambuddy server discovery failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not fetch printers from remote Bambuddy server: {exc}",
+        ) from exc
+
+
 @router.post("/", response_model=PrinterResponse)
 async def create_printer(
     printer_data: PrinterCreate,
@@ -161,38 +193,74 @@ async def create_printer(
 ):
     """Add a new printer.
 
-    Verifies the MQTT connection succeeds before persisting. A wrong access
-    code or unreachable IP would otherwise create a printer row that shows
-    as an empty / never-connecting card on the dashboard — those reports
-    were turning into support tickets that all traced back to a mistyped
-    access code.
+    Verifies the MQTT connection (or remote Bambuddy connection) succeeds
+    before persisting. A wrong access code or unreachable IP would otherwise
+    create a printer row that shows as an empty / never-connecting card on
+    the dashboard — those reports were turning into support tickets that all
+    traced back to a mistyped access code.
     """
     # Check if serial number already exists
     result = await db.execute(select(Printer).where(Printer.serial_number == printer_data.serial_number))
     if result.scalar_one_or_none():
         raise HTTPException(400, "Printer with this serial number already exists")
 
-    test_result = await printer_manager.test_connection(
-        ip_address=printer_data.ip_address,
-        serial_number=printer_data.serial_number,
-        access_code=printer_data.access_code,
-    )
-    if not test_result.get("success"):
-        # The frontend renders the user-facing message via i18n on `code`;
-        # `message` is an English fallback for non-UI clients (curl / scripts).
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "printer_connection_failed",
-                "message": (
-                    "Could not connect to the printer. Verify IP address, serial number, "
-                    "and access code, and confirm LAN-only mode is enabled. "
-                    "The printer was not added."
-                ),
-            },
+    dump = printer_data.model_dump()
+
+    if printer_data.is_remote:
+        from backend.app.services.remote_bambuddy import (
+            normalize_remote_server_url,
+            test_remote_printer_connection,
         )
 
-    printer = Printer(**printer_data.model_dump())
+        try:
+            normalized_url = normalize_remote_server_url(printer_data.remote_server_url or "")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        test_result = await test_remote_printer_connection(
+            normalized_url,
+            int(printer_data.remote_printer_id or 0),
+            printer_data.remote_auth_type or "api_key",
+            api_key=printer_data.remote_api_key,
+            username=printer_data.remote_username,
+            password=printer_data.remote_password,
+        )
+        if not test_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "remote_printer_connection_failed",
+                    "message": (
+                        "Could not connect to the printer on the remote Bambuddy server. "
+                        "Verify the server URL, credentials, and remote printer ID."
+                    ),
+                },
+            )
+        dump["remote_server_url"] = normalized_url
+        dump["remote_api_key"] = mfa_encrypt(printer_data.remote_api_key.strip()) if printer_data.remote_api_key else None
+        dump["remote_password"] = mfa_encrypt(printer_data.remote_password) if printer_data.remote_password else None
+    else:
+        test_result = await printer_manager.test_connection(
+            ip_address=printer_data.ip_address,
+            serial_number=printer_data.serial_number,
+            access_code=printer_data.access_code,
+        )
+        if not test_result.get("success"):
+            # The frontend renders the user-facing message via i18n on `code`;
+            # `message` is an English fallback for non-UI clients (curl / scripts).
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "printer_connection_failed",
+                    "message": (
+                        "Could not connect to the printer. Verify IP address, serial number, "
+                        "and access code, and confirm LAN-only mode is enabled. "
+                        "The printer was not added."
+                    ),
+                },
+            )
+
+    printer = Printer(**dump)
     db.add(printer)
     await db.commit()
     await db.refresh(printer)
@@ -402,6 +470,24 @@ async def update_printer(
             update_data["plate_detection_roi_w"] = None
             update_data["plate_detection_roi_h"] = None
 
+    if "remote_server_url" in update_data and update_data["remote_server_url"]:
+        from backend.app.services.remote_bambuddy import normalize_remote_server_url
+
+        try:
+            update_data["remote_server_url"] = normalize_remote_server_url(update_data["remote_server_url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if "remote_api_key" in update_data:
+        raw_key = update_data.pop("remote_api_key")
+        if raw_key and raw_key.strip():
+            update_data["remote_api_key"] = mfa_encrypt(raw_key.strip())
+
+    if "remote_password" in update_data:
+        raw_pw = update_data.pop("remote_password")
+        if raw_pw and raw_pw.strip():
+            update_data["remote_password"] = mfa_encrypt(raw_pw)
+
     for field, value in update_data.items():
         setattr(printer, field, value)
 
@@ -409,7 +495,19 @@ async def update_printer(
     await db.refresh(printer)
 
     # Reconnect if connection settings changed
-    if any(k in update_data for k in ["ip_address", "access_code", "is_active"]):
+    reconnect_keys = {
+        "ip_address",
+        "access_code",
+        "is_active",
+        "is_remote",
+        "remote_server_url",
+        "remote_printer_id",
+        "remote_auth_type",
+        "remote_api_key",
+        "remote_username",
+        "remote_password",
+    }
+    if any(k in update_data for k in reconnect_keys):
         printer_manager.disconnect_printer(printer_id)
         if printer.is_active:
             await printer_manager.connect_printer(printer)
@@ -1255,6 +1353,15 @@ async def get_printer_cover(
         printer = result.scalar_one_or_none()
     if not printer:
         raise HTTPException(404, "Printer not found")
+
+    if getattr(printer, "is_remote", False):
+        client = printer_manager.get_client(printer_id)
+        if not client or not getattr(client, "is_remote_client", False):
+            raise HTTPException(404, "Printer not connected")
+        remote_cover = await client.fetch_cover(view=view)
+        if not remote_cover:
+            raise HTTPException(404, "No cover available from remote printer")
+        return Response(content=remote_cover, media_type="image/png")
 
     state = printer_manager.get_status(printer_id)
     if not state:
