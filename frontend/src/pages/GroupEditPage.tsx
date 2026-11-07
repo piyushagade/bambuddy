@@ -26,6 +26,7 @@ export function GroupEditPage() {
   const [maxFilamentGrams, setMaxFilamentGrams] = useState('');
   const [maxActiveJobs, setMaxActiveJobs] = useState('');
   const [requiresApproval, setRequiresApproval] = useState(false);
+  const [requireProject, setRequireProject] = useState(!isEditing);
   const [allowedHoursStart, setAllowedHoursStart] = useState('');
   const [allowedHoursEnd, setAllowedHoursEnd] = useState('');
   const [search, setSearch] = useState('');
@@ -52,6 +53,7 @@ export function GroupEditPage() {
     setMaxFilamentGrams(groupData.max_filament_grams_per_job != null ? String(groupData.max_filament_grams_per_job) : '');
     setMaxActiveJobs(groupData.max_active_queue_items != null ? String(groupData.max_active_queue_items) : '');
     setRequiresApproval(Boolean(groupData.requires_approval));
+    setRequireProject(Boolean(groupData.require_project));
     setAllowedHoursStart(groupData.allowed_hours_start != null ? String(groupData.allowed_hours_start) : '');
     setAllowedHoursEnd(groupData.allowed_hours_end != null ? String(groupData.allowed_hours_end) : '');
     setInitialized(true);
@@ -107,6 +109,7 @@ export function GroupEditPage() {
       max_filament_grams_per_job: maxFilamentGrams.trim() ? Number(maxFilamentGrams) : null,
       max_active_queue_items: maxActiveJobs.trim() ? Number(maxActiveJobs) : null,
       requires_approval: requiresApproval,
+      require_project: requireProject,
       allowed_hours_start: allowedHoursStart.trim() ? Number(allowedHoursStart) : null,
       allowed_hours_end: allowedHoursEnd.trim() ? Number(allowedHoursEnd) : null,
     };
@@ -234,16 +237,18 @@ export function GroupEditPage() {
         </div>
       </div>
 
-      {/* Cohort / Semester Group Expiration (non-system groups only) */}
-      {!(isEditing && groupData?.is_system) && (
+      {/* Cohort / Semester Group Expiration & Print Policies */}
+      {!(isEditing && groupData?.name === 'Administrators') && (
         <Card className="p-4 space-y-4">
-          <UserExpirationField
-            value={expiresAt}
-            onChange={setExpiresAt}
-          />
-          <div className="border-t border-bambu-dark-tertiary pt-4 space-y-3">
+          {!(isEditing && groupData?.is_system) && (
+            <UserExpirationField
+              value={expiresAt}
+              onChange={setExpiresAt}
+            />
+          )}
+          <div className={!(isEditing && groupData?.is_system) ? "border-t border-bambu-dark-tertiary pt-4 space-y-3" : "space-y-3"}>
             <h3 className="text-sm font-medium text-white">
-              Student Print Quotas, Operating Hours & TA Review Gate
+              Student Print Quotas, Project Requirement, Operating Hours & TA Review Gate
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -314,7 +319,16 @@ export function GroupEditPage() {
                   className="w-full px-3 py-2 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg text-sm text-white"
                 />
               </div>
-              <div className="flex items-center pt-5">
+              <div className="flex flex-col gap-2 pt-3">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-white">
+                  <input
+                    type="checkbox"
+                    checked={requireProject}
+                    onChange={(e) => setRequireProject(e.target.checked)}
+                    className="w-4 h-4 rounded border-bambu-gray text-bambu-green"
+                  />
+                  Require Project Association to Print
+                </label>
                 <label className="flex items-center gap-2 cursor-pointer text-sm text-white">
                   <input
                     type="checkbox"

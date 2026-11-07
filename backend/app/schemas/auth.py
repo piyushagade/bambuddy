@@ -33,6 +33,7 @@ class GroupBrief(BaseModel):
     max_filament_grams_per_job: float | None = None
     max_active_queue_items: int | None = None
     requires_approval: bool = False
+    require_project: bool = False
     allowed_hours_start: int | None = None
     allowed_hours_end: int | None = None
 
@@ -66,6 +67,7 @@ class UserCreate(BaseModel):
     expires_at: datetime | None = None
     certified_until: datetime | None = None
     require_safety_certification: bool = False
+    project_waiver: bool = False
 
     @field_validator("password")
     @classmethod
@@ -87,6 +89,7 @@ class UserUpdate(BaseModel):
     expires_at: datetime | None = None
     certified_until: datetime | None = None
     require_safety_certification: bool | None = None
+    project_waiver: bool | None = None
 
     @field_validator("password")
     @classmethod
@@ -114,6 +117,8 @@ class UserResponse(BaseModel):
     certified_until: str | None = None
     require_safety_certification: bool = False
     is_certification_expired: bool = False
+    project_waiver: bool = False
+    requires_project: bool = False
 
     class Config:
         from_attributes = True

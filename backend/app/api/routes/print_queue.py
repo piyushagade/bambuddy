@@ -507,6 +507,13 @@ def _enrich_response(item: PrintQueueItem) -> PrintQueueItemResponse:
         # Batch grouping
         "batch_id": item.batch_id,
         "batch_name": item.batch.name if item.batch else None,
+        # Project association
+        "project_id": item.project_id,
+        "project_name": (
+            item.project.name
+            if "project" not in inspect(item).unloaded and item.project
+            else None
+        ),
         # SJF scheduling
         "been_jumped": item.been_jumped,
         # Auto-print G-code injection
@@ -634,6 +641,7 @@ async def list_queue(
             selectinload(PrintQueueItem.library_file),
             selectinload(PrintQueueItem.created_by),
             selectinload(PrintQueueItem.batch),
+            selectinload(PrintQueueItem.project),
             # Cross-model candidates (#671) and their files, for the card label.
             selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
         )
@@ -1065,11 +1073,40 @@ async def add_to_queue(
     # Resolve print_time_seconds for SJF scheduling (cache on item at creation)
     cached_print_time = _cached_print_time(archive, library_file, data.plate_id)
 
+    # Resolve effective project_id (explicit project_id wins, else inherit from source archive/library_file)
+    effective_project_id = data.project_id
+    if effective_project_id is None:
+        if archive and archive.project_id is not None:
+            effective_project_id = archive.project_id
+        elif library_file and library_file.project_id is not None:
+            effective_project_id = library_file.project_id
+
+    # Enforce project requirement for users whose group/user policy requires it
+    if current_user is not None and current_user.requires_project_for_print and effective_project_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A project association is required to print. Please select an active project or request a waiver from an administrator.",
+        )
+
     # Validate project exists before insert so a bogus ID yields 404, not an FK-constraint 500
-    if data.project_id is not None:
-        project_result = await db.execute(select(Project).where(Project.id == data.project_id))
-        if not project_result.scalar_one_or_none():
+    if effective_project_id is not None:
+        project_result = await db.execute(select(Project).where(Project.id == effective_project_id))
+        target_project = project_result.scalar_one_or_none()
+        if not target_project:
             raise HTTPException(status_code=404, detail="Project not found")
+        if current_user is not None and not current_user.is_admin:
+            from backend.app.api.routes.projects import user_can_read_project
+
+            if not await user_can_read_project(db, current_user, effective_project_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have access to the selected project.",
+                )
+            if target_project.status == "archived":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot queue prints under an archived project.",
+                )
 
     # Security boundary: the browser's estimated_cost is only a display hint.
     # Budget enforcement and the persisted reservation value must be derived
@@ -1281,7 +1318,7 @@ async def add_to_queue(
             preheat_chamber_target_override=data.preheat_chamber_target_override,
             gcode_injection=data.gcode_injection,
             cleanup_library_after_dispatch=data.cleanup_library_after_dispatch,
-            project_id=data.project_id,
+            project_id=effective_project_id,
             position=start_position + i,
             status=initial_status,
             created_by_id=current_user.id if current_user else None,
@@ -1312,7 +1349,7 @@ async def add_to_queue(
     # Refresh the first item for the response
     item = items[0]
     await db.refresh(item)
-    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch", "project"])
 
     source_name = f"archive {data.archive_id}" if data.archive_id else f"library file {data.library_file_id}"
     target_desc = data.printer_id or (f"model {target_model_norm}" if target_model_norm else "unassigned")
@@ -1989,6 +2026,7 @@ async def get_queue_item(
             selectinload(PrintQueueItem.library_file),
             selectinload(PrintQueueItem.created_by),
             selectinload(PrintQueueItem.batch),
+            selectinload(PrintQueueItem.project),
             # Cross-model candidates (#671) and their files, for the card label.
             selectinload(PrintQueueItem.variants).selectinload(PrintQueueVariant.library_file),
         )
@@ -2079,6 +2117,34 @@ async def update_queue_item(
     new_target_model = update_data.get("target_model", item.target_model)
     if new_printer_id and new_target_model:
         raise HTTPException(400, "Cannot specify both printer_id and target_model")
+
+    # Validate project_id if being changed
+    if "project_id" in update_data:
+        new_proj_id = update_data["project_id"]
+        if new_proj_id is None:
+            if user is not None and user.requires_project_for_print:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A project association is required to print. Please select an active project.",
+                )
+        else:
+            project_result = await db.execute(select(Project).where(Project.id == new_proj_id))
+            target_project = project_result.scalar_one_or_none()
+            if not target_project:
+                raise HTTPException(status_code=404, detail="Project not found")
+            if user is not None and not user.is_admin:
+                from backend.app.api.routes.projects import user_can_read_project
+
+                if not await user_can_read_project(db, user, new_proj_id):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You do not have access to the selected project.",
+                    )
+                if target_project.status == "archived":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot queue prints under an archived project.",
+                    )
 
     # Validate new printer_id if being changed (and not None)
     if "printer_id" in update_data and update_data["printer_id"] is not None:
@@ -2189,7 +2255,7 @@ async def update_queue_item(
         setattr(item, field, value)
 
     await db.commit()
-    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch", "project"])
 
     logger.info("Updated queue item %s", item_id)
     return _enrich_response(item)
@@ -2655,7 +2721,7 @@ async def start_queue_item(
     if user is not None and item.created_by_id is None:
         item.created_by_id = user.id
     await db.commit()
-    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch", "project"])
 
     logger.info(
         "Manually started queue item %s (cleared manual_start; skip_filament_check=%s)",
@@ -2695,7 +2761,7 @@ async def approve_queue_item(
     item.status = "pending"
     item.error_message = None
     await db.commit()
-    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch", "project"])
     logger.info(
         "TA/Admin %s approved queue item %d",
         current_user.username if current_user else "anonymous",
@@ -2742,6 +2808,6 @@ async def reject_queue_item(
         source_id=item.id,
     )
     await db.commit()
-    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch"])
+    await db.refresh(item, ["archive", "printer", "library_file", "created_by", "batch", "project"])
     logger.info("TA/Admin %s rejected queue item %d: %s", reviewer, item.id, reason)
     return _enrich_response(item)

@@ -363,6 +363,7 @@ export function SettingsPage() {
     role: string;
     group_ids: number[];
     expires_at?: string | null;
+    project_waiver?: boolean;
   }>({
     username: '',
     first_name: '',
@@ -373,6 +374,7 @@ export function SettingsPage() {
     role: 'user',
     group_ids: [],
     expires_at: null,
+    project_waiver: false,
   });
 
   // Group management state
@@ -953,6 +955,7 @@ export function SettingsPage() {
       role: userFormData.role,
       group_ids: userFormData.group_ids.length > 0 ? userFormData.group_ids : undefined,
       expires_at: datetimeLocalToIso(userFormData.expires_at) ?? undefined,
+      project_waiver: Boolean(userFormData.project_waiver),
     });
   };
 
@@ -984,6 +987,7 @@ export function SettingsPage() {
       role: userFormData.role,
       group_ids: userFormData.group_ids,
       expires_at: datetimeLocalToIso(userFormData.expires_at),
+      project_waiver: Boolean(userFormData.project_waiver),
     };
     if (!updateData.password) {
       delete updateData.password;
@@ -1003,6 +1007,7 @@ export function SettingsPage() {
       role: userToEdit.role,
       group_ids: userToEdit.groups?.map(g => g.id) || [],
       expires_at: isoToDatetimeLocal(userToEdit.expires_at),
+      project_waiver: Boolean(userToEdit.project_waiver),
     });
     setShowEditUserModal(true);
   };
@@ -7170,6 +7175,11 @@ export function SettingsPage() {
                                       {group.name}
                                     </span>
                                   ))}
+                                  {userItem.project_waiver && !userItem.is_admin && (
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300">
+                                      Project Waiver
+                                    </span>
+                                  )}
                                   <UserExpirationBadge user={userItem} />
                                 </div>
                               </div>
@@ -7286,6 +7296,11 @@ export function SettingsPage() {
                                   {group.is_system && (
                                     <span className="px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400">
                                       {t('settings.system')}
+                                    </span>
+                                  )}
+                                  {group.require_project && group.name !== 'Administrators' && (
+                                    <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-300">
+                                      Project Required
                                     </span>
                                   )}
                                   <UserExpirationBadge user={group} />
@@ -7652,6 +7667,22 @@ export function SettingsPage() {
                 value={userFormData.expires_at ?? ''}
                 onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
               />
+              <label className="flex items-start gap-3 p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(userFormData.project_waiver)}
+                  onChange={(e) => setUserFormData({ ...userFormData, project_waiver: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+                />
+                <div>
+                  <span className="text-sm font-medium text-white block">
+                    Waive Project Requirement
+                  </span>
+                  <span className="text-xs text-bambu-gray block mt-0.5">
+                    Allow this user to queue and print models without selecting a project, even if their group requires one.
+                  </span>
+                </div>
+              </label>
             </div>
           )}
         </PopupModal>
@@ -7886,6 +7917,22 @@ export function SettingsPage() {
               value={userFormData.expires_at ?? ''}
               onChange={(nextValue) => setUserFormData({ ...userFormData, expires_at: nextValue })}
             />
+            <label className="flex items-start gap-3 p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(userFormData.project_waiver)}
+                onChange={(e) => setUserFormData({ ...userFormData, project_waiver: e.target.checked })}
+                className="mt-0.5 w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+              />
+              <div>
+                <span className="text-sm font-medium text-white block">
+                  Waive Project Requirement
+                </span>
+                <span className="text-xs text-bambu-gray block mt-0.5">
+                  Allow this user to queue and print models without selecting a project, even if their group requires one.
+                </span>
+              </div>
+            </label>
           </div>
         </PopupModal>
       )}

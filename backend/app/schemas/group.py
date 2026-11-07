@@ -12,6 +12,7 @@ class GroupBrief(BaseModel):
     name: str
     expires_at: str | None = None
     is_expired: bool = False
+    require_project: bool = False
 
     class Config:
         from_attributes = True
@@ -28,6 +29,7 @@ class GroupCreate(BaseModel):
     max_filament_grams_per_job: float | None = None
     max_active_queue_items: int | None = None
     requires_approval: bool = False
+    require_project: bool = False
     allowed_hours_start: int | None = None
     allowed_hours_end: int | None = None
 
@@ -43,6 +45,7 @@ class GroupUpdate(BaseModel):
     max_filament_grams_per_job: float | None = None
     max_active_queue_items: int | None = None
     requires_approval: bool | None = None
+    require_project: bool | None = None
     allowed_hours_start: int | None = None
     allowed_hours_end: int | None = None
 
@@ -62,6 +65,7 @@ class GroupResponse(BaseModel):
     max_filament_grams_per_job: float | None = None
     max_active_queue_items: int | None = None
     requires_approval: bool = False
+    require_project: bool = False
     allowed_hours_start: int | None = None
     allowed_hours_end: int | None = None
     created_at: datetime

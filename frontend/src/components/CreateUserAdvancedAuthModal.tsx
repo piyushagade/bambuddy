@@ -228,6 +228,24 @@ export function CreateUserAdvancedAuthModal({
               )}
             </div>
           </div>
+
+          {/* Project Waiver Checkbox */}
+          <label className="flex items-start gap-3 p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(formData.project_waiver)}
+              onChange={(e) => setFormData({ ...formData, project_waiver: e.target.checked })}
+              className="mt-0.5 w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+            />
+            <div>
+              <span className="text-sm font-medium text-white block">
+                Waive Project Requirement
+              </span>
+              <span className="text-xs text-bambu-gray block mt-0.5">
+                Allow this user to queue and print models without selecting a project, even if their group requires one.
+              </span>
+            </div>
+          </label>
         </div>
       )}
     </PopupModal>

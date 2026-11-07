@@ -143,7 +143,7 @@ export function UsersManagerModal({
 
   const bulkMutation = useMutation({
     mutationFn: async (action: {
-      kind: 'add_group' | 'remove_group' | 'set_expiry' | 'clear_expiry' | 'activate' | 'deactivate' | 'delete';
+      kind: 'add_group' | 'remove_group' | 'set_expiry' | 'clear_expiry' | 'activate' | 'deactivate' | 'grant_waiver' | 'revoke_waiver' | 'delete';
       groupId?: number;
       expiresAt?: string | null;
       deleteItems?: boolean;
@@ -172,6 +172,12 @@ export function UsersManagerModal({
             succeeded++;
           } else if (action.kind === 'clear_expiry') {
             await api.updateUser(uid, { expires_at: null });
+            succeeded++;
+          } else if (action.kind === 'grant_waiver') {
+            await api.updateUser(uid, { project_waiver: true });
+            succeeded++;
+          } else if (action.kind === 'revoke_waiver') {
+            await api.updateUser(uid, { project_waiver: false });
             succeeded++;
           } else if (action.kind === 'activate') {
             await api.updateUser(uid, { is_active: true });
@@ -415,6 +421,26 @@ export function UsersManagerModal({
                       <PowerOff className="w-3.5 h-3.5 text-amber-400" />
                       Deactivate
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={bulkMutation.isPending}
+                      onClick={() => bulkMutation.mutate({ kind: 'grant_waiver' })}
+                      title="Allow selected users to print without selecting a project"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                      Grant Waiver
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={bulkMutation.isPending}
+                      onClick={() => bulkMutation.mutate({ kind: 'revoke_waiver' })}
+                      title="Remove personal project waiver from selected users"
+                    >
+                      <Shield className="w-3.5 h-3.5 text-bambu-gray" />
+                      Revoke Waiver
+                    </Button>
                   </>
                 )}
                 {canDelete && (
@@ -651,6 +677,11 @@ export function UsersManagerModal({
                         {group.name}
                       </span>
                     ))}
+                    {userItem.project_waiver && !userItem.is_admin && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300">
+                        Project Waiver
+                      </span>
+                    )}
                     <UserExpirationBadge user={userItem} />
                   </div>
                 </div>
@@ -1140,6 +1171,11 @@ export function GroupsManagerModal({
                     {group.is_system && (
                       <span className="px-2 py-0.5 rounded text-[11px] bg-yellow-500/20 text-yellow-400">
                         System
+                      </span>
+                    )}
+                    {group.require_project && group.name !== 'Administrators' && (
+                      <span className="px-2 py-0.5 rounded text-[11px] bg-blue-500/20 text-blue-300">
+                        Project Required
                       </span>
                     )}
                     <UserExpirationBadge user={group} />

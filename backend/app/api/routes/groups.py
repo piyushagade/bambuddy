@@ -91,6 +91,7 @@ def _group_to_response(group: Group, user_count: int | None = None) -> GroupResp
         max_filament_grams_per_job=group.max_filament_grams_per_job,
         max_active_queue_items=group.max_active_queue_items,
         requires_approval=bool(group.requires_approval),
+        require_project=bool(getattr(group, "require_project", False)),
         allowed_hours_start=group.allowed_hours_start,
         allowed_hours_end=group.allowed_hours_end,
         created_at=group.created_at,
@@ -145,6 +146,7 @@ async def create_group(
         max_filament_grams_per_job=group_data.max_filament_grams_per_job,
         max_active_queue_items=group_data.max_active_queue_items,
         requires_approval=bool(group_data.requires_approval),
+        require_project=bool(group_data.require_project),
         allowed_hours_start=group_data.allowed_hours_start,
         allowed_hours_end=group_data.allowed_hours_end,
     )
@@ -256,6 +258,9 @@ async def update_group(
 
     if group_data.requires_approval is not None:
         group.requires_approval = group_data.requires_approval
+
+    if group_data.require_project is not None:
+        group.require_project = group_data.require_project
 
     await db.commit()
     await db.refresh(group)

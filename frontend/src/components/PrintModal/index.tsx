@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Layers, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, FolderKanban, Layers, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -274,6 +274,12 @@ export function PrintModal({
   const [selectedCostCenterId, setSelectedCostCenterId] = useState<number | null>(() =>
     mode === 'edit-queue-item' ? queueItem?.cost_center_id ?? null : null
   );
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() => {
+    if (projectId != null) return projectId;
+    if (mode === 'edit-queue-item' && queueItem?.project_id != null) return queueItem.project_id;
+    return null;
+  });
+  const projectSeededFromSourceRef = useRef(false);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(queueItem?.estimated_cost ?? null);
   const [estimatedCostsByPlate, setEstimatedCostsByPlate] = useState<Record<number, number | null>>({});
 
@@ -371,6 +377,13 @@ export function PrintModal({
     enabled: !!user && billingEnabled,
   });
 
+  const requiresProject = Boolean(user && !user.is_admin && user.requires_project);
+
+  const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
+    queryKey: ['projects', 'active'],
+    queryFn: () => api.getProjects('active'),
+  });
+
   const printableCostCenters = useMemo(
     () => (myCostCenters || []).filter((center: CostCenterSummary) => center.can_print && center.is_active),
     [myCostCenters],
@@ -466,6 +479,23 @@ export function PrintModal({
 
   // Get sliced_for_model from archive or library file
   const slicedForModel = archiveDetails?.sliced_for_model || libraryFileDetails?.sliced_for_model || null;
+
+  // Seed selectedProjectId from the source archive or library file when creating
+  useEffect(() => {
+    if (mode !== 'create' || projectSeededFromSourceRef.current || projectId != null) return;
+    const sourceProjectId = archiveDetails?.project_id ?? libraryFileDetails?.project_id ?? null;
+    if (sourceProjectId != null) {
+      projectSeededFromSourceRef.current = true;
+      setSelectedProjectId(sourceProjectId);
+    }
+  }, [mode, projectId, archiveDetails?.project_id, libraryFileDetails?.project_id]);
+
+  // Auto-select the sole active project when project association is required
+  useEffect(() => {
+    if (requiresProject && selectedProjectId == null && activeProjects.length === 1) {
+      setSelectedProjectId(activeProjects[0].id);
+    }
+  }, [requiresProject, selectedProjectId, activeProjects]);
 
   // The archive's own saved AMS-slot pick from the slicer (see the "Save AMS
   // mapping" virtual-printer setting) — undefined for library files or
@@ -1324,7 +1354,7 @@ export function PrintModal({
             : undefined,
           quantity,
           ...printOptions,
-          project_id: projectId ?? undefined,
+          project_id: selectedProjectId ?? undefined,
         });
         showToast(t('printModal.variants.queued', { count: candidates.length }), 'success');
         queryClient.invalidateQueries({ queryKey: ['queue'] });
@@ -1435,7 +1465,7 @@ export function PrintModal({
         ? new Date(scheduleOptions.scheduledTime).toISOString()
         : undefined,
       ...printOptions,
-      project_id: projectId ?? undefined,
+      project_id: selectedProjectId ?? undefined,
       cost_center_id: billingEnabled ? selectedCostCenterId : undefined,
       estimated_cost: billingEnabled && selectedCostCenterId != null ? plateEstimatedCost : undefined,
       batch_id: autoBatchId ?? undefined,
@@ -1469,6 +1499,7 @@ export function PrintModal({
                 ? new Date(scheduleOptions.scheduledTime).toISOString()
                 : null,
               ...printOptions,
+              project_id: selectedProjectId,
               cost_center_id: billingEnabled ? selectedCostCenterId : undefined,
               estimated_cost: billingEnabled && selectedCostCenterId != null ? estimatedCost : undefined,
             };
@@ -1535,6 +1566,7 @@ export function PrintModal({
                   ? new Date(scheduleOptions.scheduledTime).toISOString()
                   : null,
                 ...printOptions,
+                project_id: selectedProjectId,
                 cost_center_id: billingEnabled ? selectedCostCenterId : undefined,
                 estimated_cost: billingEnabled && selectedCostCenterId != null
                   ? (plateId != null && isMultiPlateSelection
@@ -1639,6 +1671,10 @@ export function PrintModal({
     // than letting the API fail with an unexplained 400.
     if (billingEnabled && (loadingCostCenters || selectedCostCenter == null)) return false;
 
+    // When the user's group requires a project association (and the user does not
+    // have an admin waiver), require an active project selection before queueing.
+    if (requiresProject && (loadingProjects || selectedProjectId == null)) return false;
+
     // Need valid printer/model selection
     if (assignmentMode === 'printer' && selectedPrinters.length === 0) return false;
     // Both are about the single-model case. A cross-model job has no one target
@@ -1684,6 +1720,9 @@ export function PrintModal({
     billingEnabled,
     loadingCostCenters,
     selectedCostCenter,
+    requiresProject,
+    loadingProjects,
+    selectedProjectId,
   ]);
 
   // Quantity only applies for single-printer or model-based assignment (not multi-printer)
@@ -2126,6 +2165,61 @@ export function PrintModal({
                 showDualNozzleOptions={showDualNozzleOptions}
               />
             )}
+
+            {/* Project association selector */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="printProjectSelect" className="text-sm font-medium text-white flex items-center gap-1.5">
+                  <FolderKanban className="w-4 h-4 text-bambu-green" />
+                  <span>Project</span>
+                  {requiresProject ? (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium">
+                      Required *
+                    </span>
+                  ) : (
+                    <span className="text-xs text-bambu-gray font-normal">(optional)</span>
+                  )}
+                </label>
+              </div>
+              {requiresProject && !loadingProjects && activeProjects.length === 0 ? (
+                <div
+                  role="alert"
+                  className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2"
+                >
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                  <span>
+                    A project association is required to print, but you do not have any active projects yet. Create a project on the <strong>Projects</strong> page or ask a teammate/instructor to share one with you.
+                  </span>
+                </div>
+              ) : (
+                <select
+                  id="printProjectSelect"
+                  value={selectedProjectId ?? ''}
+                  onChange={(e) => setSelectedProjectId(e.target.value ? Number(e.target.value) : null)}
+                  disabled={loadingProjects}
+                  required={requiresProject}
+                  className={`w-full px-3 py-2 text-sm bg-bambu-dark border rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-bambu-green ${
+                    requiresProject && selectedProjectId == null
+                      ? 'border-amber-500/60'
+                      : 'border-bambu-dark-tertiary'
+                  }`}
+                >
+                  <option value="">
+                    {loadingProjects
+                      ? 'Loading projects...'
+                      : requiresProject
+                        ? 'Select a project (required)...'
+                        : 'No project'}
+                  </option>
+                  {activeProjects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                      {proj.owner_username && proj.owner_id !== user?.id ? ` (${proj.owner_username})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
 
             {billingEnabled && printableCostCenters.length > 0 && (
               <CostCenterSelect

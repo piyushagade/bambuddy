@@ -162,6 +162,7 @@ class PrintQueueItemUpdate(BaseModel):
     preheat_chamber_target_override: int | None = Field(default=None, ge=0, le=MAX_CHAMBER_TEMP_C)
     # Auto-print G-code injection
     gcode_injection: bool | None = None
+    project_id: int | None = None
     cost_center_id: int | None = None
     estimated_cost: float | None = None
     # H2C dual-nozzle-rack slicer pick (#1780). list[int] per-filament
@@ -276,6 +277,10 @@ class PrintQueueItemResponse(BaseModel):
     # Batch grouping
     batch_id: int | None = None
     batch_name: str | None = None
+
+    # Project association
+    project_id: int | None = None
+    project_name: str | None = None
 
     # Cross-model alternatives (#671), in priority order. Empty for every
     # ordinary item. Present until dispatch resolves one onto the row, after

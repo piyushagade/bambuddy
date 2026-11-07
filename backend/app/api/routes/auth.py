@@ -86,6 +86,7 @@ def _group_to_brief(g: Group) -> GroupBrief:
         max_filament_grams_per_job=getattr(g, "max_filament_grams_per_job", None),
         max_active_queue_items=getattr(g, "max_active_queue_items", None),
         requires_approval=bool(getattr(g, "requires_approval", False)),
+        require_project=bool(getattr(g, "require_project", False)),
         allowed_hours_start=getattr(g, "allowed_hours_start", None),
         allowed_hours_end=getattr(g, "allowed_hours_end", None),
     )
@@ -111,6 +112,8 @@ def _user_to_response(user: User) -> UserResponse:
         certified_until=user.certified_until.isoformat() if getattr(user, "certified_until", None) else None,
         require_safety_certification=bool(getattr(user, "require_safety_certification", False)),
         is_certification_expired=bool(getattr(user, "is_certification_expired", False)),
+        project_waiver=bool(getattr(user, "project_waiver", False)),
+        requires_project=bool(getattr(user, "requires_project_for_print", False)),
     )
 
 

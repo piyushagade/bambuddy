@@ -47,6 +47,7 @@ class Group(Base):
     max_filament_grams_per_job: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     max_active_queue_items: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    require_project: Mapped[bool] = mapped_column(Boolean, default=False)
     allowed_hours_start: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     allowed_hours_end: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

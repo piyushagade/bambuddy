@@ -3926,6 +3926,19 @@ async def add_files_to_queue(
                 if filament_types:
                     required_filament_types = json.dumps(filament_types)
 
+            effective_project_id = lib_file.project_id or (
+                folder_projects.get(lib_file.folder_id) if lib_file.folder_id is not None else None
+            )
+            if current_user is not None and current_user.requires_project_for_print and effective_project_id is None:
+                errors.append(
+                    AddToQueueError(
+                        file_id=file_id,
+                        filename=lib_file.filename,
+                        error="A project association is required to print. Please link this file to a project or print it from the Print dialog.",
+                    )
+                )
+                continue
+
             # Create queue item referencing library file (archive created at print start)
             max_position += 1
             queue_item = PrintQueueItem(
@@ -3933,8 +3946,7 @@ async def add_files_to_queue(
                 target_model=item_target_model,
                 required_filament_types=required_filament_types,
                 library_file_id=file_id,
-                project_id=lib_file.project_id
-                or (folder_projects.get(lib_file.folder_id) if lib_file.folder_id is not None else None),
+                project_id=effective_project_id,
                 position=max_position,
                 status="pending",
                 confirm_outcome=confirm_outcome,

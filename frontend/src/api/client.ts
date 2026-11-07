@@ -2862,6 +2862,9 @@ export interface PrintQueueItem {
   // Batch grouping
   batch_id?: number | null;
   batch_name?: string | null;
+  // Project association
+  project_id?: number | null;
+  project_name?: string | null;
   // Shortest-job-first scheduling
   been_jumped?: boolean;
   // Auto-print G-code injection
@@ -3076,6 +3079,7 @@ export interface PrintQueueItemUpdate {
   preheat_chamber_target_override?: number | null;
   // Auto-print G-code injection
   gcode_injection?: boolean;
+  project_id?: number | null;
   cost_center_id?: number | null;
   estimated_cost?: number | null;
   /** Which rack position each filament group prints from, on a nozzle-rack
@@ -3105,6 +3109,7 @@ export interface PrintQueueBulkUpdate {
   preheat_chamber_target_override?: number | null;
   // Auto-print G-code injection
   gcode_injection?: boolean;
+  project_id?: number | null;
   cost_center_id?: number | null;
   estimated_cost?: number | null;
 }
@@ -4596,6 +4601,7 @@ export interface GroupBrief {
   max_filament_grams_per_job?: number | null;
   max_active_queue_items?: number | null;
   requires_approval?: boolean;
+  require_project?: boolean;
   allowed_hours_start?: number | null;
   allowed_hours_end?: number | null;
 }
@@ -4613,6 +4619,7 @@ export interface Group {
   max_filament_grams_per_job?: number | null;
   max_active_queue_items?: number | null;
   requires_approval?: boolean;
+  require_project?: boolean;
   allowed_hours_start?: number | null;
   allowed_hours_end?: number | null;
   created_at: string;
@@ -4632,6 +4639,7 @@ export interface GroupCreate {
   max_filament_grams_per_job?: number | null;
   max_active_queue_items?: number | null;
   requires_approval?: boolean;
+  require_project?: boolean;
   allowed_hours_start?: number | null;
   allowed_hours_end?: number | null;
 }
@@ -4645,6 +4653,7 @@ export interface GroupUpdate {
   max_filament_grams_per_job?: number | null;
   max_active_queue_items?: number | null;
   requires_approval?: boolean;
+  require_project?: boolean;
   allowed_hours_start?: number | null;
   allowed_hours_end?: number | null;
 }
@@ -4768,10 +4777,13 @@ export interface UserResponse {
   created_at: string;
   expires_at?: string | null;
   is_expired?: boolean;
+  certified_until?: string | null;
   require_safety_certification?: boolean;
   safety_certified_at?: string | null;
   safety_certification_expires_at?: string | null;
   is_certification_expired?: boolean;
+  project_waiver?: boolean;
+  requires_project?: boolean;
 }
 
 /**
@@ -4794,6 +4806,9 @@ export interface UserCreate {
   role: string;
   group_ids?: number[];
   expires_at?: string | null;
+  certified_until?: string | null;
+  require_safety_certification?: boolean;
+  project_waiver?: boolean;
 }
 
 export interface UserUpdate {
@@ -4806,6 +4821,9 @@ export interface UserUpdate {
   is_active?: boolean;
   group_ids?: number[];
   expires_at?: string | null;
+  certified_until?: string | null;
+  require_safety_certification?: boolean;
+  project_waiver?: boolean;
 }
 
 export interface SetupRequest {

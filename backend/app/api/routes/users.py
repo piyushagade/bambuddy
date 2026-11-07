@@ -79,6 +79,7 @@ def _group_to_brief(g: Group) -> GroupBrief:
         max_filament_grams_per_job=getattr(g, "max_filament_grams_per_job", None),
         max_active_queue_items=getattr(g, "max_active_queue_items", None),
         requires_approval=bool(getattr(g, "requires_approval", False)),
+        require_project=bool(getattr(g, "require_project", False)),
         allowed_hours_start=getattr(g, "allowed_hours_start", None),
         allowed_hours_end=getattr(g, "allowed_hours_end", None),
     )
@@ -104,6 +105,8 @@ def _user_to_response(user: User) -> UserResponse:
         certified_until=user.certified_until.isoformat() if user.certified_until else None,
         require_safety_certification=bool(user.require_safety_certification),
         is_certification_expired=user.is_certification_expired,
+        project_waiver=bool(getattr(user, "project_waiver", False)),
+        requires_project=bool(getattr(user, "requires_project_for_print", False)),
     )
 
 
@@ -204,6 +207,7 @@ async def create_user(
         expires_at=expires_at,
         certified_until=to_naive_utc(user_data.certified_until),
         require_safety_certification=bool(user_data.require_safety_certification),
+        project_waiver=bool(user_data.project_waiver),
     )
 
     # Handle group assignments
@@ -529,6 +533,7 @@ async def import_roster_csv(
                     permissions=default_perms,
                     is_system=False,
                     expires_at=row_exp,
+                    require_project=True,
                 )
                 db.add(target_group)
                 await db.flush()
@@ -925,6 +930,8 @@ async def update_user(
         user.certified_until = to_naive_utc(user_data.certified_until)
     if user_data.require_safety_certification is not None:
         user.require_safety_certification = user_data.require_safety_certification
+    if user_data.project_waiver is not None:
+        user.project_waiver = user_data.project_waiver
 
     if user_data.is_active is not None:
         user.is_active = user_data.is_active

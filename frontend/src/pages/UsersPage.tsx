@@ -211,6 +211,7 @@ export function UsersPage() {
       role: formData.role,
       group_ids: formData.group_ids.length > 0 ? formData.group_ids : undefined,
       expires_at: datetimeLocalToIso(formData.expires_at) ?? undefined,
+      project_waiver: Boolean(formData.project_waiver),
     });
   };
 
@@ -233,6 +234,7 @@ export function UsersPage() {
       role: formData.role,
       group_ids: formData.group_ids,
       expires_at: datetimeLocalToIso(formData.expires_at),
+      project_waiver: Boolean(formData.project_waiver),
     };
     // Remove password if empty
     if (!updateData.password) {
@@ -259,6 +261,7 @@ export function UsersPage() {
       role: user.role,
       group_ids: user.groups?.map(g => g.id) || [],
       expires_at: isoToDatetimeLocal(user.expires_at),
+      project_waiver: Boolean(user.project_waiver),
     });
     setShowEditModal(true);
   };
@@ -394,6 +397,11 @@ export function UsersPage() {
                         ))}
                         {(!user.groups || user.groups.length === 0) && !user.is_admin && (
                           <span className="text-bambu-gray">{t('users.noGroups')}</span>
+                        )}
+                        {user.project_waiver && !user.is_admin && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300">
+                            Project Waiver
+                          </span>
                         )}
                       </div>
                     </td>
@@ -612,6 +620,22 @@ export function UsersPage() {
                     )}
                   </div>
                 </div>
+                <label className="flex items-start gap-3 p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.project_waiver)}
+                    onChange={(e) => setFormData({ ...formData, project_waiver: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-white block">
+                      Waive Project Requirement
+                    </span>
+                    <span className="text-xs text-bambu-gray block mt-0.5">
+                      Allow this user to queue and print models without selecting a project, even if their group requires one.
+                    </span>
+                  </div>
+                </label>
               </div>
               )}
             </CardContent>
@@ -794,6 +818,22 @@ export function UsersPage() {
                     )}
                   </div>
                 </div>
+                <label className="flex items-start gap-3 p-3 rounded-lg bg-bambu-dark-secondary border border-bambu-dark-tertiary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.project_waiver)}
+                    onChange={(e) => setFormData({ ...formData, project_waiver: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 rounded border-bambu-gray text-bambu-green focus:ring-bambu-green focus:ring-offset-0 bg-bambu-dark"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-white block">
+                      Waive Project Requirement
+                    </span>
+                    <span className="text-xs text-bambu-gray block mt-0.5">
+                      Allow this user to queue and print models without selecting a project, even if their group requires one.
+                    </span>
+                  </div>
+                </label>
               </div>
             </CardContent>
             <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2 flex-shrink-0">

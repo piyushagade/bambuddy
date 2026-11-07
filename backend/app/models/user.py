@@ -39,6 +39,7 @@ class User(Base):
     expiry_warned_1d_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     certified_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     require_safety_certification: Mapped[bool] = mapped_column(default=False)
+    project_waiver: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -129,6 +130,31 @@ class User(Base):
         if self.role == "admin":
             return True
         return any(g.name == "Administrators" and not getattr(g, "is_expired", False) for g in self.groups)
+
+    @property
+    def requires_project_for_print(self) -> bool:
+        """Return True if the user must associate queued prints with an accessible Project.
+
+        Exemptions:
+        - Admins (`is_admin`) never require a project.
+        - Users granted an individual `project_waiver` by an admin are exempt.
+        - If the user belongs to any active non-system (custom/course/cohort) groups:
+          requires a project if ALL of their active custom groups have `require_project=True`
+          (so belonging to a custom exempt group like 'Research Lab' with `require_project=False`
+          exempts the user, while belonging to both `Operators` and a course group with
+          `require_project=True` still enforces the course group's requirement).
+        - Otherwise (only in system groups): requires a project if any active group has
+          `require_project=True`.
+        """
+        if self.is_admin or bool(getattr(self, "project_waiver", False)):
+            return False
+        active_groups = [g for g in self.groups if not getattr(g, "is_expired", False)]
+        if not active_groups:
+            return False
+        custom_groups = [g for g in active_groups if not getattr(g, "is_system", False)]
+        if custom_groups:
+            return all(bool(getattr(g, "require_project", False)) for g in custom_groups)
+        return any(bool(getattr(g, "require_project", False)) for g in active_groups)
 
     def get_permissions(self) -> set[str]:
         """Get all permissions from all groups the user belongs to.

@@ -2234,3 +2234,141 @@ class TestProjectAccessControl:
         )
         assert sara_edit.status_code == 403
 
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_queue_enforces_project_requirement_and_waiver(
+        self, async_client: AsyncClient, db_session
+    ):
+        """Students in a group with require_project=True must associate queued prints
+        with an accessible active project, unless granted a personal project_waiver."""
+        from backend.app.core.auth import create_access_token, get_password_hash, invalidate_auth_enabled_cache
+        from backend.app.models.group import Group
+        from backend.app.models.library import LibraryFile
+        from backend.app.models.printer import Printer
+        from backend.app.models.project import Project
+        from backend.app.models.settings import Settings
+        from backend.app.models.user import User
+
+        db_session.add(Settings(key="auth_enabled", value="true"))
+        invalidate_auth_enabled_cache()
+
+        course_group = Group(
+            name="F26 - EML2322L",
+            permissions=[
+                "queue:read",
+                "queue:create",
+                "queue:update_own",
+                "projects:read",
+                "projects:read_own",
+            ],
+            is_system=False,
+            require_project=True,
+        )
+        db_session.add(course_group)
+        await db_session.flush()
+
+        student = User(
+            username="student1",
+            password_hash=get_password_hash("StudentPass1!"),
+            role="user",
+            is_active=True,
+            project_waiver=False,
+            groups=[course_group],
+        )
+        other_user = User(
+            username="student2",
+            password_hash=get_password_hash("StudentPass1!"),
+            role="user",
+            is_active=True,
+            groups=[course_group],
+        )
+        db_session.add_all([student, other_user])
+        await db_session.flush()
+
+        printer = Printer(
+            name="Lab X1C",
+            serial_number="00M09A123456789",
+            ip_address="192.168.1.50",
+            access_code="12345678",
+            model="X1C",
+            is_active=True,
+        )
+        own_project = Project(name="Student1 Robot", color="#10B981", created_by_id=student.id)
+        other_project = Project(name="Student2 Secret", color="#EF4444", created_by_id=other_user.id)
+        lib_file = LibraryFile(
+            filename="gear.gcode.3mf",
+            file_path="library/gear.gcode.3mf",
+            file_size=2048,
+            file_type="3mf",
+            created_by_id=student.id,
+        )
+        db_session.add_all([printer, own_project, other_project, lib_file])
+        await db_session.commit()
+        for obj in (printer, own_project, other_project, lib_file, student):
+            await db_session.refresh(obj)
+        printer_id = printer.id
+        own_project_id = own_project.id
+        other_project_id = other_project.id
+        lib_file_id = lib_file.id
+        student_id = student.id
+
+        student_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': 'student1', 'role': 'user'})}"}
+
+        # 1. Queueing without project_id fails with 400
+        no_proj_resp = await async_client.post(
+            "/api/v1/queue/",
+            headers=student_headers,
+            json={"printer_id": printer_id, "library_file_id": lib_file_id},
+        )
+        assert no_proj_resp.status_code == 400
+        assert "project association is required" in no_proj_resp.json()["detail"].lower()
+
+        # 2. Queueing with someone else's unshared project fails with 403
+        unshared_resp = await async_client.post(
+            "/api/v1/queue/",
+            headers=student_headers,
+            json={
+                "printer_id": printer_id,
+                "library_file_id": lib_file_id,
+                "project_id": other_project_id,
+            },
+        )
+        assert unshared_resp.status_code == 403
+
+        # 3. Queueing with own accessible project succeeds
+        ok_resp = await async_client.post(
+            "/api/v1/queue/",
+            headers=student_headers,
+            json={
+                "printer_id": printer_id,
+                "library_file_id": lib_file_id,
+                "project_id": own_project_id,
+            },
+        )
+        assert ok_resp.status_code == 200
+        queued_item = ok_resp.json()
+        assert queued_item["project_id"] == own_project_id
+        assert queued_item["project_name"] == "Student1 Robot"
+
+        # 4. Attempting to clear project_id via PATCH while requirement is active fails with 400
+        clear_resp = await async_client.patch(
+            f"/api/v1/queue/{queued_item['id']}",
+            headers=student_headers,
+            json={"project_id": None},
+        )
+        assert clear_resp.status_code == 400
+
+        # 5. Granting a personal project_waiver allows queueing without a project
+        student_row = await db_session.get(User, student_id)
+        student_row.project_waiver = True
+        await db_session.commit()
+
+        waived_resp = await async_client.post(
+            "/api/v1/queue/",
+            headers=student_headers,
+            json={"printer_id": printer_id, "library_file_id": lib_file_id},
+        )
+        assert waived_resp.status_code == 200
+        assert waived_resp.json()["project_id"] is None
+
+
