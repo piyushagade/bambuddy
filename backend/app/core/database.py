@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 
 from sqlalchemy import event
@@ -311,6 +312,46 @@ async def get_db() -> AsyncSession:
                 pass
 
 
+@functools.cache
+def load_all_models():
+    """Import every model module and return Base.metadata."""
+    import importlib
+    import pkgutil
+
+    import backend.app.models
+
+    for module in pkgutil.iter_modules(backend.app.models.__path__):
+        importlib.import_module(f"backend.app.models.{module.name}")
+    return Base.metadata
+
+
+async def _repair_sqlite_orphans(conn) -> None:
+    from sqlalchemy import exists, select
+
+    from backend.app.core.sqlite_fk import sweep_orphans
+    from backend.app.models.library import LibraryFile
+    from backend.app.models.print_queue import PrintQueueItem
+    from backend.app.services.library_trash import release_queue_references
+
+    if not is_sqlite():
+        return
+    vanished = (
+        (
+            await conn.execute(
+                select(PrintQueueItem.library_file_id)
+                .where(PrintQueueItem.library_file_id.is_not(None))
+                .where(~exists().where(LibraryFile.id == PrintQueueItem.library_file_id))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if vanished:
+        await release_queue_references(conn, list(vanished))
+    await sweep_orphans(conn)
+
+
 async def init_db():
     # Import models to register them with SQLAlchemy
     from backend.app.models import (  # noqa: F401
@@ -380,6 +421,7 @@ async def init_db():
 
         # Run migrations for new columns (SQLite doesn't auto-add columns)
         await run_migrations(conn)
+        await _repair_sqlite_orphans(conn)
 
     # Re-encrypt any legacy plaintext OIDC client_secret / TOTP secret rows
     # that exist from before the encryption key was configured.
@@ -5420,9 +5462,69 @@ async def run_migrations(conn):
     await _safe_execute(conn, f"ALTER TABLE print_log_entries ADD COLUMN wear_cost {float_type}")
     await _safe_execute(conn, f"ALTER TABLE print_archives ADD COLUMN wear_cost {float_type}")
 
+    # Migration: a print log run whose times were not measured, a print that
+    # finished while Bambuddy restarted (#3310). Nullable, no
+    # default -- identical DDL on SQLite and Postgres.
+    await _safe_execute(conn, "ALTER TABLE print_log_entries ADD COLUMN duration_unmeasured BOOLEAN")
+
     # Migration: use the same AI detection template for either provider (#3236).
     # Seeding only inserts missing templates; preserve any customized wording.
     await _migrate_ai_failure_detection_template(conn)
+
+    # Migration: per-print usage of Spoolman spools (#3407), so Spoolman mode
+    # has the usage history the built-in inventory has.
+    await _safe_execute(conn, "ALTER TABLE spool_usage_history ADD COLUMN spoolman_spool_id INTEGER")
+
+    # Migration: the plate each print log run printed. A library file printed
+    # again now adds its run to the file's archive, whose plate_id is only the
+    # latest run's. Nullable, no default -- identical DDL on SQLite and
+    # Postgres. Backfilled below.
+    await _safe_execute(conn, "ALTER TABLE print_log_entries ADD COLUMN plate_id INTEGER")
+    await _backfill_print_log_plate_ids(conn)
+
+    # Migration: each plate's estimate on the archive (#3375). Nullable, no
+    # default; filled from the archived 3MF after startup
+    # (``print_cost_estimate.fill_plate_estimates``).
+    await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN plate_estimates JSON")
+    await _migrate_spool_usage_outlives_its_archive(conn)
+
+
+async def _backfill_print_log_plate_ids(conn) -> None:
+    """Give older print log runs their plate where it is known: the plate of
+    the queue item that ran it, else the archive's when the run is the
+    archive's only one. A run of a reprinted archive without a queue item is
+    left NULL: the archive's plate need not be the one that run printed.
+
+    Once only, gated by a settings flag: runs are written with their plate
+    from now on, and a later dispatch moves the archive's plate to its own
+    run's before that run is logged, which a second pass would read as the
+    old run's."""
+    from sqlalchemy import text
+
+    flag = "_backfill_print_log_plate_ids_done"
+    async with conn.begin_nested():
+        already = (
+            await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": flag})
+        ).scalar_one_or_none()
+        if already is not None:
+            return
+        await conn.execute(
+            text(
+                "UPDATE print_log_entries SET plate_id = ("
+                "SELECT q.plate_id FROM print_queue q WHERE q.id = print_log_entries.queue_item_id"
+                ") WHERE plate_id IS NULL AND queue_item_id IS NOT NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "UPDATE print_log_entries SET plate_id = ("
+                "SELECT a.plate_id FROM print_archives a WHERE a.id = print_log_entries.archive_id"
+                ") WHERE plate_id IS NULL AND queue_item_id IS NULL AND archive_id IS NOT NULL"
+                " AND (SELECT COUNT(*) FROM print_log_entries e"
+                " WHERE e.archive_id = print_log_entries.archive_id) = 1"
+            )
+        )
+        await conn.execute(text('INSERT INTO settings ("key", value) VALUES (:k, :v)'), {"k": flag, "v": "true"})
 
 
 async def _migrate_ai_failure_detection_template(conn) -> None:
@@ -5440,6 +5542,38 @@ async def _migrate_ai_failure_detection_template(conn) -> None:
             "old": "{printer}: {task_name}\nConfidence: {confidence}\nAction taken: {action}",
         },
     )
+
+
+async def _migrate_spool_usage_outlives_its_archive(conn) -> None:
+    """spool_usage_history.archive_id: ON DELETE SET NULL, as the model says (PostgreSQL)."""
+    if not is_sqlite():
+        await _pg_set_fk_ondelete(conn, "spool_usage_history", "archive_id", "print_archives", "SET NULL")
+
+
+_PG_ON_DELETE_CODES = {"CASCADE": "c", "SET NULL": "n"}
+
+
+async def _pg_set_fk_ondelete(conn, table: str, column: str, parent: str, ondelete: str) -> None:
+    from sqlalchemy import text
+
+    differing = await conn.execute(
+        text(
+            "SELECT c.conname FROM pg_constraint c "
+            "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) "
+            "WHERE c.contype = 'f' AND c.conrelid = CAST(:t AS regclass) "
+            "AND c.confrelid = CAST(:p AS regclass) AND array_length(c.conkey, 1) = 1 "
+            "AND a.attname = :c AND CAST(c.confdeltype AS text) <> :code"
+        ),
+        {"t": table, "p": parent, "c": column, "code": _PG_ON_DELETE_CODES[ondelete]},
+    )
+    for name in differing.scalars().all():
+        await conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT "{name}"'))
+        await conn.execute(
+            text(
+                f'ALTER TABLE {table} ADD CONSTRAINT "{name}" '
+                f"FOREIGN KEY ({column}) REFERENCES {parent}(id) ON DELETE {ondelete}"
+            )
+        )
 
 async def _backfill_snapshot_prices(conn) -> None:
     """Give the energy snapshots taken before #1251 the price set at upgrade.
@@ -6658,3 +6792,6 @@ async def repair_wallet_ledger_internal(session: AsyncSession):
 
     await session.flush()
     return updated_count
+
+# The ON DELETE rules SQLite doesn't apply itself: hooks on every ORM delete.
+from backend.app.core import sqlite_fk  # noqa: E402, F401

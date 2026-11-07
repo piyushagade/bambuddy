@@ -1,10 +1,14 @@
 """Trusted server-side cost estimates for queued prints."""
 
+import asyncio
 import json
 import logging
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +21,94 @@ from backend.app.utils import threemf_tools
 from backend.app.utils.safe_path import safe_join_under
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RunEstimate:
+    """The slicer's estimate for one print of an archive (#3375).
+
+    ``per_plate`` is False when the archive's plates are not known (the file
+    not read, not sliced, or gone): the figures are then the whole file's,
+    which describe a print only of a single-plate file.
+    """
+
+    seconds: int | None
+    grams: float | None
+    per_plate: bool
+
+
+def run_estimate(archive: Any, plate_id: int | None) -> RunEstimate | None:
+    """What one print of plate ``plate_id`` of ``archive`` was estimated at:
+    that plate's figures, or the only plate's. None for a print of a
+    multi-plate file whose plate is not known. ``archive`` is an archive, or
+    a row with its ``plate_estimates``, ``print_time_seconds`` and
+    ``filament_used_grams``."""
+    plates = archive.plate_estimates
+    if not plates:
+        return RunEstimate(archive.print_time_seconds, archive.filament_used_grams, per_plate=False)
+    if plate_id is not None and str(plate_id) in plates:
+        plate = plates[str(plate_id)]
+    elif len(plates) == 1:
+        plate = next(iter(plates.values()))
+    else:
+        return None
+    return RunEstimate(plate.get("seconds") or None, plate.get("grams") or None, per_plate=True)
+
+
+def read_plate_estimates(archive: Any) -> dict | None:
+    """The plate estimates of the archive's 3MF on disk. ``{}`` for a file that
+    is not a 3MF; None when there is no file to read or it cannot be read."""
+    if not archive.file_path:
+        return None
+    path = settings.base_dir / archive.file_path  # SEC-PATH-OK: archive.file_path is DB-stored, internally generated
+    if not path.is_file():
+        return None
+    if path.suffix.lower() != ".3mf":
+        return {}
+    return threemf_tools.extract_plate_estimates_from_3mf(path)
+
+
+def refresh_plate_estimates(archive: PrintArchive) -> None:
+    """Read the plate estimates of the archive's file into it: when the
+    archive is made, or given a file. Does not commit."""
+    estimates = read_plate_estimates(archive)
+    if estimates is not None:
+        archive.plate_estimates = estimates
+
+
+async def fill_plate_estimates(session_factory, batch: int = 100) -> int:
+    """Give every archive not yet read its plate estimates, from its 3MF.
+    An archive whose file is missing or unreadable gets ``{}``: it is read
+    once, its figures stay the whole file's. Returns how many were read.
+
+    Each is written only while it is still unread: an archive given its 3MF
+    meanwhile (``refresh_plate_estimates``) keeps what that read, and one
+    deleted meanwhile is skipped."""
+    filled = 0
+    last_id = 0
+    while True:
+        async with session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(PrintArchive.id, PrintArchive.file_path)
+                    .where(PrintArchive.plate_estimates.is_(None), PrintArchive.id > last_id)
+                    .order_by(PrintArchive.id)
+                    .limit(batch)
+                )
+            ).all()
+            if not rows:
+                return filled
+            for row in rows:
+                estimates = await asyncio.to_thread(read_plate_estimates, row)
+                written = await db.execute(
+                    update(PrintArchive)
+                    .where(PrintArchive.id == row.id, PrintArchive.plate_estimates.is_(None))
+                    .values(plate_estimates=estimates if estimates is not None else {})
+                    .execution_options(synchronize_session=False)
+                )
+                filled += written.rowcount or 0
+            last_id = rows[-1].id
+            await db.commit()
 
 
 def plate_scoped_run_estimate(
@@ -77,14 +169,49 @@ def _global_tray_id(assignment: SpoolAssignment) -> int:
     return assignment.ams_id * 4 + assignment.tray_id
 
 
-async def _default_cost_per_kg(db: AsyncSession) -> float:
+async def default_cost_per_kg(db: AsyncSession) -> float:
+    """The default filament price per kg, as the Settings page shows it: 25
+    when it was never saved."""
     from backend.app.api.routes.settings import get_setting
 
     raw = await get_setting(db, "default_filament_cost")
     try:
-        return float(raw) if raw is not None else 25.0
+        return float(raw) if raw not in (None, "") else 25.0
     except (TypeError, ValueError):
         return 25.0
+
+
+def price_one_print(
+    grams: float | None,
+    usage_cost: float | None,
+    tracked_grams: float,
+    printed_grams: float,
+    runs: int,
+    fallback_cost_per_kg: float,
+    default_cost_per_kg: float,
+) -> float | None:
+    """Cost of one print of ``grams``, the figure an archive carries (#1378).
+
+    ``usage_cost`` / ``tracked_grams`` are the priced spool usage recorded
+    against the archive, over every run of it; ``printed_grams`` / ``runs`` are
+    those runs' grams and count from Print History. The spools tracked
+    ``tracked_grams`` of ``printed_grams``: one print gets that share at their
+    average price per gram and the rest at the default rate (#1344). Without
+    priced usage, everything is priced at ``fallback_cost_per_kg``.
+    """
+    if usage_cost and usage_cost > 0 and tracked_grams > 0:
+        if not grams:
+            # No figure for one print: an average run's usage is the best one.
+            cost = usage_cost / max(1, runs)
+        else:
+            expected = printed_grams if printed_grams > 0 else grams
+            covered = grams * min(1.0, tracked_grams / expected)
+            cost = covered * (usage_cost / tracked_grams) + (grams - covered) / 1000.0 * default_cost_per_kg
+    elif grams:
+        cost = grams / 1000.0 * fallback_cost_per_kg
+    else:
+        return None
+    return float(Decimal(str(cost)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 async def estimate_queue_source_cost(
@@ -109,7 +236,7 @@ async def estimate_queue_source_cost(
         # requiring the browser to provide an estimate.
         if grams is None or grams <= 0:
             return None
-        default_cost = await _default_cost_per_kg(db)
+        default_cost = await default_cost_per_kg(db)
         estimated_cost = (grams / 1000.0) * default_cost
         return max(0.01, round(estimated_cost, 2)) if estimated_cost > 0 else None
 
@@ -133,7 +260,7 @@ async def estimate_queue_source_cost(
     if not usage:
         return None
 
-    default_cost = await _default_cost_per_kg(db)
+    default_cost = await default_cost_per_kg(db)
     cost_by_tray: dict[int, float | None] = {}
     mapping = _parse_mapping(ams_mapping)
     # Built-in spool prices only. In Spoolman mode the built-in table may still

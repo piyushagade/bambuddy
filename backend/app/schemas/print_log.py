@@ -15,6 +15,7 @@ class PrintLogEntrySchema(BaseModel):
     id: int
     archive_id: int | None = None
     print_name: str | None = None
+    plate_id: int | None = None
     printer_name: str | None = None
     printer_id: int | None = None
     status: str
@@ -30,6 +31,10 @@ class PrintLogEntrySchema(BaseModel):
     wear_cost: float | None = None  # #694
     failure_reason: str | None = None
     user_verdict: str | None = None  # Post-print quality verdict (#1898)
+    # The slicer's estimate for the plate it printed (#3375); only in an
+    # archive's runs list (GET /archives/{id}/runs).
+    estimate_seconds: int | None = None
+    estimate_grams: float | None = None
     thumbnail_path: str | None = None
     created_by_id: int | None = None
     created_by_username: str | None = None

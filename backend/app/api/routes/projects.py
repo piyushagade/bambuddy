@@ -1419,8 +1419,8 @@ async def list_project_archives(
     # Import the response converter from archives module
     from backend.app.api.routes.archives import _load_run_aggregates, archive_to_response
 
-    # Load run aggregates so multi-run archives' time/accuracy badge is
-    # suppressed consistently with the main archives list endpoint (#1608).
+    # Load run aggregates so the time/accuracy badge reads each archive's
+    # latest print, as the main archives list does (#3375).
     run_aggregates = await _load_run_aggregates(db, [a.id for a in archives])
 
     return [archive_to_response(a, run_aggregate=run_aggregates.get(a.id)) for a in archives]

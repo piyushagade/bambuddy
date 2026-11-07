@@ -279,6 +279,10 @@ async function openInSlicerWithToken(
   }
 }
 
+// Ended without finishing: the archive's grams and cost stay one full print of
+// the file (COST-3), not what this run used.
+const UNFINISHED_STATUSES = new Set(['failed', 'aborted', 'cancelled', 'stopped']);
+
 function ArchiveCard({
   archive,
   printerName,
@@ -908,8 +912,20 @@ function ArchiveCard({
             src={
               currentPlateIndex !== null && plates.length > 0
                 ? api.getArchivePlateThumbnail(archive.id, plates[displayPlateIndex]?.index ?? 0)
-                : api.getArchiveThumbnail(archive.id)
+                : // The plate the title names: a file printed again shows its
+                  // latest run's plate, the stored picture is the first's.
+                  archive.plate_id != null && archive.plate_id > 1
+                  ? api.getArchivePlateThumbnail(archive.id, archive.plate_id)
+                  : api.getArchiveThumbnail(archive.id)
             }
+            onError={(e) => {
+              // A file without per-plate pictures: the stored one.
+              const img = e.currentTarget;
+              if (img.dataset.fellBack) return;
+              img.dataset.fellBack = '1';
+              img.src = api.getArchiveThumbnail(archive.id);
+            }}
+            loading="lazy" 
             alt={archive.print_name || archive.filename}
             className="w-full h-full object-cover"
           />
@@ -1003,7 +1019,13 @@ function ArchiveCard({
         </button>
         {(archive.status === 'failed' || archive.status === 'aborted') && (
           <div className="absolute top-2 left-12 px-2 py-1 rounded text-xs bg-status-error/80 text-white">
-            {archive.status === 'aborted' ? t('archives.card.cancelled') : t('archives.card.failed')}
+            {archive.status === 'aborted' ? t('archives.card.aborted') : t('archives.card.failed')}
+          </div>
+        )}
+        {/* Stopped rather than failed: counted apart from failures in the statistics. */}
+        {archive.status === 'cancelled' && (
+          <div className="absolute top-2 left-12 px-2 py-1 rounded text-xs bg-status-warning/80 text-white">
+            {t('archives.card.cancelled')}
           </div>
         )}
         {/* Outcome-confirmation badges (#1898): a completed print either
@@ -1248,7 +1270,7 @@ function ArchiveCard({
           {(archive.print_time_seconds || archive.actual_time_seconds) && (
             <div className="flex items-center gap-1.5 text-bambu-gray" title={
               archive.time_accuracy
-                ? `Estimated: ${formatDuration(archive.print_time_seconds || 0)}\nActual: ${formatDuration(archive.actual_time_seconds || 0)}\nAccuracy: ${archive.time_accuracy.toFixed(0)}%`
+                ? `Estimated: ${formatDuration(archive.time_estimate_seconds || archive.print_time_seconds || 0)}\nActual: ${formatDuration(archive.actual_time_seconds || 0)}\nAccuracy: ${archive.time_accuracy.toFixed(0)}%`
                 : archive.actual_time_seconds
                   ? `Actual: ${formatDuration(archive.actual_time_seconds)}`
                   : `Estimated: ${formatDuration(archive.print_time_seconds || 0)}`
@@ -1269,7 +1291,11 @@ function ArchiveCard({
             </div>
           )}
           {archive.filament_used_grams && (
-            <div className="flex items-center gap-1.5 text-bambu-gray">
+            <div
+              className="flex items-center gap-1.5 text-bambu-gray"
+              title={UNFINISHED_STATUSES.has(archive.status) ? t('archives.card.fullPrintFigure') : undefined}
+              data-testid="archive-grams"
+            >
               <Package className="w-3 h-3" />
               {archive.filament_used_grams.toFixed(1)}g
             </div>
@@ -1277,10 +1303,18 @@ function ArchiveCard({
           {(archive.cost != null || archive.energy_cost != null || archive.wear_cost != null) && (
             <div className="flex items-center gap-3 text-bambu-gray">
               {archive.cost != null && (
-                // A running print's cost is an estimate until completion re-prices it (#3261)
+                // A running print's cost is an estimate until completion re-prices it (#3261).
+                // A run that did not finish leaves one full print's figure; its
+                // own cost is in the Print Log (#3318).
                 <div
                   className="flex items-center gap-1.5"
-                  title={archive.status === 'printing' ? t('archives.card.costEstimate') : undefined}
+                  title={
+                    archive.status === 'printing'
+                      ? t('archives.card.costEstimate')
+                      : UNFINISHED_STATUSES.has(archive.status)
+                        ? t('archives.card.fullPrintFigure')
+                        : undefined
+                  }
                   data-testid="archive-cost"
                 >
                   <Coins className="w-3 h-3" />
@@ -2395,7 +2429,12 @@ function ArchiveListRow({
             <p className="text-white text-sm truncate">{archive.print_name || archive.filename}</p>
             {(archive.status === 'failed' || archive.status === 'aborted') && (
               <span className="px-1.5 py-0.5 rounded text-[10px] leading-tight bg-status-error/80 text-white flex-shrink-0">
-                {archive.status === 'aborted' ? t('archives.card.cancelled') : t('archives.card.failed')}
+                {archive.status === 'aborted' ? t('archives.card.aborted') : t('archives.card.failed')}
+              </span>
+            )}
+            {archive.status === 'cancelled' && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] leading-tight bg-status-warning/80 text-white flex-shrink-0">
+                {t('archives.card.cancelled')}
               </span>
             )}
             {/* Outcome-confirmation badges (#1898), compact list variants */}

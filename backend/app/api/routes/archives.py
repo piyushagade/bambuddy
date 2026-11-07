@@ -6,9 +6,9 @@ import re as _re
 import zipfile
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
 from html import escape as html_escape
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -45,6 +45,11 @@ from backend.app.services.print_confirmation import (
     is_unattended_fetch,
     retire_confirm_token,
     stamp_verdict,
+)
+from backend.app.services.print_cost_estimate import (
+    default_cost_per_kg as _default_cost_per_kg,
+    price_one_print,
+    run_estimate,
 )
 from backend.app.services.print_storage import (
     REASON_FTP_TRANSFER_FAILED,
@@ -241,48 +246,69 @@ def _apply_run_user_filter(conditions: list, created_by_id: int | None):
             conditions.append(PrintLogEntry.created_by_id == created_by_id)
 
 
+def _event_estimate_seconds(row) -> int | None:
+    """The slicer's time for the plate one print event printed (#3375)."""
+    estimate = run_estimate(
+        SimpleNamespace(
+            plate_estimates=row.plate_estimates,
+            print_time_seconds=row.print_time_seconds,
+            filament_used_grams=row.file_grams,
+        ),
+        row.plate_id,
+    )
+    return estimate.seconds if estimate is not None else None
+
+
 def compute_time_accuracy(archive: PrintArchive, run_aggregate: dict | None = None) -> dict:
-    """Compute actual print time and accuracy for an archive.
+    """The time accuracy of the archive's latest print: how its time compares
+    with the slicer's estimate for the plate it printed (#3375).
 
-    Returns dict with actual_time_seconds and time_accuracy.
-    time_accuracy = (estimated / actual) * 100
-    - 100% = perfect estimate
-    - >100% = print was faster than estimated
-    - <100% = print took longer than estimated
+    Returns ``actual_time_seconds``, ``time_estimate_seconds`` and
+    ``time_accuracy`` = estimated / actual * 100 (100 % = exact, above 100 %
+    = faster than estimated). The latest print is the run aggregate's; an
+    archive printed before runs were logged is its own one print.
 
-    When ``run_aggregate`` indicates the archive has more than one logged
-    run (multi-plate file printed plate-by-plate, or reprints), both
-    fields are suppressed: ``archive.started_at / completed_at`` reflect
-    the LATEST run only, while ``archive.print_time_seconds`` is the
-    whole-file estimate (post-#1593 the parser sums across plates), so
-    comparing the two describes different scopes. The card-rendering
-    frontend falls through to ``archive.print_time_seconds`` for the
-    time display and hides the badge when ``time_accuracy`` is null —
-    that's the desired "show estimate, no badge" presentation for
-    multi-run archives (#1608). Single-run archives keep the original
-    badge behaviour verbatim.
+    Measured against that plate's estimate, not the file's, whose figures
+    add every plate up (#1593). Where the file's plates are not known (not
+    read yet, not sliced, file gone) the file's figures stand for the print:
+    then an archive printed more than once shows no badge, as before (#1608),
+    since its plates may differ. A print whose times were not measured (#3310)
+    or that did not complete shows none either.
     """
-    result: dict[str, int | float | None] = {"actual_time_seconds": None, "time_accuracy": None}
+    result: dict[str, int | float | None] = {
+        "actual_time_seconds": None,
+        "time_estimate_seconds": None,
+        "time_accuracy": None,
+    }
+    latest = (run_aggregate or {}).get("latest_run")
+    if latest is not None:
+        plate_id, status, unmeasured = latest.plate_id, latest.status, latest.duration_unmeasured
+        started_at, completed_at, duration = latest.started_at, latest.completed_at, latest.duration_seconds
+    else:
+        plate_id, status, unmeasured = archive.plate_id, archive.status, False
+        started_at, completed_at, duration = archive.started_at, archive.completed_at, None
+    actual_seconds = None
+    if status == "completed" and not unmeasured:
+        actual_seconds = duration
+        if not actual_seconds and started_at and completed_at:
+            actual_seconds = int((completed_at - started_at).total_seconds())
+        if actual_seconds is not None and actual_seconds <= 0:
+            actual_seconds = None
 
-    # Multi-run archives: the per-run actual (started_at..completed_at on
-    # the archive row) is incommensurable with the whole-file estimate.
-    # Both fields are cleared so the card shows estimate + no badge.
-    if run_aggregate and (run_aggregate.get("run_count") or 0) > 1:
+    estimate = run_estimate(archive, plate_id)
+    if estimate is not None and not estimate.per_plate and ((run_aggregate or {}).get("run_count") or 0) > 1:
+        estimate = None
+    # A measured print shows its time; without an estimate of its own, no badge.
+    result["actual_time_seconds"] = actual_seconds
+    if estimate is None:
         return result
-
-    if archive.started_at and archive.completed_at and archive.status == "completed":
-        actual_seconds = int((archive.completed_at - archive.started_at).total_seconds())
-        if actual_seconds > 0:
-            result["actual_time_seconds"] = actual_seconds
-
-            if archive.print_time_seconds and archive.print_time_seconds > 0:
-                # Calculate accuracy as percentage
-                accuracy = (archive.print_time_seconds / actual_seconds) * 100
-                # Sanity check: skip unreasonable values (e.g., manually changed status)
-                # Valid range: 5% to 500% (print took 20x longer to 5x faster than estimated)
-                if 5 <= accuracy <= 500:
-                    result["time_accuracy"] = round(accuracy, 1)
-
+    result["time_estimate_seconds"] = estimate.seconds
+    if actual_seconds and estimate.seconds and estimate.seconds > 0:
+        accuracy = (estimate.seconds / actual_seconds) * 100
+        # Sanity check: skip unreasonable values (e.g., manually changed status)
+        # Valid range: 5% to 500% (print took 20x longer to 5x faster than estimated)
+        if 5 <= accuracy <= 500:
+            result["time_accuracy"] = round(accuracy, 1)
     return result
 
 
@@ -290,7 +316,7 @@ async def _load_run_aggregates(db: AsyncSession, archive_ids: list[int]) -> dict
     """Batch-load per-archive run aggregates from PrintLogEntry.
 
     Returns ``{archive_id: {run_count, last_run_at, total_filament_actual_grams,
-    successful_run_count, failed_run_count}}``. Archives with no logged runs are
+    successful_run_count, failed_run_count, unmeasured_run_count}}``. Archives with no logged runs are
     absent from the map; callers should treat that as zero/none.
     """
     from backend.app.models.print_log import PrintLogEntry
@@ -305,20 +331,51 @@ async def _load_run_aggregates(db: AsyncSession, archive_ids: list[int]) -> dict
             func.coalesce(func.sum(PrintLogEntry.filament_used_grams), 0).label("total_filament"),
             func.sum(case((PrintLogEntry.status == "completed", 1), else_=0)).label("successful"),
             func.sum(case((PrintLogEntry.status == "failed", 1), else_=0)).label("failed"),
+            func.sum(case((PrintLogEntry.duration_unmeasured.is_(True), 1), else_=0)).label("estimated"),
         )
         .where(PrintLogEntry.archive_id.in_(archive_ids))
         .group_by(PrintLogEntry.archive_id)
     )
     aggregates: dict[int, dict] = {}
-    for archive_id, run_count, last_run_at, total_filament, successful, failed in rows.all():
+    for archive_id, run_count, last_run_at, total_filament, successful, failed, estimated in rows.all():
         aggregates[archive_id] = {
             "run_count": int(run_count or 0),
             "last_run_at": last_run_at,
             "total_filament_actual_grams": float(total_filament) if total_filament else None,
             "successful_run_count": int(successful or 0),
             "failed_run_count": int(failed or 0),
+            "unmeasured_run_count": int(estimated or 0),
         }
+    # The latest print of each (by start), which the archive shows: a print
+    # running now included, as the archive shows it while it runs.
+    ranked = (
+        select(
+            PrintLogEntry.archive_id,
+            PrintLogEntry.id,
+            PrintLogEntry.status,
+            PrintLogEntry.plate_id,
+            PrintLogEntry.started_at,
+            PrintLogEntry.completed_at,
+            PrintLogEntry.duration_seconds,
+            PrintLogEntry.duration_unmeasured,
+            func.row_number()
+            .over(
+                partition_by=PrintLogEntry.archive_id,
+                order_by=(PrintLogEntry.started_at.desc().nulls_last(), PrintLogEntry.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(PrintLogEntry.archive_id.in_(archive_ids))
+        .subquery()
+    )
+    latest = await db.execute(select(ranked).where(ranked.c.rn == 1))
+    for row in latest.all():
+        aggregate = aggregates.setdefault(row.archive_id, {})
+        aggregate["latest_run_id"] = row.id
+        # What its time accuracy is measured from (#3375).
+        aggregate["latest_run"] = row
     return aggregates
+
 
 
 def archive_to_response(
@@ -391,10 +448,7 @@ def archive_to_response(
         "created_by_username": archive.created_by.username if archive.created_by else None,
     }
 
-    # Add computed time accuracy fields. ``run_aggregate`` lets
-    # ``compute_time_accuracy`` suppress the badge for multi-run archives
-    # where the per-run actual / whole-file estimate scopes don't match
-    # (#1608).
+    # The time accuracy of the latest print, from ``run_aggregate`` (#3375).
     accuracy_data = compute_time_accuracy(archive, run_aggregate)
     data.update(accuracy_data)
 
@@ -688,7 +742,10 @@ async def list_archives_slim(
         select(
             PrintLogEntry.printer_id,
             PrintLogEntry.print_name,
+            PrintLogEntry.plate_id,
             PrintArchive.print_time_seconds,
+            PrintArchive.filament_used_grams.label("file_grams"),
+            PrintArchive.plate_estimates,
             PrintLogEntry.started_at,
             PrintLogEntry.completed_at,
             PrintLogEntry.duration_seconds,
@@ -715,7 +772,8 @@ async def list_archives_slim(
         {
             "printer_id": r.printer_id,
             "print_name": r.print_name,
-            "print_time_seconds": r.print_time_seconds,
+            # The estimate for the plate it printed (#3375), not the file's.
+            "print_time_seconds": _event_estimate_seconds(r),
             "actual_time_seconds": (
                 # Measured elapsed time for every status (#1390): failed /
                 # cancelled prints still ran for some duration, and Quick
@@ -1284,37 +1342,35 @@ async def get_archive_stats(
             PrintLogEntry.started_at,
             PrintLogEntry.completed_at,
             PrintLogEntry.printer_id,
+            PrintLogEntry.plate_id,
             PrintArchive.print_time_seconds,
+            PrintArchive.filament_used_grams,
+            PrintArchive.plate_estimates,
         )
         .join(PrintArchive, PrintArchive.id == PrintLogEntry.archive_id)
         .where(
             PrintLogEntry.status == "completed",
-            PrintArchive.print_time_seconds.isnot(None),
+            # A run whose times were not measured is no sample (#3310).
+            PrintLogEntry.duration_unmeasured.is_not(True),
             *base_conditions,
         )
     )
-    # Accuracy is meaningful only when the estimate roughly describes the
-    # work the run actually performed. Two shapes produce wildly-off ratios
-    # that are pure noise:
-    #   - multi-plate ``.gcode.3mf`` printed plate-by-plate: each run's
-    #     actual is one plate, the archive's estimate is the sum across
-    #     plates (post-#1593 parser fix), so the ratio is roughly N×100%
-    #     for an N-plate file. Pre-fix this shape was also broken, just
-    #     less dramatically — the estimate was plate-1-only so the ratio
-    #     was meaningless rather than N×.
-    #   - manual interventions / purge waste blowing the actual far past
-    #     the estimate.
-    # Clamp to the [50%, 200%] band so the printer-level average reflects
-    # real slicer-vs-reality drift, not multi-plate accounting or one-off
-    # outliers. Single-plate archives — the case the metric is actually
-    # designed for — stay fully included.
+    # Each run against the estimate of the plate it printed (#3375): the
+    # archive's adds every plate up (#1593). Where the file's plates are not
+    # known, the file's estimate, which for a multi-plate file printed plate
+    # by plate is about N x 100 %. Clamped to [50 %, 200 %] so the average
+    # reflects slicer-vs-reality drift, not those or one-off outliers
+    # (manual interventions, purge waste).
     _ACCURACY_BAND_LO = 50.0
     _ACCURACY_BAND_HI = 200.0
     average_accuracy = None
     accuracy_by_printer: dict[str, float] = {}
     accuracies: list[float] = []
     printer_accuracies: dict[str, list[float]] = {}
-    for duration_seconds, started_at, completed_at, run_printer_id, estimate_seconds in accuracy_rows.all():
+    for row in accuracy_rows.all():
+        duration_seconds, started_at, completed_at, run_printer_id = row[:4]
+        estimate = run_estimate(row, row.plate_id)
+        estimate_seconds = estimate.seconds if estimate is not None else None
         actual_seconds = duration_seconds
         if not actual_seconds and started_at and completed_at:
             elapsed = (completed_at - started_at).total_seconds()
@@ -1639,6 +1695,7 @@ async def delete_tag(
 @router.get("/{archive_id}", response_model=ArchiveResponse)
 async def get_archive(
     archive_id: int,
+    run_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     auth_result: tuple[User | None, bool] = Depends(
         require_ownership_permission(
@@ -1667,7 +1724,30 @@ async def get_archive(
         makerworld_model_id=makerworld_id,
     )
     run_aggregates = await _load_run_aggregates(db, [archive.id])
-    return archive_to_response(archive, duplicates, run_aggregate=run_aggregates.get(archive.id))
+    data = archive_to_response(archive, duplicates, run_aggregate=run_aggregates.get(archive.id))
+    if run_id is not None:
+        from backend.app.models.print_log import PrintLogEntry
+
+        run = await db.scalar(
+            select(PrintLogEntry).where(PrintLogEntry.id == run_id, PrintLogEntry.archive_id == archive.id)
+        )
+        if run is not None:
+            data.update(
+                {
+                    "run_id": run.id,
+                    "printer_id": run.printer_id if run.printer_id is not None else data["printer_id"],
+                    "status": run.status,
+                    "started_at": run.started_at,
+                    "completed_at": run.completed_at,
+                    "plate_id": run.plate_id if run.plate_id is not None else data["plate_id"],
+                    "failure_reason": run.failure_reason,
+                    "user_verdict": run.user_verdict,
+                    "actual_time_seconds": None,
+                    "time_estimate_seconds": None,
+                    "time_accuracy": None,
+                }
+            )
+    return data
 
 
 @router.get("/{archive_id}/delete-impact")
@@ -1724,7 +1804,7 @@ async def list_archive_runs(
     from backend.app.schemas.print_log import PrintLogEntrySchema
 
     user, can_read_all = auth_result
-    _ensure_archive_visible(await db.get(PrintArchive, archive_id), user, can_read_all)
+    archive = _ensure_archive_visible(await db.get(PrintArchive, archive_id), user, can_read_all)
 
     rows = await db.execute(
         select(PrintLogEntry)
@@ -1733,6 +1813,12 @@ async def list_archive_runs(
     )
     entries = list(rows.scalars().all())
     items = [PrintLogEntrySchema.model_validate(e, from_attributes=True) for e in entries]
+    for item in items:
+        # What the slicer gave the plate it printed (#3375); the file's
+        # figures only for its one print when its plates are not known.
+        estimate = run_estimate(archive, item.plate_id)
+        if estimate is not None and (estimate.per_plate or len(items) == 1):
+            item.estimate_seconds, item.estimate_grams = estimate.seconds, estimate.grams
     return PrintLogResponse(items=items, total=len(items))
 
 
@@ -1827,11 +1913,23 @@ async def update_archive(
     # Read before the writes below: the mirror needs to know whether the run's
     # figure was inherited from this archive or measured on its own (#1820).
     previous_filament_grams = archive.filament_used_grams
+    previous_cost = archive.cost
+    previous_status = archive.status
 
     # #1898: how the verdict arrived is recorded with it, never on its own.
     verdict_source = update_payload.pop("user_verdict_source", None)
     for field, value in update_payload.items():
         setattr(archive, field, value)
+
+    # New grams are a new price, unless the caller set the cost as well.
+    repriced = False
+    if (
+        update_payload.get("filament_used_grams")
+        and "cost" not in update_payload
+        and update_payload["filament_used_grams"] != previous_filament_grams
+    ):
+        archive.cost = await _one_print_cost(db, archive, previous_grams=previous_filament_grams)
+        repriced = True
 
     # #1898: a landed verdict retires the one-tap capability token from the
     # push notification — the links stop changing anything once someone
@@ -1860,9 +1958,11 @@ async def update_archive(
     # ENTRY's grams, not the archive's, so correcting only the archive would fix
     # the card and leave every aggregate reading the old figure -- or, for a
     # print that archived without its 3MF, no figure at all.
+    # While the archive is being reprinted its newest entry is the previous
+    # run's, whose outcome this edit is not about.
     mirror_fields = {"failure_reason", "status", "filament_used_grams", "user_verdict"}
     to_mirror = {k: v for k, v in update_payload.items() if k in mirror_fields}
-    if to_mirror:
+    if to_mirror and previous_status != "printing":
         from backend.app.models.print_log import PrintLogEntry
 
         latest_entry = await db.scalar(
@@ -1883,9 +1983,19 @@ async def update_archive(
                 latest_entry.filament_used_grams is None or latest_entry.filament_used_grams == previous_filament_grams
             ):
                 del to_mirror["filament_used_grams"]
+            # The run's cost was inherited with its grams, so it follows them.
+            if "filament_used_grams" in to_mirror and repriced:
+                to_mirror["cost"] = archive.cost
 
             for field, value in to_mirror.items():
                 setattr(latest_entry, field, value)
+
+    # A cost set by hand reaches the run that had the archive's (statistics,
+    # project totals and batch sums read the run's cost).
+    if "cost" in update_payload and previous_status != "printing":
+        from backend.app.services.print_log import mirror_archive_cost
+
+        await mirror_archive_cost(db, archive, previous_cost)
 
     await db.commit()
 
@@ -1945,6 +2055,62 @@ async def _spoolman_owns_cost(db: AsyncSession) -> bool:
     return bool(setting) and setting.lower() == "true"
 
 
+def _priced_usage_totals():
+    """Priced spool usage per archive. A row recorded without a price is left
+    out of both sums, so its grams are priced at the default rate instead of
+    counting as free filament."""
+    priced = SpoolUsageHistory.cost.is_not(None)
+    return (
+        func.sum(SpoolUsageHistory.cost),
+        func.sum(case((priced, SpoolUsageHistory.weight_used), else_=0.0)),
+    )
+
+
+async def _one_print_cost(db: AsyncSession, archive: PrintArchive, previous_grams: float | None = None) -> float | None:
+    """The archive's cost for one print of its grams (see ``price_one_print``).
+
+    A Spoolman-priced cost has no usage rows to rebuild it from (#2591); it is
+    kept, scaled to new grams when they were edited.
+    """
+    from backend.app.models.print_log import PrintLogEntry
+
+    grams = archive.filament_used_grams
+    default_cost = await _default_cost_per_kg(db)
+    usage_cost, tracked_grams = (
+        await db.execute(select(*_priced_usage_totals()).where(SpoolUsageHistory.archive_id == archive.id))
+    ).one()
+    if usage_cost is not None and usage_cost > 0:
+        printed_grams, runs = (
+            await db.execute(
+                select(func.sum(PrintLogEntry.filament_used_grams), func.count(PrintLogEntry.id)).where(
+                    PrintLogEntry.archive_id == archive.id
+                )
+            )
+        ).one()
+        return price_one_print(
+            grams,
+            float(usage_cost),
+            float(tracked_grams or 0),
+            float(printed_grams or 0),
+            int(runs or 0),
+            default_cost,
+            default_cost,
+        )
+    if not grams:
+        return archive.cost
+    if archive.cost is not None and await _spoolman_owns_cost(db):
+        if previous_grams:
+            return round(archive.cost * grams / previous_grams, 2)
+        return archive.cost
+    fallback = default_cost
+    if archive.filament_type:
+        primary_type = archive.filament_type.split(",")[0].strip()
+        catalog = await db.scalar(select(Filament.cost_per_kg).where(Filament.type == primary_type).limit(1))
+        if catalog is not None:
+            fallback = catalog
+    return price_one_print(grams, None, 0.0, 0.0, 0, fallback, default_cost)
+
+
 @router.post("/{archive_id}/rescan", response_model=ArchiveResponse)
 async def rescan_archive(
     archive_id: int,
@@ -1952,7 +2118,6 @@ async def rescan_archive(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
 ):
     """Rescan the 3MF file and update metadata."""
-    from backend.app.api.routes.settings import get_setting
     from backend.app.services.archive import ThreeMFParser
 
     result = await db.execute(select(PrintArchive).where(PrintArchive.id == archive_id))
@@ -1998,43 +2163,7 @@ async def rescan_archive(
     # so the displayed cost still reflects the whole print.
 
     if archive.filament_used_grams and archive.filament_type:
-        default_cost_setting = await get_setting(db, "default_filament_cost")
-        default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
-        usage_result = await db.execute(
-            select(
-                func.sum(SpoolUsageHistory.cost),
-                func.sum(SpoolUsageHistory.weight_used),
-            ).where(SpoolUsageHistory.archive_id == archive.id)
-        )
-        usage_cost_row = usage_result.one()
-        usage_cost = usage_cost_row[0]
-        tracked_grams = float(usage_cost_row[1] or 0)
-        if usage_cost is not None and usage_cost > 0:
-            total_cost = float(usage_cost)
-            untracked_grams = max(0.0, archive.filament_used_grams - tracked_grams)
-            if untracked_grams > 0 and default_cost_per_kg > 0:
-                total_cost += (untracked_grams / 1000.0) * default_cost_per_kg
-            archive.cost = float(Decimal(str(total_cost)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-        elif await _spoolman_owns_cost(db) and archive.cost is not None:
-            # Keep what completion priced from the linked spools. A rescan
-            # re-reads the 3MF's metadata; it learns nothing about spools.
-            pass
-        else:
-            primary_type = archive.filament_type.split(",")[0].strip()
-            filament_result = await db.execute(select(Filament).where(Filament.type == primary_type).limit(1))
-            filament = filament_result.scalar_one_or_none()
-            if filament:
-                archive.cost = float(
-                    Decimal(str((archive.filament_used_grams / 1000) * filament.cost_per_kg)).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                )
-            else:
-                archive.cost = float(
-                    Decimal(str((archive.filament_used_grams / 1000) * default_cost_per_kg)).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                )
+        archive.cost = await _one_print_cost(db, archive)
 
     await db.commit()
     await db.refresh(archive)
@@ -2047,9 +2176,10 @@ async def recalculate_all_costs(
     _: User | None = RequirePermissionIfAuthEnabled(Permission.ARCHIVES_UPDATE_ALL),
 ):
     """Recalculate costs for all archives based on filament usage and prices."""
+    from backend.app.services.print_log import mirror_archive_cost
+    from backend.app.services.usage_repricing import reprice_usage
 
-    from backend.app.api.routes.settings import get_setting
-
+    scoped_ids = None
     result = await db.execute(select(PrintArchive))
     archives = list(result.scalars().all())
 
@@ -2057,19 +2187,22 @@ async def recalculate_all_costs(
     filament_result = await db.execute(select(Filament))
     filaments = {f.type: f.cost_per_kg for f in filament_result.scalars().all()}
 
-    # Get default filament cost from settings
-    default_cost_setting = await get_setting(db, "default_filament_cost")
-    default_cost_per_kg = float(default_cost_setting) if default_cost_setting else 25.0
+    default_cost_per_kg = await _default_cost_per_kg(db)
+    spoolman_owns = await _spoolman_owns_cost(db)
+
+    # The usage first, at the spools' current prices: the sums below read it,
+    # and a price corrected since the print changed nothing otherwise (#3414).
+    # A caller limited to some printers leaves the usage of no archive alone.
+    repriced = await reprice_usage(
+        db, scoped_ids, default_cost_per_kg=default_cost_per_kg, spoolman_enabled=spoolman_owns
+    )
+    await db.flush()
 
     # Pre-fetch all usage costs and tracked weight by archive_id.
     # Tracked weight is used to top-up the cost at the default rate for any
     # filament grams not covered by an inventory spool (#1344).
     usage_costs_result = await db.execute(
-        select(
-            SpoolUsageHistory.archive_id,
-            func.sum(SpoolUsageHistory.cost),
-            func.sum(SpoolUsageHistory.weight_used),
-        ).group_by(SpoolUsageHistory.archive_id)
+        select(SpoolUsageHistory.archive_id, *_priced_usage_totals()).group_by(SpoolUsageHistory.archive_id)
     )
     usage_costs = usage_costs_result.fetchall()
     cost_map = {
@@ -2078,7 +2211,20 @@ async def recalculate_all_costs(
         if row[0] is not None and row[1] is not None and row[1] > 0
     }
 
-    spoolman_owns = await _spoolman_owns_cost(db)
+    from backend.app.models.print_log import PrintLogEntry
+
+    run_totals = {
+        row[0]: (float(row[1] or 0), int(row[2] or 0))
+        for row in (
+            await db.execute(
+                select(
+                    PrintLogEntry.archive_id,
+                    func.sum(PrintLogEntry.filament_used_grams),
+                    func.count(PrintLogEntry.id),
+                ).group_by(PrintLogEntry.archive_id)
+            )
+        ).all()
+    }
 
     updated = 0
     preserved = 0
@@ -2086,24 +2232,22 @@ async def recalculate_all_costs(
         usage = cost_map.get(archive.id)
         if usage is not None:
             usage_cost, tracked_grams = usage
-            total_cost = float(usage_cost)
-            archive_grams = float(archive.filament_used_grams or 0)
-            untracked_grams = max(0.0, archive_grams - tracked_grams)
-            if untracked_grams > 0 and default_cost_per_kg > 0:
-                total_cost += (untracked_grams / 1000.0) * default_cost_per_kg
-            new_cost = round(total_cost, 2)
-        else:
-            # Fallback: sum costs for old records by print_name
-            usage_result = await db.execute(
-                select(func.sum(SpoolUsageHistory.cost)).where(
-                    SpoolUsageHistory.print_name == archive.print_name,
-                    SpoolUsageHistory.archive_id.is_(None),
-                )
+            printed_grams, runs = run_totals.get(archive.id, (0.0, 0))
+            new_cost = price_one_print(
+                archive.filament_used_grams,
+                usage_cost,
+                tracked_grams,
+                printed_grams,
+                runs,
+                default_cost_per_kg,
+                default_cost_per_kg,
             )
-            fallback_cost = usage_result.scalar()
-            if fallback_cost is not None and fallback_cost > 0:
-                new_cost = round(fallback_cost, 2)
-            elif spoolman_owns and archive.cost is not None:
+        else:
+            # No usage linked to this archive. Usage without an archive link
+            # (recorded before usage was linked, with archiving off, or of a
+            # deleted archive) is not matched by print name: that charged one
+            # print's spool cost to every archive of the same name.
+            if spoolman_owns and archive.cost is not None:
                 # Priced from the linked Spoolman spools at completion; there is
                 # nothing better to recompute it from here (#2591).
                 new_cost = None
@@ -2111,18 +2255,32 @@ async def recalculate_all_costs(
             elif archive.filament_used_grams and archive.filament_type:
                 primary_type = archive.filament_type.split(",")[0].strip()
                 cost_per_kg = filaments.get(primary_type, default_cost_per_kg)
-                new_cost = round((archive.filament_used_grams / 1000) * cost_per_kg, 2)
+                new_cost = price_one_print(
+                    archive.filament_used_grams, None, 0.0, 0.0, 0, cost_per_kg, default_cost_per_kg
+                )
             else:
                 new_cost = None
         if new_cost is not None and archive.cost != new_cost:
+            previous_cost = archive.cost
             archive.cost = new_cost
+            # Its run had the old figure: statistics read the run's cost. A
+            # run its own usage priced keeps that, repriced above.
+            await mirror_archive_cost(db, archive, previous_cost, skip_runs=repriced.priced_runs)
             updated += 1
 
     await db.commit()
     message = f"Recalculated costs for {updated} archives"
     if preserved:
         message += f"; kept {preserved} priced from Spoolman"
-    return {"message": message, "updated": updated, "preserved": preserved}
+    if repriced.spoolman_unreachable:
+        message += f"; Spoolman not reachable, {repriced.spoolman_unreachable} usage records kept their price"
+    return {
+        "message": message,
+        "updated": updated,
+        "preserved": preserved,
+        "usage_repriced": repriced.repriced,
+        "spoolman_unreachable": repriced.spoolman_unreachable,
+    }
 
 
 @router.post("/rescan-all")

@@ -136,6 +136,20 @@ describe('ArchivesPage', () => {
       });
     });
 
+    it("compares the latest print with its plate's estimate", async () => {
+      server.use(
+        http.get('/api/v1/archives/', () =>
+          HttpResponse.json([
+            { ...mockArchives[1], run_count: 2, actual_time_seconds: 2000, time_estimate_seconds: 1800, time_accuracy: 90 },
+          ])
+        )
+      );
+      render(<ArchivesPage />);
+
+      const time = (await screen.findByText('-10%')).parentElement!;
+      expect(time.getAttribute('title')).toContain('Estimated: 30m');
+    });
+
     it('shows printer name', async () => {
       render(<ArchivesPage />);
 
@@ -325,6 +339,21 @@ describe('ArchivesPage', () => {
       await waitFor(() => {
         expect(screen.getByText('Bracket v2 \u2014 Plate 3')).toBeInTheDocument();
       });
+    });
+
+    it('shows the picture of the plate the title names', async () => {
+      // A file printed again shows its latest run's plate; the stored
+      // thumbnail is the first plate's.
+      server.use(
+        http.get('/api/v1/archives/', () =>
+          HttpResponse.json([{ ...mockArchives[1], plate_id: 3 }])
+        )
+      );
+
+      render(<ArchivesPage />);
+
+      const img = await screen.findByAltText('Bracket v2');
+      expect(img.getAttribute('src')).toContain(`/archives/${mockArchives[1].id}/plate-thumbnail/3`);
     });
 
     it('leaves the title alone for a print on plate 1', async () => {
@@ -563,6 +592,24 @@ describe('ArchivesPage', () => {
       // project's name is also drawn on an archive card behind the menu.
       await screen.findByText('Shipped Last Month');
       expect(screen.queryByText('Season 2025')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('outcome badges', () => {
+    it('labels an aborted print as aborted and a cancelled one as cancelled', async () => {
+      server.use(
+        http.get('/api/v1/archives/', () =>
+          HttpResponse.json([
+            { ...mockArchives[0], id: 201, print_name: 'StoppedOnPrinter', status: 'aborted' },
+            { ...mockArchives[0], id: 202, print_name: 'StoppedInBambuddy', status: 'cancelled' },
+          ]),
+        ),
+      );
+      render(<ArchivesPage />);
+
+      await screen.findByText('StoppedOnPrinter');
+      expect(screen.getByText('aborted')).toBeInTheDocument();
+      expect(screen.getByText('cancelled')).toBeInTheDocument();
     });
   });
 

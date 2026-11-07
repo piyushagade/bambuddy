@@ -16,7 +16,8 @@ class ArchiveBase(BaseModel):
     is_favorite: bool | None = None
     tags: str | None = None
     notes: str | None = None
-    cost: float | None = None
+    # Added to every total: a negative (or infinite) cost would wreck them
+    cost: Annotated[float | None, Field(ge=0, le=1_000_000)] = None
     failure_reason: str | None = None
     # Number of items printed. 0 is a legal answer -- a plate that jammed and
     # came off ruined produced nothing, and the project's completed-items count
@@ -30,8 +31,9 @@ class ArchiveBase(BaseModel):
 class ArchiveUpdate(ArchiveBase):
     printer_id: int | None = None
     project_id: int | None = None
-    # Allow changing status (e.g., clearing failed flag)
-    status: str | None = None
+    # A finished outcome only. 'printing' would be closed again at the next
+    # reconnect as a missed completion, with notifications and a run of its own.
+    status: str | None = Field(default=None, pattern="^(completed|failed|aborted|cancelled)$")
     # Post-print quality verdict (#1898): 'good' / 'reject'; null clears it.
     user_verdict: str | None = Field(default=None, pattern="^(good|reject)$")
     # Which surface the verdict came from, for the "recorded when the plate was
@@ -86,6 +88,10 @@ class ArchiveResponse(BaseModel):
     actual_time_seconds: int | None = None  # Computed from started_at/completed_at
     # Percentage: 100 = perfect, >100 = faster than estimated
     time_accuracy: float | None = None
+    # The slicer's time for the plate the latest print printed (#3375), what
+    # time_accuracy compares with; print_time_seconds adds every plate up.
+    time_estimate_seconds: int | None = None
+    run_id: int | None = None
     filament_used_grams: float | None
     filament_type: str | None
     filament_color: str | None
