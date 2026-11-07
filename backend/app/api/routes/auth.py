@@ -159,6 +159,8 @@ async def _api_key_to_user_response(db: AsyncSession, api_key) -> UserResponse:
         groups=[],
         permissions=apikey_effective_permissions(api_key, owner),
         created_at=api_key.created_at.isoformat(),
+        project_waiver=bool(getattr(owner, "project_waiver", False)) if owner else False,
+        requires_project=bool(getattr(owner, "requires_project_for_print", False)) if owner else False,
     )
 
 

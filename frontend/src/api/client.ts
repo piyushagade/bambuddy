@@ -9047,6 +9047,8 @@ export interface LibraryTagSummary {
 export interface LibraryFileListItem {
   id: number;
   folder_id: number | null;
+  project_id?: number | null;
+  project_name?: string | null;
   is_external: boolean;
   filename: string;
   file_type: string;

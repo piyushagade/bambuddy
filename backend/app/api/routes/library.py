@@ -2976,6 +2976,28 @@ async def list_files(
         )
         variant_counts = dict(count_result.all())
 
+    # Resolve folder-inherited project_id and project names in bulk
+    folder_project_map: dict[int, int] = {}
+    file_folder_ids = {f.folder_id for f in files if f.folder_id is not None}
+    if file_folder_ids:
+        fp_result = await db.execute(
+            select(LibraryFolder.id, LibraryFolder.project_id).where(
+                LibraryFolder.id.in_(file_folder_ids),
+                LibraryFolder.project_id.is_not(None),
+            )
+        )
+        folder_project_map = {fid: pid for fid, pid in fp_result.all() if pid is not None}
+
+    all_project_ids = {
+        (f.project_id or (folder_project_map.get(f.folder_id) if f.folder_id is not None else None))
+        for f in files
+    }
+    all_project_ids.discard(None)
+    project_name_map: dict[int, str] = {}
+    if all_project_ids:
+        pn_result = await db.execute(select(Project.id, Project.name).where(Project.id.in_(all_project_ids)))
+        project_name_map = dict(pn_result.all())
+
     # Prevent browser caching of file list
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
@@ -2992,10 +3014,14 @@ async def list_files(
             filament_grams = f.file_metadata.get("filament_used_grams")
             sliced_for_model = f.file_metadata.get("sliced_for_model")
 
+        eff_project_id = f.project_id or (folder_project_map.get(f.folder_id) if f.folder_id is not None else None)
+
         file_list.append(
             FileListResponse(
                 id=f.id,
                 folder_id=f.folder_id,
+                project_id=eff_project_id,
+                project_name=project_name_map.get(eff_project_id) if eff_project_id else None,
                 is_external=f.is_external,
                 filename=f.filename,
                 file_type=f.file_type,
@@ -3028,6 +3054,7 @@ async def list_files(
 async def upload_file(
     file: UploadFile = File(...),
     folder_id: int | None = None,
+    project_id: int | None = Query(default=None),
     generate_stl_thumbnails: bool = Query(default=True),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(require_permission_if_auth_enabled(Permission.LIBRARY_UPLOAD)),
@@ -3062,6 +3089,20 @@ async def upload_file(
                 folder_acc = access_map.get(folder_id, _FolderAccess())
                 if not folder_acc.can_write:
                     raise HTTPException(status_code=403, detail="You do not have write permission for this folder")
+
+        effective_upload_project_id = project_id if project_id is not None else (
+            target_folder.project_id if target_folder is not None else None
+        )
+        if effective_upload_project_id is not None:
+            proj_result = await db.execute(select(Project).where(Project.id == effective_upload_project_id))
+            target_proj = proj_result.scalar_one_or_none()
+            if not target_proj:
+                raise HTTPException(status_code=404, detail="Project not found")
+            if current_user is not None and not current_user.is_admin:
+                from backend.app.api.routes.projects import user_can_read_project
+
+                if not await user_can_read_project(db, current_user, effective_upload_project_id):
+                    raise HTTPException(status_code=403, detail="You do not have access to the selected project")
 
         # Writable external folders write through to the mount so the file is
         # visible outside Bambuddy (#1112); everything else lands under the
@@ -3176,6 +3217,7 @@ async def upload_file(
         # external files store the absolute mount path — same shape as scan produces)
         library_file = LibraryFile(
             folder_id=folder_id,
+            project_id=effective_upload_project_id,
             is_external=is_external_upload,
             filename=filename,
             file_path=_stored_file_path(file_path, is_external_upload),
@@ -5955,16 +5997,22 @@ async def get_file(
     )
     file = _ensure_library_file_visible(result.scalar_one_or_none(), user, can_read_all, readable_folder_ids)
 
-    # Get folder name
+    # Get folder name and folder project_id fallback
     folder_name = None
+    folder_project_id = None
     if file.folder_id:
-        folder_result = await db.execute(select(LibraryFolder.name).where(LibraryFolder.id == file.folder_id))
-        folder_name = folder_result.scalar()
+        folder_result = await db.execute(
+            select(LibraryFolder.name, LibraryFolder.project_id).where(LibraryFolder.id == file.folder_id)
+        )
+        folder_row = folder_result.one_or_none()
+        if folder_row:
+            folder_name, folder_project_id = folder_row
 
-    # Get project name
+    # Get project name (prefer direct file.project_id, else folder's project_id)
+    effective_file_project_id = file.project_id or folder_project_id
     project_name = None
-    if file.project_id:
-        project_result = await db.execute(select(Project.name).where(Project.id == file.project_id))
+    if effective_file_project_id:
+        project_result = await db.execute(select(Project.name).where(Project.id == effective_file_project_id))
         project_name = project_result.scalar()
 
     # Get duplicates
@@ -6007,7 +6055,7 @@ async def get_file(
         id=file.id,
         folder_id=file.folder_id,
         folder_name=folder_name,
-        project_id=file.project_id,
+        project_id=effective_file_project_id,
         project_name=project_name,
         filename=file.filename,
         file_path=file.file_path,
@@ -6099,12 +6147,22 @@ async def update_file(
 
     if data.project_id is not None:
         if data.project_id == 0:
+            if user is not None and user.requires_project_for_print:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Your group policy requires files to belong to a project.",
+                )
             file.project_id = None
         else:
             # Verify project exists
             project_result = await db.execute(select(Project).where(Project.id == data.project_id))
             if not project_result.scalar_one_or_none():
                 raise HTTPException(status_code=404, detail="Project not found")
+            if user is not None and not user.is_admin:
+                from backend.app.api.routes.projects import user_can_read_project
+
+                if not await user_can_read_project(db, user, data.project_id):
+                    raise HTTPException(status_code=403, detail="You do not have access to the selected project")
             file.project_id = data.project_id
 
     if data.notes is not None:

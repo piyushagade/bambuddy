@@ -377,7 +377,12 @@ export function PrintModal({
     enabled: !!user && billingEnabled,
   });
 
-  const requiresProject = Boolean(user && !user.is_admin && user.requires_project);
+  const requiresProject = Boolean(
+    user &&
+      !user.is_admin &&
+      !user.project_waiver &&
+      (user.requires_project || (user.groups ?? []).some((g) => !g.is_expired && g.require_project)),
+  );
 
   const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
     queryKey: ['projects', 'active'],
@@ -489,13 +494,6 @@ export function PrintModal({
       setSelectedProjectId(sourceProjectId);
     }
   }, [mode, projectId, archiveDetails?.project_id, libraryFileDetails?.project_id]);
-
-  // Auto-select the sole active project when project association is required
-  useEffect(() => {
-    if (requiresProject && selectedProjectId == null && activeProjects.length === 1) {
-      setSelectedProjectId(activeProjects[0].id);
-    }
-  }, [requiresProject, selectedProjectId, activeProjects]);
 
   // The archive's own saved AMS-slot pick from the slicer (see the "Save AMS
   // mapping" virtual-printer setting) — undefined for library files or
@@ -1401,6 +1399,7 @@ export function PrintModal({
           archive_id: isLibraryFile ? undefined : archiveId,
           library_file_id: isLibraryFile ? libraryFileId : undefined,
           plates: plateTargets,
+          project_id: selectedProjectId ?? undefined,
         });
         autoBatchId = batch.id;
       } catch {
@@ -1631,6 +1630,17 @@ export function PrintModal({
         );
       }
       queryClient.invalidateQueries({ queryKey: ['queue'] });
+      if (selectedProjectId != null) {
+        queryClient.invalidateQueries({ queryKey: ['library-files'] });
+        queryClient.invalidateQueries({ queryKey: ['projects'] });
+        if (libraryFileId) {
+          queryClient.invalidateQueries({ queryKey: ['library-file', libraryFileId] });
+        }
+        if (archiveId) {
+          queryClient.invalidateQueries({ queryKey: ['archives'] });
+          queryClient.invalidateQueries({ queryKey: ['archive', archiveId] });
+        }
+      }
       onSuccess?.();
       onClose();
     } else if (results.success === 0) {
@@ -2208,16 +2218,24 @@ export function PrintModal({
                     {loadingProjects
                       ? 'Loading projects...'
                       : requiresProject
-                        ? 'Select a project (required)...'
+                        ? 'Select a project to attach & print (required)...'
                         : 'No project'}
                   </option>
                   {activeProjects.map((proj) => (
                     <option key={proj.id} value={proj.id}>
                       {proj.name}
-                      {proj.owner_username && proj.owner_id !== user?.id ? ` (${proj.owner_username})` : ''}
+                      {proj.created_by_username && proj.created_by_id !== user?.id ? ` (${proj.created_by_username})` : ''}
                     </option>
                   ))}
                 </select>
+              )}
+              {requiresProject && !loadingProjects && activeProjects.length > 0 && selectedProjectId == null && (
+                <p className="text-xs text-amber-300 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  <span>
+                    This model is not attached to a project. Your group requires all printed models to belong to a project — select one above to attach this model and print.
+                  </span>
+                </p>
               )}
             </div>
 

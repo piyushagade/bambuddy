@@ -799,6 +799,133 @@ function LinkFolderModal({ folder, onClose, onLink, isLoading, t }: LinkFolderMo
   );
 }
 
+interface LinkFileProjectModalProps {
+  file: LibraryFileListItem;
+  printAfterLink?: boolean;
+  requiresProject: boolean;
+  onClose: () => void;
+  onSave: (projectId: number) => void;
+  onUnlink: () => void;
+  isLoading: boolean;
+  t: TFunction;
+}
+
+function LinkFileProjectModal({
+  file,
+  printAfterLink,
+  requiresProject,
+  onClose,
+  onSave,
+  onUnlink,
+  isLoading,
+  t,
+}: LinkFileProjectModalProps) {
+  const [selectedId, setSelectedId] = useState<number | null>(file.project_id ?? null);
+
+  const { data: projects, isLoading: loadingProjects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    select: (rows) =>
+      assignableProjects([...rows].sort((a, b) => a.name.localeCompare(b.name)), file.project_id ?? null),
+  });
+
+  const isLinked = Boolean(file.project_id);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
+        <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Briefcase className="w-5 h-5 text-bambu-green" />
+            {printAfterLink
+              ? 'Attach File to Project Required'
+              : isLinked
+                ? 'Change File Project'
+                : 'Attach File to Project'}
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
+            <X className="w-5 h-5 text-bambu-gray" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {printAfterLink ? (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+              <span>
+                <strong>{file.print_name || file.filename}</strong> is not attached to a project. Your group requires all printed models to belong to a project — select a project below to attach this file and continue to print.
+              </span>
+            </div>
+          ) : (
+            <p className="text-sm text-bambu-gray">
+              Select a project to associate with <strong className="text-white">{file.print_name || file.filename}</strong>.
+            </p>
+          )}
+
+          <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
+            {loadingProjects ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+              </div>
+            ) : projects && projects.length > 0 ? (
+              projects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  onClick={() => setSelectedId(project.id)}
+                  className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
+                    selectedId === project.id
+                      ? 'bg-bambu-green/20 text-bambu-green'
+                      : 'hover:bg-bambu-dark-tertiary text-white'
+                  }`}
+                >
+                  <div
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: project.color || '#00ae42' }}
+                  />
+                  <span className="truncate flex-1">{project.name}</span>
+                  {project.created_by_username && (
+                    <span className="text-xs text-bambu-gray flex-shrink-0">
+                      {project.created_by_username}
+                    </span>
+                  )}
+                </button>
+              ))
+            ) : (
+              <p className="text-sm text-bambu-gray text-center py-4">
+                {t('fileManager.noProjectsFound')} Create a project on the Projects page or ask an instructor/teammate to share one with you.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-bambu-dark-tertiary flex justify-between">
+          {isLinked && !requiresProject && !printAfterLink && (
+            <Button variant="danger" onClick={onUnlink} disabled={isLoading}>
+              <Unlink className="w-4 h-4 mr-2" />
+              {t('fileManager.unlink')}
+            </Button>
+          )}
+          <div className={`flex gap-2 ${!(isLinked && !requiresProject && !printAfterLink) ? 'ml-auto' : ''}`}>
+            <Button variant="secondary" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => selectedId && onSave(selectedId)} disabled={!selectedId || isLoading}>
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : printAfterLink ? (
+                'Attach & Print'
+              ) : (
+                'Save Project'
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Folder Tree Item
 interface FolderTreeItemProps {
   folder: LibraryFolderTree;
@@ -1075,6 +1202,8 @@ interface FileCardProps {
   onPreview?: (file: LibraryFileListItem) => void;
   onRename?: (file: LibraryFileListItem) => void;
   onDetails?: (file: LibraryFileListItem) => void;
+  onLinkProject?: (file: LibraryFileListItem) => void;
+  requiresProject?: boolean;
   onGenerateThumbnail?: (file: LibraryFileListItem) => void;
   onTagClick?: (tagId: number) => void;
   thumbnailVersion?: number;
@@ -1085,7 +1214,7 @@ interface FileCardProps {
   t: TFunction;
 }
 
-function FileCard({ file, isSelected, isHighlighted, onSelect, onDelete, onDownload, onPrint, onSlice, onOpenInSlicer, onRunPipeline, useSlicerApi, desktopSlicer, canSlice, onPreview, onRename, onDetails, onGenerateThumbnail, onTagClick, thumbnailVersion, hasPermission, canModify, authEnabled, showModified, t }: FileCardProps) {
+function FileCard({ file, isSelected, isHighlighted, onSelect, onDelete, onDownload, onPrint, onSlice, onOpenInSlicer, onRunPipeline, useSlicerApi, desktopSlicer, canSlice, onPreview, onRename, onDetails, onLinkProject, requiresProject, onGenerateThumbnail, onTagClick, thumbnailVersion, hasPermission, canModify, authEnabled, showModified, t }: FileCardProps) {
   // Viewport coordinates rather than a flag, because the menu is rendered by
   // `ContextMenu` at `position: fixed` and anchored to the button (#2846). The
   // card it belongs to is only ~270px tall for a bare STL, which is shorter
@@ -1149,6 +1278,15 @@ function FileCard({ file, isSelected, isHighlighted, onSelect, onDelete, onDownl
       label: t('common.rename'),
       icon: <Pencil className="w-4 h-4" />,
       onClick: () => onRename(file),
+      disabled: !canRename,
+      title: !canRename ? t('fileManager.noPermissionRenameFile') : undefined,
+    });
+  }
+  if (onLinkProject) {
+    menuItems.push({
+      label: file.project_id ? 'Change Project' : 'Attach to Project',
+      icon: <Briefcase className="w-4 h-4 text-blue-400" />,
+      onClick: () => onLinkProject(file),
       disabled: !canRename,
       title: !canRename ? t('fileManager.noPermissionRenameFile') : undefined,
     });
@@ -1250,6 +1388,31 @@ function FileCard({ file, isSelected, isHighlighted, onSelect, onDelete, onDownl
             {file.sliced_for_model}
           </div>
         )}
+        {file.project_name ? (
+          <div className="mt-1" {...stopRowActivation}>
+            <button
+              type="button"
+              onClick={() => canRename && onLinkProject?.(file)}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors max-w-full"
+              title={`Project: ${file.project_name}${canRename ? ' (click to change)' : ''}`}
+            >
+              <Briefcase className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{file.project_name}</span>
+            </button>
+          </div>
+        ) : requiresProject && isPrintableLibraryFile(file) ? (
+          <div className="mt-1" {...stopRowActivation}>
+            <button
+              type="button"
+              onClick={() => onLinkProject?.(file)}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors max-w-full"
+              title="Attach this model to a project to print"
+            >
+              <Briefcase className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">Attach to project</span>
+            </button>
+          </div>
+        ) : null}
         {/* Counts the whole group, including members in other folders (#671 /
             #2570) — printing this file will offer all of them. */}
         {(file.variant_count ?? 0) > 1 && (
@@ -1381,6 +1544,7 @@ interface FileActionStripProps {
   canSlice: boolean;
   onPreview: (file: LibraryFileListItem) => void;
   onDetails: (file: LibraryFileListItem) => void;
+  onLinkProject?: (file: LibraryFileListItem) => void;
   onDownload: (id: number) => void;
   onRename: (file: LibraryFileListItem) => void;
   onGenerateThumbnail: (file: LibraryFileListItem) => void;
@@ -1394,7 +1558,7 @@ interface FileActionStripProps {
   t: TFunction;
 }
 
-function FileActionStrip({ file, onPrint, onSlice, onOpenInSlicer, onRunPipeline, useSlicerApi, desktopSlicer, canSlice, onPreview, onDetails, onDownload, onRename, onGenerateThumbnail, thumbnailPending, onDelete, hasPermission, canModify, tabIndex, t }: FileActionStripProps) {
+function FileActionStrip({ file, onPrint, onSlice, onOpenInSlicer, onRunPipeline, useSlicerApi, desktopSlicer, canSlice, onPreview, onDetails, onLinkProject, onDownload, onRename, onGenerateThumbnail, thumbnailPending, onDelete, hasPermission, canModify, tabIndex, t }: FileActionStripProps) {
   const canRename = canModify('library', 'update', file.created_by_id);
   const canDelete = canModify('library', 'delete', file.created_by_id);
   return (
@@ -1503,6 +1667,29 @@ function FileActionStrip({ file, onPrint, onSlice, onOpenInSlicer, onRunPipeline
       >
         <Info className="w-4 h-4" />
       </button>
+      {onLinkProject && (
+        <button
+          tabIndex={tabIndex}
+          onClick={() => canRename && onLinkProject(file)}
+          className={`p-1.5 rounded transition-colors ${
+            canRename
+              ? file.project_id
+                ? 'hover:bg-bambu-dark text-blue-400 hover:text-blue-300'
+                : 'hover:bg-bambu-dark text-bambu-gray hover:text-blue-400'
+              : 'text-bambu-gray/50 cursor-not-allowed'
+          }`}
+          title={
+            canRename
+              ? file.project_name
+                ? `Project: ${file.project_name} (click to change)`
+                : 'Attach to Project'
+              : t('fileManager.noPermissionRenameFile')
+          }
+          disabled={!canRename}
+        >
+          <Briefcase className="w-4 h-4" />
+        </button>
+      )}
       <button
         tabIndex={tabIndex}
         onClick={() => canRename && onRename(file)}
@@ -1601,6 +1788,12 @@ function ColumnFileRow({ file, isSelected, isHighlighted, isFocused, showModifie
           </span>
           <span>{formatFileSize(file.file_size)}</span>
           {file.print_count > 0 && <span>{file.print_count}x</span>}
+          {file.project_name && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-px rounded text-[11px] bg-blue-500/15 text-blue-300 truncate max-w-[140px]">
+              <Briefcase className="w-2.5 h-2.5 flex-shrink-0" />
+              <span className="truncate">{file.project_name}</span>
+            </span>
+          )}
           {showModified && (
             <span className="flex items-center gap-1 truncate" title={t('fileManager.lastModified')}>
               <CalendarClock className="w-3 h-3 flex-shrink-0" />
@@ -1627,9 +1820,16 @@ export function FileManagerPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { hasPermission, hasAnyPermission, canModify, authEnabled } = useAuth();
+  const { user, hasPermission, hasAnyPermission, canModify, authEnabled } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const requiresProject = Boolean(
+    user &&
+      !user.is_admin &&
+      !user.project_waiver &&
+      (user.requires_project || (user.groups ?? []).some((g) => !g.is_expired && g.require_project)),
+  );
 
   // Read folder ID from URL query parameter
   const folderIdFromUrl = searchParams.get('folder');
@@ -1655,6 +1855,7 @@ export function FileManagerPage() {
   const [showBulkTagsModal, setShowBulkTagsModal] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [linkFolder, setLinkFolder] = useState<LibraryFolderTree | null>(null);
+  const [linkFileState, setLinkFileState] = useState<{ file: LibraryFileListItem; printAfterLink?: boolean } | null>(null);
   const [permissionsFolder, setPermissionsFolder] = useState<LibraryFolderTree | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'file' | 'folder' | 'bulk'; id: number; count?: number } | null>(null);
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
@@ -2198,6 +2399,57 @@ export function FileManagerPage() {
     },
   });
 
+  const linkFileProjectMutation = useMutation({
+    mutationFn: async ({
+      file,
+      projectId,
+      printAfterLink,
+    }: {
+      file: LibraryFileListItem;
+      projectId: number;
+      printAfterLink?: boolean;
+    }) => {
+      try {
+        const updated = await api.updateLibraryFile(file.id, { project_id: projectId });
+        return {
+          file,
+          projectId: updated.project_id,
+          projectName: updated.project_name,
+          printAfterLink,
+        };
+      } catch (err) {
+        if (printAfterLink && projectId > 0) {
+          return {
+            file,
+            projectId,
+            projectName: null,
+            printAfterLink,
+          };
+        }
+        throw err;
+      }
+    },
+    onSuccess: ({ file, projectId, projectName, printAfterLink }) => {
+      queryClient.invalidateQueries({ queryKey: ['library-files'] });
+      queryClient.invalidateQueries({ queryKey: ['library-file', file.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setLinkFileState(null);
+      if (printAfterLink && projectId) {
+        setPrintFile({
+          ...file,
+          project_id: projectId,
+          project_name: projectName ?? file.project_name ?? null,
+        });
+      } else {
+        showToast(
+          !projectId ? 'File detached from project' : 'File attached to project',
+          'success',
+        );
+      }
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  });
+
   const renameFolderMutation = useMutation({
     mutationFn: ({ id, name }: { id: number; name: string }) =>
       api.updateLibraryFolder(id, { name }),
@@ -2376,27 +2628,6 @@ export function FileManagerPage() {
     localStorage.setItem('library-view-mode', mode);
   };
 
-  // Shared by the list row and the columns view (see FileActionStrip).
-  const fileActionProps = {
-    onPrint: setPrintFile,
-    onSlice: setSliceFile,
-    onOpenInSlicer: handleOpenInSlicer,
-    onRunPipeline: setRunPipelineFile,
-    useSlicerApi: settings?.use_slicer_api ?? false,
-    desktopSlicer: preferredSlicer,
-    canSlice: canSlice(),
-    onPreview: openPreview,
-    onDetails: setDetailsFile,
-    onDownload: handleDownload,
-    onRename: (f: LibraryFileListItem) => setRenameItem({ type: 'file', id: f.id, name: f.filename }),
-    onGenerateThumbnail: (f: LibraryFileListItem) => singleThumbnailMutation.mutate(f.id),
-    thumbnailPending: singleThumbnailMutation.isPending,
-    onDelete: (id: number) => setDeleteConfirm({ type: 'file', id }),
-    hasPermission,
-    canModify,
-    t,
-  };
-
   const isLoading = foldersLoading || filesLoading;
 
   // Find the selected folder in the tree to check external status
@@ -2412,6 +2643,44 @@ export function FileManagerPage() {
     };
     return findFolder(folders);
   }, [selectedFolderId, folders]);
+
+  const handleRequestPrint = useCallback(
+    (file: LibraryFileListItem) => {
+      const effectiveProjectId = file.project_id ?? selectedFolder?.project_id ?? null;
+      if (requiresProject && effectiveProjectId == null) {
+        setLinkFileState({ file, printAfterLink: true });
+        return;
+      }
+      setPrintFile(
+        effectiveProjectId != null && !file.project_id
+          ? { ...file, project_id: effectiveProjectId }
+          : file,
+      );
+    },
+    [requiresProject, selectedFolder?.project_id],
+  );
+
+  // Shared by the list row and the columns view (see FileActionStrip).
+  const fileActionProps = {
+    onPrint: handleRequestPrint,
+    onSlice: setSliceFile,
+    onOpenInSlicer: handleOpenInSlicer,
+    onRunPipeline: setRunPipelineFile,
+    useSlicerApi: settings?.use_slicer_api ?? false,
+    desktopSlicer: preferredSlicer,
+    canSlice: canSlice(),
+    onPreview: openPreview,
+    onDetails: setDetailsFile,
+    onLinkProject: (f: LibraryFileListItem) => setLinkFileState({ file: f }),
+    onDownload: handleDownload,
+    onRename: (f: LibraryFileListItem) => setRenameItem({ type: 'file', id: f.id, name: f.filename }),
+    onGenerateThumbnail: (f: LibraryFileListItem) => singleThumbnailMutation.mutate(f.id),
+    thumbnailPending: singleThumbnailMutation.isPending,
+    onDelete: (id: number) => setDeleteConfirm({ type: 'file', id }),
+    hasPermission,
+    canModify,
+    t,
+  };
 
   // The chain of folders from a top-level folder down to the selected one.
   // Selection is the single source of truth — clicking a folder anywhere just
@@ -3541,7 +3810,7 @@ export function FileManagerPage() {
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => setPrintFile(selectedSlicedFiles[0])}
+                        onClick={() => handleRequestPrint(selectedSlicedFiles[0])}
                         disabled={!hasPermission('queue:create')}
                         title={!hasPermission('queue:create') ? t('fileManager.noPermissionAddToQueue') : undefined}
                       >
@@ -3866,7 +4135,7 @@ export function FileManagerPage() {
                     onSelect={handleFileSelect}
                     onDelete={(id) => setDeleteConfirm({ type: 'file', id })}
                     onDownload={handleDownload}
-                    onPrint={setPrintFile}
+                    onPrint={handleRequestPrint}
                     onSlice={setSliceFile}
                     onOpenInSlicer={handleOpenInSlicer}
                     desktopSlicer={preferredSlicer}
@@ -3876,6 +4145,8 @@ export function FileManagerPage() {
                     onPreview={openPreview}
                     onRename={(f) => setRenameItem({ type: 'file', id: f.id, name: f.filename })}
                     onDetails={setDetailsFile}
+                    onLinkProject={(f) => setLinkFileState({ file: f })}
+                    requiresProject={requiresProject}
                     onGenerateThumbnail={(f) => singleThumbnailMutation.mutate(f.id)}
                     onTagClick={toggleTagFilter}
                     thumbnailVersion={thumbnailVersions[file.id]}
@@ -3989,6 +4260,18 @@ export function FileManagerPage() {
                               <Camera className="w-3.5 h-3.5" />
                               {file.photo_count}
                             </span>
+                          )}
+                          {file.project_name && (
+                            <button
+                              type="button"
+                              onClick={() => setLinkFileState({ file })}
+                              {...stopRowActivation}
+                              className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors max-w-[160px]"
+                              title={`Project: ${file.project_name} (click to change)`}
+                            >
+                              <Briefcase className="w-3 h-3 flex-shrink-0" />
+                              <span className="truncate">{file.project_name}</span>
+                            </button>
                           )}
                         </div>
                         {/* #2680: last-modified date under the name, toggled from
@@ -4137,6 +4420,31 @@ export function FileManagerPage() {
         />
       )}
 
+      {linkFileState && (
+        <LinkFileProjectModal
+          file={linkFileState.file}
+          printAfterLink={linkFileState.printAfterLink}
+          requiresProject={requiresProject}
+          onClose={() => setLinkFileState(null)}
+          onSave={(projectId) =>
+            linkFileProjectMutation.mutate({
+              file: linkFileState.file,
+              projectId,
+              printAfterLink: linkFileState.printAfterLink,
+            })
+          }
+          onUnlink={() =>
+            linkFileProjectMutation.mutate({
+              file: linkFileState.file,
+              projectId: 0,
+              printAfterLink: false,
+            })
+          }
+          isLoading={linkFileProjectMutation.isPending}
+          t={t}
+        />
+      )}
+
       {permissionsFolder && (
         <FolderPermissionsModal
           folder={permissionsFolder}
@@ -4177,6 +4485,7 @@ export function FileManagerPage() {
           mode="create"
           libraryFileId={printVariantFiles?.[0]?.id ?? printFile.id}
           variantFiles={printVariantFiles}
+          projectId={printFile.project_id ?? selectedFolder?.project_id ?? undefined}
           // Naming a cross-model job after one of its files reads as though the
           // others aren't part of it.
           archiveName={

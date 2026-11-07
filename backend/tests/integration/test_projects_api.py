@@ -2258,13 +2258,21 @@ class TestProjectAccessControl:
                 "queue:read",
                 "queue:create",
                 "queue:update_own",
+                "library:read_own",
+                "library:update_own",
                 "projects:read",
                 "projects:read_own",
             ],
             is_system=False,
             require_project=True,
         )
-        db_session.add(course_group)
+        secondary_group = Group(
+            name="Makerspace Club",
+            permissions=["queue:read"],
+            is_system=False,
+            require_project=False,
+        )
+        db_session.add_all([course_group, secondary_group])
         await db_session.flush()
 
         student = User(
@@ -2273,7 +2281,7 @@ class TestProjectAccessControl:
             role="user",
             is_active=True,
             project_waiver=False,
-            groups=[course_group],
+            groups=[course_group, secondary_group],
         )
         other_user = User(
             username="student2",
@@ -2314,6 +2322,11 @@ class TestProjectAccessControl:
 
         student_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': 'student1', 'role': 'user'})}"}
 
+        # 0. /auth/me reports requires_project=True even when the user also belongs to a non-requiring group
+        me_resp = await async_client.get("/api/v1/auth/me", headers=student_headers)
+        assert me_resp.status_code == 200
+        assert me_resp.json()["requires_project"] is True
+
         # 1. Queueing without project_id fails with 400
         no_proj_resp = await async_client.post(
             "/api/v1/queue/",
@@ -2335,7 +2348,7 @@ class TestProjectAccessControl:
         )
         assert unshared_resp.status_code == 403
 
-        # 3. Queueing with own accessible project succeeds
+        # 3. Queueing with own accessible project succeeds and attaches the LibraryFile to that project
         ok_resp = await async_client.post(
             "/api/v1/queue/",
             headers=student_headers,
@@ -2350,6 +2363,21 @@ class TestProjectAccessControl:
         assert queued_item["project_id"] == own_project_id
         assert queued_item["project_name"] == "Student1 Robot"
 
+        # Verify the LibraryFile itself is now attached to the project in GET /library/files
+        files_resp = await async_client.get("/api/v1/library/files", headers=student_headers)
+        assert files_resp.status_code == 200
+        file_entry = next(f for f in files_resp.json() if f["id"] == lib_file_id)
+        assert file_entry["project_id"] == own_project_id
+        assert file_entry["project_name"] == "Student1 Robot"
+
+        # Unlinking the file from its project while requires_project is active fails with 400
+        unlink_file_resp = await async_client.put(
+            f"/api/v1/library/files/{lib_file_id}",
+            headers=student_headers,
+            json={"project_id": 0},
+        )
+        assert unlink_file_resp.status_code == 400
+
         # 4. Attempting to clear project_id via PATCH while requirement is active fails with 400
         clear_resp = await async_client.patch(
             f"/api/v1/queue/{queued_item['id']}",
@@ -2358,15 +2386,24 @@ class TestProjectAccessControl:
         )
         assert clear_resp.status_code == 400
 
-        # 5. Granting a personal project_waiver allows queueing without a project
+        # 5. Granting a personal project_waiver allows queueing an unattached file without a project
+        unattached_file = LibraryFile(
+            filename="free_print.gcode.3mf",
+            file_path="library/free_print.gcode.3mf",
+            file_size=2048,
+            file_type="3mf",
+            created_by_id=student_id,
+        )
+        db_session.add(unattached_file)
         student_row = await db_session.get(User, student_id)
         student_row.project_waiver = True
         await db_session.commit()
+        await db_session.refresh(unattached_file)
 
         waived_resp = await async_client.post(
             "/api/v1/queue/",
             headers=student_headers,
-            json={"printer_id": printer_id, "library_file_id": lib_file_id},
+            json={"printer_id": printer_id, "library_file_id": unattached_file.id},
         )
         assert waived_resp.status_code == 200
         assert waived_resp.json()["project_id"] is None

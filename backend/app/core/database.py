@@ -2078,17 +2078,20 @@ async def run_migrations(conn):
     await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expires_at {timestamp_type}")
     await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expiry_warned_7d_at {timestamp_type}")
     await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN expiry_warned_1d_at {timestamp_type}")
+    bool_default_false = "0" if is_sqlite() else "FALSE"
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_print_duration_minutes INTEGER")
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_filament_grams_per_job REAL")
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN max_active_queue_items INTEGER")
-    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN requires_approval BOOLEAN DEFAULT 0")
-    await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN require_project BOOLEAN DEFAULT 0")
+    await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN requires_approval BOOLEAN DEFAULT {bool_default_false}")
+    await _safe_execute(conn, f"ALTER TABLE groups ADD COLUMN require_project BOOLEAN DEFAULT {bool_default_false}")
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN allowed_hours_start INTEGER")
     await _safe_execute(conn, "ALTER TABLE groups ADD COLUMN allowed_hours_end INTEGER")
     await _safe_execute(conn, f"ALTER TABLE user_groups ADD COLUMN expires_at {timestamp_type}")
     await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN certified_until {timestamp_type}")
-    await _safe_execute(conn, "ALTER TABLE users ADD COLUMN require_safety_certification BOOLEAN DEFAULT 0")
-    await _safe_execute(conn, "ALTER TABLE users ADD COLUMN project_waiver BOOLEAN DEFAULT 0")
+    await _safe_execute(
+        conn, f"ALTER TABLE users ADD COLUMN require_safety_certification BOOLEAN DEFAULT {bool_default_false}"
+    )
+    await _safe_execute(conn, f"ALTER TABLE users ADD COLUMN project_waiver BOOLEAN DEFAULT {bool_default_false}")
     await _safe_execute(conn, f"ALTER TABLE printers ADD COLUMN plate_finished_at {timestamp_type}")
     await _safe_execute(conn, f"ALTER TABLE printers ADD COLUMN pickup_sla_notified_at {timestamp_type}")
     await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN allowed_group_ids TEXT DEFAULT '[]'")
@@ -6481,7 +6484,7 @@ async def seed_default_groups():
         from backend.app.models.settings import Settings
 
         req_proj_flag = (
-            await session.execute(select(Settings).where(Settings.key == "_backfill_group_require_project_done"))
+            await session.execute(select(Settings).where(Settings.key == "_backfill_group_require_project_v2_done"))
         ).scalar_one_or_none()
         if req_proj_flag is None:
             result = await session.execute(select(Group))
@@ -6489,7 +6492,7 @@ async def seed_default_groups():
                 if not group.is_system and group.name not in DEFAULT_GROUPS and not group.require_project:
                     group.require_project = True
                     logger.info("Backfilled require_project=True on custom group '%s'", group.name)
-            session.add(Settings(key="_backfill_group_require_project_done", value="true"))
+            session.add(Settings(key="_backfill_group_require_project_v2_done", value="true"))
             await session.commit()
 
         # Migrate new permissions: grant printers:clear_plate to all groups with printers:control

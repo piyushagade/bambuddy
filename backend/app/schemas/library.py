@@ -283,6 +283,8 @@ class FileListResponse(BaseModel):
 
     id: int
     folder_id: int | None
+    project_id: int | None = None
+    project_name: str | None = None
     is_external: bool = False
     filename: str
     file_type: str

@@ -1073,19 +1073,42 @@ async def add_to_queue(
     # Resolve print_time_seconds for SJF scheduling (cache on item at creation)
     cached_print_time = _cached_print_time(archive, library_file, data.plate_id)
 
-    # Resolve effective project_id (explicit project_id wins, else inherit from source archive/library_file)
+    # Resolve effective project_id (explicit project_id wins, else inherit from source archive/library_file/folder)
     effective_project_id = data.project_id
     if effective_project_id is None:
         if archive and archive.project_id is not None:
             effective_project_id = archive.project_id
-        elif library_file and library_file.project_id is not None:
-            effective_project_id = library_file.project_id
+        elif library_file:
+            if library_file.project_id is not None:
+                effective_project_id = library_file.project_id
+            elif library_file.folder_id is not None:
+                from backend.app.models.library import LibraryFolder
+
+                folder_proj_res = await db.execute(
+                    select(LibraryFolder.project_id).where(LibraryFolder.id == library_file.folder_id)
+                )
+                effective_project_id = folder_proj_res.scalar_one_or_none()
+        elif variant_specs:
+            for _spec, variant_file, _model in variant_specs:
+                if variant_file.project_id is not None:
+                    effective_project_id = variant_file.project_id
+                    break
+                if variant_file.folder_id is not None:
+                    from backend.app.models.library import LibraryFolder
+
+                    folder_proj_res = await db.execute(
+                        select(LibraryFolder.project_id).where(LibraryFolder.id == variant_file.folder_id)
+                    )
+                    folder_proj_id = folder_proj_res.scalar_one_or_none()
+                    if folder_proj_id is not None:
+                        effective_project_id = folder_proj_id
+                        break
 
     # Enforce project requirement for users whose group/user policy requires it
     if current_user is not None and current_user.requires_project_for_print and effective_project_id is None:
         raise HTTPException(
             status_code=400,
-            detail="A project association is required to print. Please select an active project or request a waiver from an administrator.",
+            detail="A project association is required to print. Please attach this file to an active project or request a waiver from an administrator.",
         )
 
     # Validate project exists before insert so a bogus ID yields 404, not an FK-constraint 500
@@ -1107,6 +1130,15 @@ async def add_to_queue(
                     status_code=400,
                     detail="Cannot queue prints under an archived project.",
                 )
+        # Attach unattached source file/archive to the selected project when queued
+        if archive is not None and archive.project_id is None:
+            archive.project_id = effective_project_id
+        if library_file is not None and library_file.project_id is None:
+            library_file.project_id = effective_project_id
+        if variant_specs:
+            for _spec, variant_file, _model in variant_specs:
+                if variant_file.project_id is None:
+                    variant_file.project_id = effective_project_id
 
     # Security boundary: the browser's estimated_cost is only a display hint.
     # Budget enforcement and the persisted reservation value must be derived

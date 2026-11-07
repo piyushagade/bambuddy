@@ -197,15 +197,38 @@ def _user_to_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
         email=user.email,
         role=user.role,
         is_active=user.is_effectively_active,
         is_admin=user.is_admin,
-        groups=[GroupBrief(id=g.id, name=g.name) for g in user.groups],
+        auth_source=getattr(user, "auth_source", "local"),
+        groups=[
+            GroupBrief(
+                id=g.id,
+                name=g.name,
+                expires_at=g.expires_at.isoformat() if getattr(g, "expires_at", None) else None,
+                is_expired=bool(getattr(g, "is_expired", False)),
+                max_print_duration_minutes=getattr(g, "max_print_duration_minutes", None),
+                max_filament_grams_per_job=getattr(g, "max_filament_grams_per_job", None),
+                max_active_queue_items=getattr(g, "max_active_queue_items", None),
+                requires_approval=bool(getattr(g, "requires_approval", False)),
+                require_project=bool(getattr(g, "require_project", False)),
+                allowed_hours_start=getattr(g, "allowed_hours_start", None),
+                allowed_hours_end=getattr(g, "allowed_hours_end", None),
+            )
+            for g in user.groups
+        ],
         permissions=sorted(user.get_permissions()),
         created_at=user.created_at.isoformat(),
         expires_at=user.expires_at.isoformat() if user.expires_at else None,
         is_expired=user.is_expired,
+        certified_until=user.certified_until.isoformat() if getattr(user, "certified_until", None) else None,
+        require_safety_certification=bool(getattr(user, "require_safety_certification", False)),
+        is_certification_expired=bool(getattr(user, "is_certification_expired", False)),
+        project_waiver=bool(getattr(user, "project_waiver", False)),
+        requires_project=bool(getattr(user, "requires_project_for_print", False)),
     )
 
 
