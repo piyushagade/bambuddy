@@ -56,6 +56,7 @@ from backend.app.api.routes import (
     notification_templates,
     notifications,
     obico,
+    octoeverywhere,
     orca_cloud,
     pending_uploads,
     pipeline_runs,
@@ -119,6 +120,7 @@ from backend.app.services.mqtt_relay import mqtt_relay
 from backend.app.services.mqtt_smart_plug import mqtt_smart_plug_service
 from backend.app.services.notification_service import notification_service
 from backend.app.services.obico_detection import obico_detection_service
+from backend.app.services.octoeverywhere_detection import octoeverywhere_detection_service
 from backend.app.services.print_cost_estimate import plate_scoped_run_estimate as _plate_scoped_run_estimate
 from backend.app.services.print_scheduler import scheduler as print_scheduler
 from backend.app.services.print_storage import (
@@ -4100,6 +4102,7 @@ async def on_print_start(printer_id: int, data: dict):
 
     logger.info("[CALLBACK] on_print_start called for printer %s, data keys: %s", printer_id, list(data.keys()))
 
+    octoeverywhere_detection_service.reset_printer(printer_id)
     # Clear any stale user-stopped flag from previous print cycles
     _user_stopped_printers.discard(printer_id)
     # A new print starts its milestones from zero (#3211). The status path only
@@ -7291,6 +7294,8 @@ async def on_print_complete(printer_id: int, data: dict):
 
     logger.info("[CALLBACK] on_print_complete started for printer %s", printer_id)
 
+    octoeverywhere_detection_service.reset_printer(printer_id)
+
     # A kill-switch stop sends its provider notification immediately. Keep the
     # task so the later notification path can await it and avoid a duplicate;
     # if that immediate attempt failed, the regular completion path retries.
@@ -10248,6 +10253,7 @@ async def lifespan(app: FastAPI):
     # Start the local backup scheduler
     await local_backup_service.start_scheduler()
     await obico_detection_service.start()
+    await octoeverywhere_detection_service.start()
 
     # Start the library trash sweeper (#1008)
     await library_trash_service.start_scheduler()
@@ -10336,6 +10342,7 @@ async def lifespan(app: FastAPI):
     archive_purge_service.stop_scheduler()
     user_expiration_service.stop_scheduler()
     obico_detection_service.stop()
+    octoeverywhere_detection_service.stop()
     stop_ams_history_recording()
     stop_printer_sensor_history_recording()
     stop_runtime_tracking()
@@ -10949,6 +10956,7 @@ app.include_router(firmware.router, prefix=app_settings.api_prefix)
 app.include_router(github_backup.router, prefix=app_settings.api_prefix)
 app.include_router(local_backup.router, prefix=app_settings.api_prefix)
 app.include_router(obico.router, prefix=app_settings.api_prefix)
+app.include_router(octoeverywhere.router, prefix=app_settings.api_prefix)
 app.include_router(metrics.router, prefix=app_settings.api_prefix)
 app.include_router(virtual_printers.router, prefix=app_settings.api_prefix)
 app.include_router(spoolbuddy.router, prefix=app_settings.api_prefix)

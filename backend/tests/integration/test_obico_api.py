@@ -5,10 +5,17 @@ pre-captured JPEG frames. This endpoint lets the detection loop sidestep Obico's
 hardcoded 5s read timeout by pre-populating a cache before issuing the ML call.
 """
 
-import pytest
-from httpx import AsyncClient
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from backend.app.services.obico_detection import _frame_cache, obico_detection_service, stash_frame
+import pytest
+from httpx import AsyncClient, Request, Response
+
+from backend.app.services.obico_detection import (
+    ObicoDetectionService,
+    _frame_cache,
+    obico_detection_service,
+    stash_frame,
+)
 from backend.app.services.obico_smoothing import PrintState
 
 FAKE_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
@@ -70,6 +77,103 @@ class TestObicoCachedFrame:
         response = await async_client.get(f"/api/v1/obico/cached-frame/{nonce}")
         assert response.status_code == 200
         assert "no-store" in response.headers.get("cache-control", "")
+
+
+class TestBambuddyInternalUrl:
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        ("bambuddy_internal_url", "external_url", "expected_base"),
+        [
+            (None, "https://bambuddy.example.com", "https://bambuddy.example.com"),
+            ("", "https://bambuddy.example.com/", "https://bambuddy.example.com"),
+            ("http://bambuddy:8000/", "https://bambuddy.example.com", "http://bambuddy:8000"),
+            ("http://192.168.1.20:8000", "", "http://192.168.1.20:8000"),
+        ],
+    )
+    async def test_saved_url_controls_snapshot_callback(
+        self, async_client: AsyncClient, bambuddy_internal_url, external_url, expected_base
+    ):
+        updates = {"external_url": external_url, "obico_ml_url": "http://obico:3333"}
+        if bambuddy_internal_url is not None:
+            updates["bambuddy_internal_url"] = bambuddy_internal_url
+        response = await async_client.put("/api/v1/settings/", json=updates)
+        assert response.status_code == 200
+        saved = (await async_client.get("/api/v1/settings/")).json()
+        assert saved["external_url"] == external_url
+        assert saved["bambuddy_internal_url"] == (bambuddy_internal_url or "")
+        status = (await async_client.get("/api/v1/obico/status")).json()
+        assert status["external_url_configured"] is True
+
+        async def fetch_snapshot(url, *, params, headers):
+            assert url == "http://obico:3333/p/"
+            assert params["img"].startswith(f"{expected_base}/api/v1/obico/cached-frame/")
+            frame = await async_client.get(params["img"])
+            assert frame.status_code == 200
+            assert frame.content == FAKE_JPEG
+            return Response(200, json={"detections": []}, request=Request("GET", url))
+
+        svc = ObicoDetectionService()
+        settings = await svc._load_settings()
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(side_effect=fetch_snapshot)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        with (
+            patch("backend.app.services.obico_detection.httpx.AsyncClient", return_value=mock_client),
+            patch.object(svc, "_capture_frame", new=AsyncMock(return_value=FAKE_JPEG)),
+        ):
+            await svc._check_printer(1, MagicMock(state="RUNNING", task_name="job", subtask_name=""), settings)
+        mock_client.get.assert_awaited_once()
+        assert svc.get_per_printer()[1]["class"] == "safe"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_empty_value_clears_the_bambuddy_internal_url(self, async_client: AsyncClient):
+        response = await async_client.put(
+            "/api/v1/settings/",
+            json={"bambuddy_internal_url": "http://bambuddy:8000", "external_url": "https://bambuddy.example.com"},
+        )
+        assert response.status_code == 200
+        response = await async_client.put("/api/v1/settings/", json={"bambuddy_internal_url": ""})
+        assert response.status_code == 200
+        assert response.json()["bambuddy_internal_url"] == ""
+        assert response.json()["external_url"] == "https://bambuddy.example.com"
+        assert (await ObicoDetectionService()._load_settings())["snapshot_base_url"] == "https://bambuddy.example.com"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "value",
+        ["bambuddy:8000", "192.168.1.20:8000", "ftp://bambuddy", "http://", "http://bam buddy:8000", "http://h:99999"],
+    )
+    async def test_address_without_http_scheme_is_rejected(self, async_client: AsyncClient, value):
+        response = await async_client.put("/api/v1/settings/", json={"bambuddy_internal_url": value})
+        assert response.status_code == 422
+        saved = (await async_client.get("/api/v1/settings/")).json()
+        assert saved["bambuddy_internal_url"] == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_null_clears_instead_of_storing_none(self, async_client: AsyncClient):
+        await async_client.put(
+            "/api/v1/settings/",
+            json={"bambuddy_internal_url": "http://bambuddy:8000", "external_url": "https://bambuddy.example.com"},
+        )
+        response = await async_client.put("/api/v1/settings/", json={"bambuddy_internal_url": None})
+        assert response.status_code == 200
+        assert response.json()["bambuddy_internal_url"] == ""
+        assert (await ObicoDetectionService()._load_settings())["snapshot_base_url"] == "https://bambuddy.example.com"
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_surrounding_whitespace_is_stripped(self, async_client: AsyncClient):
+        response = await async_client.put(
+            "/api/v1/settings/", json={"bambuddy_internal_url": "  http://bambuddy:8000/ "}
+        )
+        assert response.status_code == 200
+        assert response.json()["bambuddy_internal_url"] == "http://bambuddy:8000/"
+        assert (await ObicoDetectionService()._load_settings())["snapshot_base_url"] == "http://bambuddy:8000"
 
 
 class TestObicoPrinterStatus:

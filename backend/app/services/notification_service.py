@@ -1567,6 +1567,7 @@ class NotificationService:
         db: AsyncSession,
         event_field: str,
         printer_id: int | None = None,
+        fleet_wide: bool = False,
     ) -> list[NotificationProvider]:
         """Get all enabled providers that want a specific event type.
 
@@ -2173,12 +2174,13 @@ class NotificationService:
         printer_id: int,
         printer_name: str,
         task_name: str,
-        confidence: float,
+        confidence: float | None,
         action: str,
         db: AsyncSession,
         image_data: bytes | None = None,
+        print_quality: int | None = None,
     ):
-        """Handle AI failure-detection event (Obico spaghetti / print-failure ML).
+        """Handle AI failure-detection events from the configured provider.
 
         Split out of on_printer_error (#1794) so a user can subscribe to AI
         alerts without also being paged for every HMS hardware code.
@@ -2190,8 +2192,10 @@ class NotificationService:
         variables = {
             "printer": printer_name,
             "task_name": task_name or "current job",
-            "confidence": f"{confidence:.2f}",
+            "confidence": f"{confidence:.2f}" if confidence is not None else "N/A",
             "action": action,
+            "provider": "OctoEverywhere" if print_quality is not None else "Obico",
+            "print_quality": f"{print_quality}/10" if print_quality is not None else "N/A",
         }
 
         title, message = await self._build_message_from_template(db, "ai_failure_detection", variables)

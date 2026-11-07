@@ -5420,6 +5420,27 @@ async def run_migrations(conn):
     await _safe_execute(conn, f"ALTER TABLE print_log_entries ADD COLUMN wear_cost {float_type}")
     await _safe_execute(conn, f"ALTER TABLE print_archives ADD COLUMN wear_cost {float_type}")
 
+    # Migration: use the same AI detection template for either provider (#3236).
+    # Seeding only inserts missing templates; preserve any customized wording.
+    await _migrate_ai_failure_detection_template(conn)
+
+
+async def _migrate_ai_failure_detection_template(conn) -> None:
+    """Replace the legacy confidence-only AI body while preserving custom text."""
+    from sqlalchemy import text
+
+    from backend.app.models.notification_template import DEFAULT_TEMPLATES
+
+    default = next(t for t in DEFAULT_TEMPLATES if t["event_type"] == "ai_failure_detection")
+    await conn.execute(
+        text("UPDATE notification_templates SET body_template = :new WHERE event_type = :et AND body_template = :old"),
+        {
+            "new": default["body_template"],
+            "et": "ai_failure_detection",
+            "old": "{printer}: {task_name}\nConfidence: {confidence}\nAction taken: {action}",
+        },
+    )
+
 async def _backfill_snapshot_prices(conn) -> None:
     """Give the energy snapshots taken before #1251 the price set at upgrade.
 

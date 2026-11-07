@@ -1,6 +1,7 @@
 from typing import Literal
 import json
 import re
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -633,6 +634,9 @@ class AppSettings(BaseModel):
         default="",
         description="Self-hosted Obico ML API base URL (e.g., http://192.168.1.10:3333)",
     )
+    bambuddy_internal_url: str = Field(
+        default="", description="Bambuddy Internal URL for Obico; empty uses External URL"
+    )
     obico_ml_token: str = Field(
         default="",
         description=(
@@ -657,6 +661,29 @@ class AppSettings(BaseModel):
     obico_enabled_printers: str = Field(
         default="",
         description="JSON array of printer IDs to monitor (empty = all connected printers)",
+    )
+
+    # OctoEverywhere AI failure detection
+    octoeverywhere_enabled: bool = Field(default=False, description="Enable OctoEverywhere AI print failure detection")
+    octoeverywhere_api_key: str = Field(default="", description="OctoEverywhere Gadget API key")
+    octoeverywhere_api_key_configured: bool = Field(
+        default=False, description="Whether an OctoEverywhere Gadget API key is saved"
+    )
+    octoeverywhere_poll_interval: int = Field(
+        default=20, ge=5, le=30, description="Seconds between inspections, subject to the server's minimum interval"
+    )
+    octoeverywhere_confidence: str = Field(
+        default="medium",
+        description=(
+            "Confidence OctoEverywhere needs before suggesting a warning or pause: lowest, low, medium, high, "
+            "or highest (API levels 1-5). Lower reports sooner with more false positives."
+        ),
+    )
+    octoeverywhere_action: str = Field(
+        default="notify", description="Action on failure: notify, pause, or pause_and_off"
+    )
+    octoeverywhere_enabled_printers: str = Field(
+        default="", description="JSON array of printer IDs to monitor (empty = all connected printers)"
     )
 
     # Inventory forecasting
@@ -839,11 +866,20 @@ class AppSettingsUpdate(BaseModel):
     ldap_default_group: str | None = None
     obico_enabled: bool | None = None
     obico_ml_url: str | None = None
+    bambuddy_internal_url: str | None = None
     obico_ml_token: str | None = None
     obico_sensitivity: str | None = None
     obico_action: str | None = None
     obico_poll_interval: int | None = Field(default=None, ge=5, le=120)
     obico_enabled_printers: str | None = None
+    octoeverywhere_enabled: bool | None = None
+    octoeverywhere_api_key: str | None = None
+    # None only while unset, like the fields around it. An explicit null is
+    # rejected: it would be stored as "None" and break reading settings back.
+    octoeverywhere_poll_interval: int | None = Field(default=None, ge=5, le=30)
+    octoeverywhere_confidence: str | None = None
+    octoeverywhere_action: str | None = None
+    octoeverywhere_enabled_printers: str | None = None
     default_sidebar_order: str | None = None
     document_title: str | None = Field(default=None, max_length=120)
     forecast_global_lead_time_days: int | None = Field(default=None, ge=0)
@@ -951,18 +987,56 @@ class AppSettingsUpdate(BaseModel):
             raise ValueError("ldap_group_mapping must be a JSON object mapping LDAP group DNs to BamBuddy group names")
         return v
 
-    @field_validator("obico_enabled_printers")
+    @field_validator("octoeverywhere_api_key")
     @classmethod
-    def validate_obico_enabled_printers(cls, v: str | None) -> str | None:
+    def validate_octoeverywhere_api_key(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if any(ord(char) < 33 or ord(char) > 126 for char in v):
+            raise ValueError("octoeverywhere_api_key must contain only printable ASCII characters without spaces")
+        return v
+
+    @field_validator("obico_enabled_printers", "octoeverywhere_enabled_printers")
+    @classmethod
+    def validate_obico_enabled_printers(cls, v: str | None, info: ValidationInfo) -> str | None:
         if v is None or v == "":
             return v
         try:
             parsed = json.loads(v)
         except json.JSONDecodeError:
-            raise ValueError("obico_enabled_printers must be valid JSON or empty")
-        if not isinstance(parsed, list) or not all(isinstance(item, int) for item in parsed):
-            raise ValueError("obico_enabled_printers must be a JSON array of printer IDs (integers)")
+            raise ValueError(f"{info.field_name} must be valid JSON or empty")
+        if not isinstance(parsed, list) or not all(type(item) is int and item > 0 for item in parsed):
+            raise ValueError(f"{info.field_name} must be a JSON array of printer IDs (positive integers)")
         return v
+
+    @field_validator("bambuddy_internal_url")
+    @classmethod
+    def validate_bambuddy_internal_url(cls, v: str | None) -> str:
+        """Require an absolute http(s) URL, or empty to fall back to External URL.
+
+        Obico's ML server fetches snapshots from this address, so a value
+        without a scheme ("bambuddy:8000") would only fail later, mid-print,
+        as a snapshot error. Rejecting it here surfaces the mistake on save.
+
+        An explicit null clears the field. The settings updater stores None
+        as the literal "None", which would read back as an address.
+        """
+        candidate = (v or "").strip()
+        if not candidate:
+            return ""
+        error = "bambuddy_internal_url must be a full http:// or https:// address"
+        if any(ch.isspace() for ch in candidate):
+            raise ValueError(error)
+        try:
+            parsed = urlparse(candidate)
+            hostname = parsed.hostname
+            _ = parsed.port  # raises on a port outside 0-65535
+        except ValueError:
+            raise ValueError(error) from None
+        if parsed.scheme not in ("http", "https") or not hostname:
+            raise ValueError(error)
+        return candidate
 
     @staticmethod
     def _validate_preset_triple(v: str | None, field_name: str, lo: int, hi: int) -> str | None:
@@ -1003,20 +1077,29 @@ class AppSettingsUpdate(BaseModel):
 
     @field_validator("obico_sensitivity")
     @classmethod
-    def validate_obico_sensitivity(cls, v: str | None) -> str | None:
+    def validate_obico_sensitivity(cls, v: str | None, info: ValidationInfo) -> str | None:
         if v is None:
             return v
         if v not in ("low", "medium", "high"):
-            raise ValueError("obico_sensitivity must be 'low', 'medium', or 'high'")
+            raise ValueError(f"{info.field_name} must be 'low', 'medium', or 'high'")
         return v
 
-    @field_validator("obico_action")
+    @field_validator("octoeverywhere_confidence")
     @classmethod
-    def validate_obico_action(cls, v: str | None) -> str | None:
+    def validate_octoeverywhere_confidence(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if v not in ("lowest", "low", "medium", "high", "highest"):
+            raise ValueError("octoeverywhere_confidence must be 'lowest', 'low', 'medium', 'high', or 'highest'")
+        return v
+
+    @field_validator("obico_action", "octoeverywhere_action")
+    @classmethod
+    def validate_obico_action(cls, v: str | None, info: ValidationInfo) -> str | None:
         if v is None:
             return v
         if v not in ("notify", "pause", "pause_and_off"):
-            raise ValueError("obico_action must be 'notify', 'pause', or 'pause_and_off'")
+            raise ValueError(f"{info.field_name} must be 'notify', 'pause', or 'pause_and_off'")
         return v
 
     @field_validator("default_sidebar_order")
