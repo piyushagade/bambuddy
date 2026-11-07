@@ -413,6 +413,19 @@ export function SettingsPage() {
     refetchOnReconnect: false,
   });
 
+  // Price sensors to suggest when the electricity price comes from Home
+  // Assistant (#1251): anything with a unit per kWh, MWh or Wh.
+  const { data: haPriceEntities } = useQuery({
+    queryKey: ['ha-price-entities'],
+    queryFn: async () =>
+      (await api.getBindableHAEntities()).filter(
+        (e) => e.domain === 'sensor' && /\/\s*[km]?wh$/i.test(e.unit_of_measurement ?? ''),
+      ),
+    enabled: activeTab === 'general' && settings?.energy_price_source === 'homeassistant' && !!settings?.ha_enabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+
   const handleStorageUsageRefresh = async () => {
     setStorageUsageRefreshing(true);
     try {
@@ -1137,6 +1150,10 @@ export function SettingsPage() {
       // the baseline never lags behind a save regardless.
       serverBaselineRef.current = data;
       queryClient.setQueryData(['settings'], data);
+      // Choosing a price sensor reads it on save; show that price (#1251).
+      if (data.energy_price_source === 'homeassistant') {
+        setLocalSettings(prev => (prev ? { ...prev, energy_cost_per_kwh: data.energy_cost_per_kwh } : prev));
+      }
       // Don't call setLocalSettings(data) here — it would overwrite in-progress
       // user input (e.g. typing a hostname) with the stale saved snapshot,
       // causing the text field to reset mid-typing. Instead, let the useEffect
@@ -1205,8 +1222,11 @@ export function SettingsPage() {
       (baseline.finish_photo_restore_plate ?? true) !== (localSettings.finish_photo_restore_plate ?? true) ||
       baseline.default_filament_cost !== localSettings.default_filament_cost ||
       baseline.currency !== localSettings.currency ||
-      baseline.energy_cost_per_kwh !== localSettings.energy_cost_per_kwh ||
+      (localSettings.energy_price_source !== 'homeassistant' &&
+        baseline.energy_cost_per_kwh !== localSettings.energy_cost_per_kwh) ||
       baseline.energy_tracking_mode !== localSettings.energy_tracking_mode ||
+      (baseline.energy_price_source ?? 'fixed') !== (localSettings.energy_price_source ?? 'fixed') ||
+      (baseline.energy_price_ha_entity ?? '') !== (localSettings.energy_price_ha_entity ?? '') ||
       baseline.check_updates !== localSettings.check_updates ||
       (baseline.check_printer_firmware ?? true) !== (localSettings.check_printer_firmware ?? true) ||
       (baseline.include_beta_updates ?? false) !== (localSettings.include_beta_updates ?? false) ||
@@ -1324,8 +1344,16 @@ export function SettingsPage() {
         finish_photo_restore_plate: localSettings.finish_photo_restore_plate ?? true,
         default_filament_cost: localSettings.default_filament_cost,
         currency: localSettings.currency,
-        energy_cost_per_kwh: localSettings.energy_cost_per_kwh,
+        // A price read from Home Assistant is the server's to set; the copy
+        // here can be an hour old and would overwrite a newer reading (#1251).
+        ...(localSettings.energy_price_source === 'homeassistant'
+          ? {}
+          : { energy_cost_per_kwh: localSettings.energy_cost_per_kwh }),
         energy_tracking_mode: localSettings.energy_tracking_mode,
+        // Normalised: anything but 'homeassistant' (a value restored from a
+        // backup) is fixed, and the backend refuses unknown values outright.
+        energy_price_source: localSettings.energy_price_source === 'homeassistant' ? 'homeassistant' : 'fixed',
+        energy_price_ha_entity: localSettings.energy_price_ha_entity ?? '',
         check_updates: localSettings.check_updates,
         check_printer_firmware: localSettings.check_printer_firmware,
         include_beta_updates: localSettings.include_beta_updates,
@@ -2511,7 +2539,47 @@ export function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm text-bambu-gray mb-1">
-                  {t('settings.electricityCost')}
+                  {t('settings.energyPriceSource')}
+                </label>
+                <select
+                  value={localSettings.energy_price_source === 'homeassistant' ? 'homeassistant' : 'fixed'}
+                  onChange={(e) => updateSetting('energy_price_source', e.target.value as 'fixed' | 'homeassistant')}
+                  className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                >
+                  <option value="fixed">{t('settings.energyPriceSourceFixed')}</option>
+                  <option value="homeassistant">{t('settings.energyPriceSourceHomeAssistant')}</option>
+                </select>
+                {localSettings.energy_price_source === 'homeassistant' && !localSettings.ha_enabled && (
+                  <p className="text-xs text-yellow-500 mt-1">{t('settings.energyPriceHaNotConfigured')}</p>
+                )}
+              </div>
+              {localSettings.energy_price_source === 'homeassistant' && (
+                <div>
+                  <label className="block text-sm text-bambu-gray mb-1">
+                    {t('settings.energyPriceHaEntity')}
+                  </label>
+                  <input
+                    type="text"
+                    list="ha-price-entities"
+                    value={localSettings.energy_price_ha_entity ?? ''}
+                    onChange={(e) => updateSetting('energy_price_ha_entity', e.target.value.trim())}
+                    placeholder="sensor.electricity_price"
+                    className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white placeholder-bambu-gray focus:border-bambu-green focus:outline-none"
+                  />
+                  <datalist id="ha-price-entities">
+                    {(haPriceEntities ?? []).map((e) => (
+                      <option key={e.entity_id} value={e.entity_id}>
+                        {`${e.friendly_name} (${e.state ?? '?'} ${e.unit_of_measurement ?? ''})`}
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm text-bambu-gray mb-1">
+                  {localSettings.energy_price_source === 'homeassistant'
+                    ? t('settings.energyPriceLastRead')
+                    : t('settings.electricityCost')}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-bambu-gray text-sm pointer-events-none">
@@ -2524,10 +2592,16 @@ export function SettingsPage() {
                     onChange={(v) => updateSetting('energy_cost_per_kwh', v)}
                     integer={false}
                     fallback={0}
+                    disabled={localSettings.energy_price_source === 'homeassistant'}
                     style={{ paddingLeft: `${Math.max(2, getCurrencySymbol(localSettings.currency).length * 0.6 + 1)}rem` }}
-                    className="w-full pr-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                    className="w-full pr-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none disabled:opacity-60"
                   />
                 </div>
+                <p className="text-xs text-bambu-gray mt-1">
+                  {localSettings.energy_price_source === 'homeassistant'
+                    ? t('settings.energyPriceHaHint')
+                    : t('settings.energyPriceFixedHint')}
+                </p>
               </div>
               <div>
                 <label className="block text-sm text-bambu-gray mb-1">

@@ -384,6 +384,7 @@ def archive_to_response(
         "quantity": archive.quantity,
         "energy_kwh": archive.energy_kwh,
         "energy_cost": archive.energy_cost,
+        "wear_cost": archive.wear_cost,
         "created_at": archive.created_at,
         # User tracking (Issue #206)
         "created_by_id": archive.created_by_id,
@@ -698,6 +699,7 @@ async def list_archives_slim(
             PrintLogEntry.cost,
             PrintLogEntry.energy_kwh,
             PrintLogEntry.energy_cost,
+            PrintLogEntry.wear_cost,
             PrintLogEntry.created_at,
         )
         .outerjoin(PrintArchive, PrintArchive.id == PrintLogEntry.archive_id)
@@ -742,6 +744,7 @@ async def list_archives_slim(
             "cost": r.cost,
             "energy_kwh": r.energy_kwh,
             "energy_cost": r.energy_cost,
+            "wear_cost": r.wear_cost,
             "quantity": 1,
             "created_at": r.created_at,
         }
@@ -1226,6 +1229,9 @@ async def get_archive_stats(
     cost_result = await db.execute(select(func.sum(PrintLogEntry.cost)).where(*base_conditions))
     total_cost = cost_result.scalar() or 0
 
+    wear_result = await db.execute(select(func.sum(PrintLogEntry.wear_cost)).where(*base_conditions))
+    total_wear_cost = wear_result.scalar() or 0
+
     # By filament type (split comma-separated values for multi-material prints)
     filament_type_result = await db.execute(
         select(PrintLogEntry.filament_type).where(PrintLogEntry.filament_type.isnot(None), *base_conditions)
@@ -1328,28 +1334,35 @@ async def get_archive_stats(
 
     # Energy totals - check which mode to use
     from backend.app.api.routes.settings import get_setting
+    from backend.app.services.energy_price import (
+        all_time_cost,
+        cost_at_average_price,
+        snapshot_cost,
+        stored_price,
+    )
 
     energy_tracking_mode = await get_setting(db, "energy_tracking_mode") or "total"
-    energy_cost_per_kwh_str = await get_setting(db, "energy_cost_per_kwh")
-    energy_cost_per_kwh = float(energy_cost_per_kwh_str) if energy_cost_per_kwh_str else 0.15
+    # The last price known. Not read from Home Assistant here: the snapshot
+    # loop refreshes it hourly, and it only prices the energy since then.
+    energy_cost_per_kwh = await stored_price(db)
 
     total_energy_kwh: float = 0.0
     total_energy_cost: float = 0.0
     energy_data_warming_up = False
 
     if energy_tracking_mode == "total" and not date_from and not date_to:
-        # All-time total consumption — read live lifetime counters.
+        # All-time total consumption — read live lifetime counters, costed at
+        # the price of each hour the snapshots cover (#1251).
         total_energy_kwh = await _sum_live_plug_totals(db)
-        total_energy_cost = total_energy_kwh * energy_cost_per_kwh
+        total_energy_cost = await all_time_cost(db, total_energy_kwh, energy_cost_per_kwh)
     elif energy_tracking_mode == "total":
         # Total consumption mode with a date filter (#941): use hourly snapshots
         # to compute per-plug (endpoint - baseline) deltas.
-        total_energy_kwh, energy_data_warming_up = await _sum_snapshot_deltas(
-            db,
-            dt_from=(datetime.combine(date_from, time.min, tzinfo=timezone.utc) if date_from else None),
-            dt_to=(datetime.combine(date_to, time.max, tzinfo=timezone.utc) if date_to else None),
-        )
-        total_energy_cost = total_energy_kwh * energy_cost_per_kwh
+        dt_from = datetime.combine(date_from, time.min, tzinfo=timezone.utc) if date_from else None
+        dt_to = datetime.combine(date_to, time.max, tzinfo=timezone.utc) if date_to else None
+        total_energy_kwh, energy_data_warming_up = await _sum_snapshot_deltas(db, dt_from=dt_from, dt_to=dt_to)
+        costed = await snapshot_cost(db, fallback_price=energy_cost_per_kwh, dt_from=dt_from, dt_to=dt_to)
+        total_energy_cost = cost_at_average_price(total_energy_kwh, costed.kwh, costed.cost, energy_cost_per_kwh)
     else:
         # Per-print mode: sum the per-run energy column from PrintLogEntry.
         energy_kwh_result = await db.execute(select(func.sum(PrintLogEntry.energy_kwh)).where(*base_conditions))
@@ -1373,6 +1386,7 @@ async def get_archive_stats(
         time_accuracy_by_printer=accuracy_by_printer if accuracy_by_printer else None,
         total_energy_kwh=round(total_energy_kwh, 3),
         total_energy_cost=round(total_energy_cost, 3),
+        total_wear_cost=round(total_wear_cost, 2),
         energy_data_warming_up=energy_data_warming_up,
     )
 

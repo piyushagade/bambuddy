@@ -438,6 +438,7 @@ export interface Printer {
   camera_rotation: number;  // 0, 90, 180, 270 degrees
   plate_detection_enabled: boolean;  // Check plate before print
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
+  wear_cost_per_hour: number | null;  // Wear cost per printing hour (#694)
   allowed_group_ids?: number[];
   allowed_user_ids?: number[];
   is_remote?: boolean;
@@ -758,6 +759,7 @@ export interface PrinterCreate {
   camera_rotation?: number;
   plate_detection_enabled?: boolean;
   plate_detection_roi?: PlateDetectionROI;
+  wear_cost_per_hour?: number | null;
   allowed_group_ids?: number[];
   allowed_user_ids?: number[];
   is_remote?: boolean;
@@ -913,6 +915,7 @@ export interface Archive {
   quantity: number;
   energy_kwh: number | null;
   energy_cost: number | null;
+  wear_cost: number | null;  // Printer wear (#694)
   created_at: string;
   // User tracking (Issue #206)
   created_by_id: number | null;
@@ -939,6 +942,7 @@ export interface ArchiveSlim {
   cost: number | null;
   energy_kwh: number | null;
   energy_cost: number | null;
+  wear_cost: number | null;  // Printer wear (#694)
   quantity: number;
   created_at: string;
 }
@@ -959,6 +963,7 @@ export interface PrintLogEntry {
   cost: number | null;
   energy_kwh: number | null;
   energy_cost: number | null;
+  wear_cost: number | null;  // Printer wear (#694)
   failure_reason: string | null;
   thumbnail_path: string | null;
   created_by_id: number | null;
@@ -988,6 +993,7 @@ export interface ArchiveStats {
   time_accuracy_by_printer: Record<string, number> | null;
   total_energy_kwh: number;
   total_energy_cost: number;
+  total_wear_cost: number;  // Printer wear (#694)
   // True when a date-filtered total-consumption query is running on incomplete
   // snapshot history (e.g. right after upgrade, before hourly snapshots have
   // a baseline). UI should explain why the number may undercount.
@@ -1106,6 +1112,7 @@ export interface ProjectStats {
   estimated_cost: number;
   total_energy_kwh: number;
   total_energy_cost: number;
+  total_wear_cost: number;  // Printer wear (#694)
   remaining_prints: number | null;  // Remaining plates
   remaining_parts: number | null;  // Remaining parts
   bom_total_items: number;
@@ -1480,6 +1487,10 @@ export interface AppSettings {
   currency: string;
   energy_cost_per_kwh: number;
   energy_tracking_mode: 'print' | 'total';
+  // Where the electricity price comes from (#1251). With 'homeassistant',
+  // energy_cost_per_kwh holds the sensor's last reading and is read-only.
+  energy_price_source: 'fixed' | 'homeassistant';
+  energy_price_ha_entity: string;
   check_updates: boolean;
   check_printer_firmware: boolean;
   include_beta_updates: boolean;

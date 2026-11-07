@@ -91,6 +91,9 @@ from backend.app.core.tasks import spawn_background_task
 from backend.app.core.websocket import ws_manager
 from backend.app.services import kprofile_drift, print_dispatch_context, slot_unlink_grace
 from backend.app.services.archive import ArchiveService, peek_plate_index_in_3mf, swap_plate_suffix
+from backend.app.services.archive_cost_estimate import (
+    schedule_archive_cost_estimate as _schedule_archive_cost_estimate,
+)
 from backend.app.services.archive_purge import archive_purge_service
 from backend.app.services.bambu_ftp import (
     FileNotOnPrinterError,
@@ -993,6 +996,18 @@ async def _record_energy_start(archive, printer_id: int, db, *, context: str = "
             return False
         plug, energy = selected
         archive.energy_start_kwh = float(energy["total"])
+        # With the plug's snapshots, what lets the cost follow the price over
+        # the print rather than take the price at its end (#1251). A price that
+        # can't be had must not cost the print its energy reading.
+        archive.energy_start_at = utcnow_naive()
+        archive.energy_start_plug_id = plug.id
+        try:
+            from backend.app.services.energy_price import current_price
+
+            archive.energy_start_price = await current_price(db)
+        except Exception as e:
+            _logger.warning("[ENERGY] Could not read the electricity price for archive %s: %s", archive.id, e)
+            archive.energy_start_price = None
         await db.commit()
         _logger.info(
             "[ENERGY] Recorded starting energy%s for archive %s from plug '%s': %s kWh",
@@ -4589,6 +4604,16 @@ async def on_print_start(printer_id: int, data: dict):
                 except Exception as e:
                     logger.warning("[SPOOLMAN] Failed to store tracking data: %s", e)
 
+                # Price the print from its spools now rather than only at completion (#3261)
+                _schedule_archive_cost_estimate(
+                    printer_id,
+                    archive.id,
+                    printer_manager,
+                    ams_mapping=_get_start_ams_mapping(data, archive.id),
+                    plate_id=_get_start_plate_id(archive.id),
+                    session_factory=async_session,
+                )
+
                 # Capture timelapse file baseline for snapshot-diff on completion
                 # (mirrors the new-archive branch). Queue / VP-dispatched prints
                 # hit this branch — without the baseline the completion-time scan
@@ -5505,6 +5530,16 @@ async def on_print_start(printer_id: int, data: dict):
                     )
                 except Exception as e:
                     logger.warning("[SPOOLMAN] Failed to store tracking data: %s", e)
+
+                # Price the print from its spools now rather than only at completion (#3261)
+                _schedule_archive_cost_estimate(
+                    printer_id,
+                    archive.id,
+                    printer_manager,
+                    ams_mapping=_get_start_ams_mapping(data, archive.id),
+                    plate_id=_get_start_plate_id(archive.id),
+                    session_factory=async_session,
+                )
 
                 # Capture timelapse file baseline for snapshot-diff on completion
                 await _capture_timelapse_baseline_at_start(printer, printer_id, logger, archive_id=archive.id)
@@ -7977,7 +8012,7 @@ async def on_print_complete(printer_id: int, data: dict):
     try:
         async with async_session() as db:
             from backend.app.models.archive import PrintArchive
-            from backend.app.services.print_log import write_log_entry
+            from backend.app.services.print_log import record_archive_wear, write_log_entry
 
             archive = await db.get(PrintArchive, archive_id)
             if archive:
@@ -8026,7 +8061,10 @@ async def on_print_complete(printer_id: int, data: dict):
                 if _run_cost is None and _run_status == "completed":
                     _run_cost = _est_cost
 
-                await write_log_entry(
+                from backend.app.models.printer import Printer as _Printer
+
+                _wear_rate = await db.scalar(select(_Printer.wear_cost_per_hour).where(_Printer.id == printer_id))
+                run_entry = await write_log_entry(
                     db,
                     archive_id=archive.id,
                     # Captured by _update_queue_status above; None for
@@ -8043,6 +8081,7 @@ async def on_print_complete(printer_id: int, data: dict):
                     filament_color=archive.filament_color,
                     filament_used_grams=_run_grams,
                     cost=_run_cost,
+                    wear_cost_per_hour=_wear_rate,
                     failure_reason=archive.failure_reason,
                     thumbnail_path=archive.thumbnail_path,
                     created_by_id=archive.created_by_id,
@@ -8051,6 +8090,7 @@ async def on_print_complete(printer_id: int, data: dict):
                     # log 0 duration instead of the whole disconnect gap (#2592).
                     reconciled=bool(data.get("_reconciled")),
                 )
+                await record_archive_wear(db, archive, run_entry)
                 await db.commit()
                 logger.info("[PRINT_LOG] Log entry written for archive %s", archive_id)
     except Exception as e:
@@ -8110,11 +8150,29 @@ async def on_print_complete(printer_id: int, data: dict):
                     )
                     return
 
-                from backend.app.api.routes.settings import get_setting
+                from backend.app.services.energy_price import current_price, print_energy_cost, stored_price
 
-                energy_cost_per_kwh = await get_setting(db, "energy_cost_per_kwh")
-                cost_per_kwh = float(energy_cost_per_kwh) if energy_cost_per_kwh else 0.15
-                energy_cost_value = round(energy_used * cost_per_kwh, 3)
+                # Each hour of the print at the price of that hour (#1251). If
+                # that fails, the last price known, as before, rather than no
+                # energy at all. Read first: the session may be unusable after.
+                last_price = await stored_price(db)
+                try:
+                    energy_cost_value = round(
+                        await print_energy_cost(
+                            db,
+                            plug_id=archive.energy_start_plug_id,
+                            start_at=archive.energy_start_at,
+                            start_kwh=starting_kwh,
+                            start_price=archive.energy_start_price,
+                            end_kwh=energy["total"],
+                            end_plug_id=plug.id,
+                            price_now=await current_price(db),
+                        ),
+                        3,
+                    )
+                except Exception as e:
+                    logger.warning("[ENERGY-BG] Hour-by-hour cost failed for archive %s: %s", archive_id, e)
+                    energy_cost_value = round(energy_used * last_price, 3)
 
                 # First-run-only overwrite of archive.energy_kwh / energy_cost so a
                 # reprint doesn't visually clobber the source archive's energy data

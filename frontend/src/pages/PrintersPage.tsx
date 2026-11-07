@@ -208,6 +208,7 @@ import { Collapsible } from '../components/Collapsible';
 import { ConnectionDiagnosticModal, DiagnosticChecklist } from '../components/ConnectionDiagnostic';
 import { getColorName, parseFilamentColor, isLightColor } from '../utils/colors';
 import { NumberInput } from '../components/NumberInput';
+import { getCurrencySymbol } from '../utils/currency';
 
 /** The spool Bambuddy has assigned to a slot the printer reports loaded but
  *  blank: typically one swapped in mid-print after a runout, which the printer
@@ -8943,6 +8944,7 @@ export function EditPrinterModal({
     location: printer.location || '',
     auto_archive: printer.auto_archive,
     is_active: printer.is_active,
+    wear_cost_per_hour: printer.wear_cost_per_hour ? String(printer.wear_cost_per_hour) : '',
     is_remote: Boolean(printer.is_remote),
     remote_server_url: printer.remote_server_url || '',
     remote_printer_id: printer.remote_printer_id ?? undefined,
@@ -8953,6 +8955,8 @@ export function EditPrinterModal({
     allowed_group_ids: printer.allowed_group_ids ?? [],
     allowed_user_ids: printer.allowed_user_ids ?? [],
   });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+  const currency = getCurrencySymbol(settings?.currency || 'USD');
 
   // Setup-time pre-flight — same warn-on-save as the Add-Printer dialog, so an
   // edit that breaks connectivity (e.g. a mistyped IP) is caught before save.
@@ -8986,6 +8990,8 @@ export function EditPrinterModal({
       location: form.location || undefined,
       auto_archive: form.auto_archive,
       is_active: form.is_active,
+      // Empty or 0 turns wear cost off for this printer (#694)
+      wear_cost_per_hour: Number(form.wear_cost_per_hour) > 0 ? Number(form.wear_cost_per_hour) : null,
       allowed_group_ids: form.allowed_group_ids,
       allowed_user_ids: form.allowed_user_ids,
     };
@@ -9252,6 +9258,23 @@ export function EditPrinterModal({
               <label htmlFor="edit_auto_archive" className="text-sm text-bambu-gray">
                 {t('printers.modal.autoArchiveLabel')}
               </label>
+            </div>
+            <div>
+              <label htmlFor="edit_wear_cost" className="block text-sm text-bambu-gray mb-1">
+                {t('printers.modal.wearCostLabel', { currency })}
+              </label>
+              <input
+                id="edit_wear_cost"
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none"
+                value={form.wear_cost_per_hour}
+                onChange={(e) => setForm({ ...form, wear_cost_per_hour: e.target.value })}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-bambu-gray mt-1">{t('printers.modal.wearCostHelp')}</p>
             </div>
             {/* Maintenance Mode toggle (#1476) — checkbox is the inverse of
                 is_active because the user-facing concept is "is this printer

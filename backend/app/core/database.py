@@ -5386,6 +5386,89 @@ async def run_migrations(conn):
     # on SQLite and Postgres.
     await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN color_substitutions TEXT")
 
+    # Migration: electricity price on each energy snapshot, and where and when a
+    # print's starting counter was read (#1251), so energy is costed at the
+    # price of the hour it was used rather than at today's price.
+    if is_sqlite():
+        await _safe_execute(conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN price_per_kwh REAL")
+        await _safe_execute(conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN kwh_to_date REAL")
+        await _safe_execute(conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN cost_to_date REAL")
+        await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN energy_start_price REAL")
+        await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN energy_start_at DATETIME")
+    else:
+        await _safe_execute(
+            conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN IF NOT EXISTS price_per_kwh DOUBLE PRECISION"
+        )
+        await _safe_execute(
+            conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN IF NOT EXISTS kwh_to_date DOUBLE PRECISION"
+        )
+        await _safe_execute(
+            conn, "ALTER TABLE smart_plug_energy_snapshots ADD COLUMN IF NOT EXISTS cost_to_date DOUBLE PRECISION"
+        )
+        await _safe_execute(
+            conn, "ALTER TABLE print_archives ADD COLUMN IF NOT EXISTS energy_start_price DOUBLE PRECISION"
+        )
+        await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN IF NOT EXISTS energy_start_at TIMESTAMP")
+    await _safe_execute(conn, "ALTER TABLE print_archives ADD COLUMN energy_start_plug_id INTEGER")
+    await _backfill_snapshot_prices(conn)
+
+    # Migration: printer wear cost per printing hour, and the wear cost of each
+    # run and archive (#694). Nullable: no printer has a rate until one is set,
+    # and earlier prints keep no wear cost.
+    float_type = "REAL" if is_sqlite() else "DOUBLE PRECISION"
+    await _safe_execute(conn, f"ALTER TABLE printers ADD COLUMN wear_cost_per_hour {float_type}")
+    await _safe_execute(conn, f"ALTER TABLE print_log_entries ADD COLUMN wear_cost {float_type}")
+    await _safe_execute(conn, f"ALTER TABLE print_archives ADD COLUMN wear_cost {float_type}")
+
+async def _backfill_snapshot_prices(conn) -> None:
+    """Give the energy snapshots taken before #1251 the price set at upgrade.
+
+    Until now every kWh in the Statistics was costed at the price set right
+    now, so changing it re-costed all of history. Writing today's price onto
+    the existing rows keeps those figures where they stand, and from here on a
+    new price applies only to the energy used after it was set.
+
+    The running totals start from the raw counter: at one price throughout,
+    the energy to date is the counter and its cost the counter times the price.
+    A reset in that old history then shows as a drop, which the Statistics
+    treat as nothing, exactly as they already did for the energy figure. One
+    UPDATE on both databases, however long the history is.
+
+    Gated to run once: snapshots taken later always carry a price, and a NULL
+    one after this has run would mean something else, not "before #1251".
+    """
+    from sqlalchemy import text
+
+    flag = "_backfill_1251_snapshot_prices_done"
+
+    async with conn.begin_nested():
+        already = (
+            await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": flag})
+        ).scalar_one_or_none()
+        if already:
+            return
+
+        raw = (
+            await conn.execute(text('SELECT value FROM settings WHERE "key" = :k'), {"k": "energy_cost_per_kwh"})
+        ).scalar_one_or_none()
+        try:
+            price = float(raw) if raw else 0.15
+        except (TypeError, ValueError):
+            price = 0.15
+
+        await conn.execute(
+            text(
+                "UPDATE smart_plug_energy_snapshots "
+                "SET price_per_kwh = :p, kwh_to_date = lifetime_kwh, cost_to_date = lifetime_kwh * :p "
+                "WHERE price_per_kwh IS NULL"
+            ),
+            {"p": price},
+        )
+        await conn.execute(
+            text('INSERT INTO settings ("key", value) VALUES (:k, :v)'),
+            {"k": flag, "v": "true"},
+        )
+
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:
     """Replace the one-tap verdict URLs in the outcome prompt's body (#1898).
