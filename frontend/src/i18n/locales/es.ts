@@ -949,6 +949,7 @@ export default {
     noArchives: 'No se encontraron archivos',
     noArchivesSearch: 'Ningún archivo coincide con su búsqueda',
     originalPrintNotVisible: 'La impresión original no está visible - pruebe a borrar los filtros',
+    linkedArchiveNotVisible: 'El archivo vinculado no está visible - pruebe a borrar los filtros',
     noArchivesYet: 'Aún no hay archivos',
     prints: 'impresiones',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: 'Slot {{slot}}: necesita {{required}} g, quedan {{remaining}} g',
       unknown: 'desconocido',
       printAnyway: 'Imprimir de todos modos',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filamento no cargado',
+      confirmIntro: 'La impresora no tiene ninguna bandeja con este filamento. Carguelo y pulse Iniciar de nuevo, o imprima de todos modos:',
+    },
+    colorSubstitution: {
+      rowBadge: 'La ranura {{slot}} imprimió en {{got}}, el archivo pide {{wanted}}',
+      rowTooltip: 'La bobina de esta ranura es de otro color que el del archivo: no había ninguna bobina de ese color cargada o la ranura se eligió a mano.',
     },
     slicerAmsMapping: {
       rowBadge: 'Ranuras AMS guardadas para esta impresora',
@@ -4067,6 +4076,10 @@ export default {
       noPermission: 'No tienes permiso para etiquetar archivos.',
       filterLabel: 'Filtrando por:',
       clearAll: 'Limpiar todo',
+      searchTags: 'Buscar etiquetas',
+      noTagMatches: 'Ninguna etiqueta coincide',
+      showAllTags: 'Mostrar todas ({{count}})',
+      showFewerTags: 'Mostrar menos',
       confirmDelete: '¿Eliminar la etiqueta "{{name}}"?',
       confirmDeleteMessage: 'Esto elimina la etiqueta del catálogo. Los archivos conservan sus otras etiquetas.',
       confirmDeleteInUseMessage: 'Esta etiqueta está en {{count}} archivo(s). Al eliminarla desaparece de todos; los archivos en sí no se tocan.',
@@ -4090,6 +4103,7 @@ export default {
     folderIsEmpty: 'La carpeta está vacía',
     noFilesOutsideFolders: 'No hay archivos fuera de las carpetas',
     noFilesYet: 'Aún no hay archivos',
+    highlightedFileNotFound: 'Archivo no encontrado - puede que se haya eliminado o que no tenga acceso a él',
     folderEmptyDescription: 'Suba archivos o mueva archivos a esta carpeta para empezar.',
     noFilesDescription: 'Suba archivos para empezar a organizar sus archivos relacionados con la impresión.',
     noMatchingFiles: 'No hay archivos coincidentes',

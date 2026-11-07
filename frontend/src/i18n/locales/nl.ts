@@ -954,6 +954,7 @@ export default {
     noArchives: 'Geen archieven gevonden',
     noArchivesSearch: 'Geen archieven komen overeen met je zoekopdracht',
     originalPrintNotVisible: 'Originele afdruk niet zichtbaar - probeer filters te wissen',
+    linkedArchiveNotVisible: 'Gekoppeld archief niet zichtbaar - probeer filters te wissen',
     noArchivesYet: 'Nog geen archieven',
     prints: 'afdrukken',
     pagination: {
@@ -1351,6 +1352,14 @@ export default {
       lineItem: 'Sleuf {{slot}}: vereist {{required}} g, {{remaining}} g resterend',
       unknown: 'onbekend',
       printAnyway: 'Toch afdrukken',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament niet geladen',
+      confirmIntro: 'De printer heeft geen sleuf met dit filament. Laad het en druk opnieuw op Start, of druk toch af:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Slot {{slot}} printte in {{got}}, het bestand vraagt om {{wanted}}',
+      rowTooltip: 'De spoel waarmee dit slot printte heeft een andere kleur dan in het bestand: er was geen spoel in die kleur geladen, of het slot is met de hand gekozen.',
     },
     slicerAmsMapping: {
       rowBadge: 'AMS-sleuven opgeslagen voor deze printer',
@@ -4095,6 +4104,10 @@ export default {
       noPermission: 'Je hebt geen toestemming om bestanden te taggen.',
       filterLabel: 'Filteren op:',
       clearAll: 'Alles wissen',
+      searchTags: 'Tags zoeken',
+      noTagMatches: 'Geen tags gevonden',
+      showAllTags: 'Alles tonen ({{count}})',
+      showFewerTags: 'Minder tonen',
       confirmDelete: 'Tag "{{name}}" verwijderen?',
       confirmDeleteMessage: 'Hiermee wordt de tag uit de catalogus verwijderd. Bestanden behouden hun andere tags.',
       confirmDeleteInUseMessage: 'Deze tag staat op {{count}} bestand(en). Bij verwijderen verdwijnt het label van al deze bestanden; de bestanden zelf blijven intact.',
@@ -4118,6 +4131,7 @@ export default {
     folderIsEmpty: 'Map is leeg',
     noFilesOutsideFolders: 'Geen bestanden buiten mappen',
     noFilesYet: 'Nog geen bestanden',
+    highlightedFileNotFound: 'Bestand niet gevonden - het is mogelijk verwijderd of je hebt er geen toegang toe',
     folderEmptyDescription: 'Upload bestanden of verplaats bestanden naar deze map om te beginnen.',
     noFilesDescription: 'Upload bestanden om je afdrukgerelateerde bestanden te organiseren.',
     noMatchingFiles: 'Geen overeenkomende bestanden',

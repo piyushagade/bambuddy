@@ -904,6 +904,7 @@ export default {
     noArchives: "Архивы не найдены",
     noArchivesSearch: "По вашему запросу ничего не найдено",
     originalPrintNotVisible: "Исходная печать не отображается — попробуйте сбросить фильтры",
+    linkedArchiveNotVisible: "Связанный архив не отображается — попробуйте сбросить фильтры",
     noArchivesYet: "Архив пока пуст",
     prints: "печатей",
     pagination: {
@@ -1290,6 +1291,14 @@ export default {
       lineItem: "Слот {{slot}}: требуется {{required}} г, осталось {{remaining}} г",
       unknown: "неизвестно",
       printAnyway: "Всё равно печатать",
+    },
+    filamentMissing: {
+      confirmTitle: "Филамент не загружен",
+      confirmIntro: "На принтере нет лотка с этим филаментом. Загрузите его и снова нажмите «Старт» или всё равно запустите печать:",
+    },
+    colorSubstitution: {
+      rowBadge: 'Слот {{slot}} печатал цветом {{got}}, а файл требует {{wanted}}',
+      rowTooltip: 'Катушка, с которой печатал этот слот, другого цвета, чем в файле: катушки этого цвета не было загружено, или слот выбран вручную.',
     },
     slicerAmsMapping: {
       rowBadge: "Ячейки AMS сохранены для этого принтера",
@@ -3866,6 +3875,10 @@ export default {
       noPermission: "У вас нет прав на изменение меток файлов.",
       filterLabel: "Фильтр по меткам:",
       clearAll: "Очистить всё",
+      searchTags: "Поиск меток",
+      noTagMatches: "Нет подходящих меток",
+      showAllTags: "Показать все ({{count}})",
+      showFewerTags: "Показать меньше",
       confirmDelete: "Удалить метку «{{name}}»?",
       confirmDeleteMessage: "Метка будет удалена из каталога. Остальные метки файлов сохранятся.",
       confirmDeleteInUseMessage: "Эта метка назначена файлам ({{count}}). При удалении метка исчезнет у всех файлов; сами файлы не изменятся.",
@@ -3889,6 +3902,7 @@ export default {
     folderIsEmpty: "Папка пуста",
     noFilesOutsideFolders: "Нет файлов вне папок",
     noFilesYet: "Файлов пока нет",
+    highlightedFileNotFound: "Файл не найден — возможно, он удалён или у вас нет к нему доступа",
     folderEmptyDescription: "Загрузите или переместите файлы в эту папку.",
     noFilesDescription: "Загрузите файлы, чтобы начать упорядочивать материалы для печати.",
     noMatchingFiles: "Подходящие файлы не найдены",

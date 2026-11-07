@@ -953,6 +953,7 @@ export default {
     noArchives: "Архіви не знайдено",
     noArchivesSearch: "Жоден архів не відповідає вашому пошуку",
     originalPrintNotVisible: "Оригінальний друк не відображається — спробуйте очистити фільтри",
+    linkedArchiveNotVisible: "Пов'язаний архів не відображається — спробуйте очистити фільтри",
     noArchivesYet: "Архівів ще немає",
     prints: "друків",
     pagination: {
@@ -1350,6 +1351,14 @@ export default {
       lineItem: "Слот {{slot}}: потрібно {{required}} г, {{remaining}} г залишилося",
       unknown: "невідомо",
       printAnyway: "Усе одно друкувати",
+    },
+    filamentMissing: {
+      confirmTitle: "Філамент не завантажено",
+      confirmIntro: "На принтері немає лотка з цим філаментом. Завантажте його й знову натисніть «Старт» або все одно запустіть друк:",
+    },
+    colorSubstitution: {
+      rowBadge: 'Слот {{slot}} друкував кольором {{got}}, а файл вимагає {{wanted}}',
+      rowTooltip: 'Котушка, з якої друкував цей слот, іншого кольору, ніж у файлі: котушки цього кольору не було завантажено, або слот обрано вручну.',
     },
     slicerAmsMapping: {
       rowBadge: "Слоти AMS збережено для цього принтера",
@@ -4092,6 +4101,10 @@ export default {
       noPermission: "Ви не маєте дозволу позначати файли тегами.",
       filterLabel: "Фільтрування за:",
       clearAll: "Очистити все",
+      searchTags: "Пошук тегів",
+      noTagMatches: "Немає відповідних тегів",
+      showAllTags: "Показати всі ({{count}})",
+      showFewerTags: "Показати менше",
       confirmDelete: "Видалити тег \"{{name}}\"?",
       confirmDeleteMessage: "Це видалить тег з каталогу. Файли зберігають інші теги.",
       confirmDeleteInUseMessage: "Цей тег призначено файлам ({{count}}). Його буде видалено з усіх файлів, але самі файли залишаться без змін.",
@@ -4115,6 +4128,7 @@ export default {
     folderIsEmpty: "Папка порожня",
     noFilesOutsideFolders: "Немає файлів поза папками",
     noFilesYet: "Файлів ще немає",
+    highlightedFileNotFound: "Файл не знайдено — можливо, його видалено або у вас немає до нього доступу",
     folderEmptyDescription: "Щоб почати, вивантажте файли або перемістіть їх до цієї папки.",
     noFilesDescription: "Вивантажте файли, щоб упорядковувати матеріали для друку.",
     noMatchingFiles: "Немає відповідних файлів",

@@ -949,6 +949,7 @@ export default {
     noArchives: '未找到归档',
     noArchivesSearch: '没有匹配搜索的归档',
     originalPrintNotVisible: '原始打印不可见 - 请尝试清除筛选条件',
+    linkedArchiveNotVisible: '关联的归档不可见 - 请尝试清除筛选条件',
     noArchivesYet: '暂无归档',
     prints: '条打印',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: '插槽 {{slot}}：需要 {{required}} g，剩余 {{remaining}} g',
       unknown: '未知',
       printAnyway: '仍要打印',
+    },
+    filamentMissing: {
+      confirmTitle: '耗材未装载',
+      confirmIntro: '打印机上没有装有此耗材的料槽。请装载后再次点击开始，或仍要打印：',
+    },
+    colorSubstitution: {
+      rowBadge: '槽位 {{slot}} 使用 {{got}} 打印，文件要求 {{wanted}}',
+      rowTooltip: '此槽位使用的耗材颜色与文件中的不同：未装入该颜色的耗材，或槽位为手动选择。',
     },
     slicerAmsMapping: {
       rowBadge: '已为此打印机保存 AMS 槽位',
@@ -4052,6 +4061,10 @@ export default {
       noPermission: '您没有为文件加标签的权限。',
       filterLabel: '筛选条件：',
       clearAll: '全部清除',
+      searchTags: '搜索标签',
+      noTagMatches: '没有匹配的标签',
+      showAllTags: '显示全部（{{count}}）',
+      showFewerTags: '收起',
       confirmDelete: '删除标签 "{{name}}"？',
       confirmDeleteMessage: '此操作会从目录中删除该标签。文件保留其它标签。',
       confirmDeleteInUseMessage: '此标签存在于 {{count}} 个文件上。删除后所有文件上的标签都会消失，但文件本身不会动。',
@@ -4075,6 +4088,7 @@ export default {
     folderIsEmpty: '文件夹为空',
     noFilesOutsideFolders: '文件夹外没有文件',
     noFilesYet: '暂无文件',
+    highlightedFileNotFound: '未找到文件 - 它可能已被删除，或您没有访问权限',
     folderEmptyDescription: '上传文件或将文件移入此文件夹以开始使用。',
     noFilesDescription: '上传文件以开始组织您的打印相关文件。',
     noMatchingFiles: '没有匹配的文件',

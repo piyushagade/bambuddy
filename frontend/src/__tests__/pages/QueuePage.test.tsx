@@ -2,8 +2,8 @@
  * Tests for the QueuePage component.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../utils';
 import { QueuePage } from '../../pages/QueuePage';
@@ -195,6 +195,98 @@ describe('QueuePage', () => {
         expect(screen.getByText('Active Print')).toBeInTheDocument();
         expect(screen.getByText('Currently Printing')).toBeInTheDocument();
       });
+    });
+
+    it('links a File Manager job to the File Manager, pointing at the file (#3336)', async () => {
+      server.use(
+        http.get('/api/v1/queue/', () =>
+          HttpResponse.json([
+            { ...mockQueueItems[0], id: 90, archive_id: null, archive_name: null, library_file_id: 13, library_file_name: 'From the library' },
+          ]),
+        ),
+      );
+
+      render(<QueuePage />);
+      await screen.findByText('From the library');
+
+      // /library is no route at all: the page came up empty.
+      expect(screen.getByTitle('View in File Manager')).toHaveAttribute('href', '/files?highlight=13');
+    });
+
+    it('links an archive job to its archive', async () => {
+      render(<QueuePage />);
+      await screen.findByText('Test Print 1');
+
+      expect(screen.getAllByTitle('View archive').map((a) => a.getAttribute('href'))).toContain('/archives?highlight=1');
+    });
+
+    describe('larger thumbnail on hover (#3313)', () => {
+      const realMatchMedia = window.matchMedia;
+      beforeEach(() => {
+        window.matchMedia = ((query: string) => ({ ...realMatchMedia(query), matches: true })) as typeof window.matchMedia;
+      });
+      afterEach(() => {
+        window.matchMedia = realMatchMedia;
+      });
+
+      function hoverThumbnail(archiveId: number) {
+        const thumb = document.querySelector(`img[src*="/archives/${archiveId}/thumbnail"]`) as HTMLElement;
+        fireEvent.mouseEnter(thumb.parentElement as HTMLElement);
+      }
+
+      it('shows on a queue card', async () => {
+        render(<QueuePage />);
+        await screen.findByText('Test Print 1');
+
+        hoverThumbnail(1);
+
+        expect(screen.getByTestId('thumbnail-hover-preview').getAttribute('src')).toContain('/archives/1/thumbnail');
+      });
+
+      it('shows on a history row', async () => {
+        render(<QueuePage />);
+        await userEvent.setup().click(await screen.findByRole('button', { name: /^History/ }));
+        await screen.findByText('Completed Print');
+
+        hoverThumbnail(3);
+
+        expect(screen.getByTestId('thumbnail-hover-preview').getAttribute('src')).toContain('/archives/3/thumbnail');
+      });
+    });
+
+    it('says when a slot printed in another colour than the file asks for (#3279)', async () => {
+      const printing = {
+        ...mockQueueItems[1],
+        id: 91,
+        color_substitutions: [{ slot_id: 1, type: 'PLA', wanted: '#A4AAAC', got: '#000000', tray: 1 }],
+      };
+      const done = {
+        ...mockQueueItems[0],
+        id: 92,
+        status: 'completed',
+        completed_at: '2024-01-02T00:00:00Z',
+        color_substitutions: [{ slot_id: 2, type: 'PLA', wanted: '#FFFFFF', got: '#FF0000', tray: 3 }],
+      };
+      server.use(http.get('/api/v1/queue/', () => HttpResponse.json([printing, done])));
+
+      render(<QueuePage />);
+
+      const badge = await screen.findByText(/^Slot 1 printed in .*\(#000000\), the file asks for .*\(#A4AAAC\)$/);
+      expect(badge.closest('p')).toHaveAttribute(
+        'title',
+        expect.stringContaining('different colour than the one in the file'),
+      );
+
+      // The History tab draws finished jobs with the compact row.
+      await userEvent.setup().click(await screen.findByRole('button', { name: /^History/ }));
+      expect(await screen.findByText(/^Slot 2 printed in .*\(#FF0000\), the file asks for .*\(#FFFFFF\)$/)).toBeInTheDocument();
+    });
+
+    it('shows no colour note for a job that printed in its colours', async () => {
+      render(<QueuePage />);
+      await screen.findByText('Test Print 1');
+      expect(screen.queryByText(/printed in .*, the file asks for/)).not.toBeInTheDocument();
+
     });
 
     it('shows the queue override colour instead of the original 3MF colour (#3132)', async () => {
@@ -718,7 +810,7 @@ describe('QueuePage', () => {
     });
 
     describe('stored mapping on the live printer (#3132)', () => {
-      const mappedItem = (amsMapping: number[]) => ({
+      const mappedItem = (amsMapping: number[], extra: Record<string, unknown> = {}) => ({
         ...mockQueueItems[0],
         id: 88,
         printer_id: 1,
@@ -738,11 +830,16 @@ describe('QueuePage', () => {
             force_color_match: false,
           },
         ],
+        ...extra,
       });
 
-      const useMappedPrinter = (amsMapping: number[], status: Record<string, unknown>) => {
+      const useMappedPrinter = (
+        amsMapping: number[],
+        status: Record<string, unknown>,
+        item: Record<string, unknown> = {},
+      ) => {
         server.use(
-          http.get('/api/v1/queue/', () => HttpResponse.json([mappedItem(amsMapping)])),
+          http.get('/api/v1/queue/', () => HttpResponse.json([mappedItem(amsMapping, item)])),
           http.get('/api/v1/library/files/19/plates', () =>
             HttpResponse.json({
               file_id: 19,
@@ -824,6 +921,74 @@ describe('QueuePage', () => {
           expect(within(row).getByText('A3 · Empty · Caramel')).toBeInTheDocument();
         });
         expect(within(row).getByTestId('filament-swatch')).toHaveAttribute('title', '#8E351B');
+      });
+
+      describe('AMS Filament Backup during the print', () => {
+        const printing = { status: 'printing', started_at: '2024-01-01T10:00:00Z' };
+
+        it('shows the backup spool the printer switched to', async () => {
+          // A3 ran out at layer 350 and the printer carried on from A2.
+          useMappedPrinter(
+            [2],
+            { connected: true, state: 'RUNNING', ams: amsWithEmptyA3, vt_tray: [], tray_change_log: [[2, 0], [1, 350]] },
+            printing,
+          );
+          const row = await mappedRow();
+
+          await waitFor(() => {
+            expect(within(row).getByText(/^A2 · PLA · /)).toBeInTheDocument();
+          });
+          expect(within(row).queryByText(/Empty/)).not.toBeInTheDocument();
+        });
+
+        it('follows a backup that ran out in turn', async () => {
+          useMappedPrinter(
+            [2],
+            {
+              connected: true,
+              state: 'RUNNING',
+              ams: amsWithEmptyA3,
+              vt_tray: [],
+              tray_change_log: [[2, 0], [1, 120], [0, 400]],
+            },
+            printing,
+          );
+          const row = await mappedRow();
+
+          await waitFor(() => {
+            expect(within(row).getByText(/^A1 · PLA · /)).toBeInTheDocument();
+          });
+          expect(within(row).queryByText(/^A2 · /)).not.toBeInTheDocument();
+        });
+
+        it('does not take a change to another mapped slot for a backup', async () => {
+          // Slot 2 of the job feeds from A2: switching there is a colour change.
+          useMappedPrinter(
+            [2, 1],
+            { connected: true, state: 'RUNNING', ams: amsWithEmptyA3, vt_tray: [], tray_change_log: [[2, 0], [1, 30]] },
+            printing,
+          );
+          const row = await mappedRow();
+
+          await waitFor(() => {
+            expect(within(row).getByText('A3 · Empty · Caramel')).toBeInTheDocument();
+          });
+        });
+
+        it('leaves a queued job pointed at its mapped slot', async () => {
+          // The log belongs to whatever the printer prints now, not this job.
+          useMappedPrinter([2], {
+            connected: true,
+            ams: amsWithEmptyA3,
+            vt_tray: [],
+            tray_change_log: [[2, 0], [1, 350]],
+          });
+          const row = await mappedRow();
+
+          await waitFor(() => {
+            expect(within(row).getByText('A3 · Empty · Caramel')).toBeInTheDocument();
+          });
+        });
       });
 
       it('never calls the external spool empty, having no presence signal', async () => {
@@ -1384,6 +1549,31 @@ describe('QueuePage', () => {
 
       const requeueButtons = screen.getAllByTitle('Re-queue');
       expect(requeueButtons.length).toBeGreaterThan(0);
+    });
+
+    it('re-queues the plate the job printed (#3395)', async () => {
+      const plate = (index: number) => ({
+        index, name: '', has_thumbnail: false, thumbnail_url: null, objects: [`Part ${index}`],
+        filaments: [], print_time_seconds: 600, filament_used_grams: 5,
+      });
+      server.use(
+        http.get('/api/v1/queue/', () =>
+          HttpResponse.json(mockQueueItems.map((i) => (i.id === 3 ? { ...i, plate_id: 2 } : i))),
+        ),
+        http.get('/api/v1/archives/:id/plates', () =>
+          HttpResponse.json({ is_multi_plate: true, plates: [plate(1), plate(2), plate(3)] }),
+        ),
+      );
+      const user = userEvent.setup();
+      render(<QueuePage />);
+
+      await user.click(await screen.findByRole('button', { name: /^History/ }));
+      await screen.findByText('Completed Print');
+      await user.click(screen.getAllByTitle('Re-queue')[0]);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('selected-plates-summary')).toHaveTextContent(/^Plate 2$/);
+      });
     });
   });
 

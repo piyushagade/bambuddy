@@ -905,6 +905,7 @@ export default {
     noArchives: '아카이브를 찾을 수 없습니다',
     noArchivesSearch: '검색 조건에 맞는 아카이브가 없습니다',
     originalPrintNotVisible: '원본 인쇄가 보이지 않음 - 필터를 지워보세요',
+    linkedArchiveNotVisible: '연결된 아카이브가 보이지 않음 - 필터를 지워보세요',
     noArchivesYet: '아직 아카이브가 없습니다',
     prints: '인쇄',
     pagination: {
@@ -1586,6 +1587,14 @@ export default {
       lineItem: '슬롯 {{slot}}: {{required}}g 필요, {{remaining}}g 남음',
       unknown: '알 수 없음',
       printAnyway: '그냥 인쇄'
+    },
+    filamentMissing: {
+      confirmTitle: '필라멘트 미장착',
+      confirmIntro: '프린터에 이 필라멘트가 장착된 트레이가 없습니다. 장착한 뒤 다시 시작을 누르거나, 그냥 인쇄하세요:',
+    },
+    colorSubstitution: {
+      rowBadge: '슬롯 {{slot}}이(가) {{got}}(으)로 출력되었습니다. 파일은 {{wanted}}을(를) 요구합니다',
+      rowTooltip: '이 슬롯이 사용한 스풀의 색상이 파일의 색상과 다릅니다. 해당 색상의 스풀이 장착되어 있지 않았거나 슬롯을 직접 선택했습니다.',
     },
     slicerAmsMapping: {
       rowBadge: '이 프린터용으로 저장된 AMS 슬롯',
@@ -3874,6 +3883,10 @@ export default {
       noPermission: '파일에 태그를 붙일 권한이 없습니다.',
       filterLabel: '필터:',
       clearAll: '모두 지우기',
+      searchTags: '태그 검색',
+      noTagMatches: '일치하는 태그가 없습니다',
+      showAllTags: '모두 보기 ({{count}})',
+      showFewerTags: '간단히 보기',
       confirmDelete: '태그 "{{name}}"을(를) 삭제하시겠습니까?',
       confirmDeleteMessage: '카탈로그에서 태그를 제거합니다. 파일과 다른 태그는 그대로 유지됩니다.',
       confirmDeleteInUseMessage: '이 태그는 {{count}}개 파일에 있습니다. 삭제하면 모든 파일에서 칩이 사라지지만 파일 자체는 변경되지 않습니다.',
@@ -3897,6 +3910,7 @@ export default {
     folderIsEmpty: '폴더가 비어 있음',
     noFilesOutsideFolders: '폴더 밖에 있는 파일 없음',
     noFilesYet: '파일 없음',
+    highlightedFileNotFound: '파일을 찾을 수 없음 - 삭제되었거나 접근 권한이 없을 수 있습니다',
     folderEmptyDescription: '파일을 업로드하거나 이 폴더로 이동하여 시작하세요.',
     noFilesDescription: '파일을 업로드하여 인쇄 관련 파일을 정리하세요.',
     noMatchingFiles: '일치하는 파일 없음',

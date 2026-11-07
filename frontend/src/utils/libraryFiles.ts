@@ -35,8 +35,6 @@ export function isPrintableLibraryFile(file: {
   file_type?: string | null;
 }): boolean {
   if (isSlicedLibraryFile(file)) return true;
-  const fileType = (file.file_type || '').toLowerCase();
-  if (fileType === '3mf') return true;
   const lower = (file.filename || '').toLowerCase();
   return lower.endsWith('.3mf');
 }

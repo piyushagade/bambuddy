@@ -948,6 +948,7 @@ export default {
     noArchives: 'アーカイブが見つかりません',
     noArchivesSearch: '検索条件に一致するアーカイブがありません',
     originalPrintNotVisible: '元の印刷が表示されていません - フィルターをクリアしてみてください',
+    linkedArchiveNotVisible: 'リンクされたアーカイブが表示されていません - フィルターをクリアしてみてください',
     noArchivesYet: 'アーカイブはまだありません',
     prints: '件',
     pagination: {
@@ -1338,6 +1339,14 @@ export default {
       lineItem: 'スロット {{slot}}：必要 {{required}} g、残り {{remaining}} g',
       unknown: '不明',
       printAnyway: 'それでも印刷',
+    },
+    filamentMissing: {
+      confirmTitle: 'フィラメント未装填',
+      confirmIntro: 'このフィラメントが装填されたトレイがプリンターにありません。装填してからもう一度開始を押すか、それでも印刷してください:',
+    },
+    colorSubstitution: {
+      rowBadge: 'スロット {{slot}} は {{got}} で印刷されました（ファイルの指定は {{wanted}}）',
+      rowTooltip: 'このスロットで使われたスプールはファイルの色と異なります。その色のスプールが装填されていなかったか、スロットが手動で選ばれました。',
     },
     slicerAmsMapping: {
       rowBadge: 'このプリンター用に保存されたAMSスロット',
@@ -4065,6 +4074,10 @@ export default {
       noPermission: 'ファイルにタグを付ける権限がありません。',
       filterLabel: '絞り込み:',
       clearAll: 'すべてクリア',
+      searchTags: 'タグを検索',
+      noTagMatches: '一致するタグがありません',
+      showAllTags: 'すべて表示 ({{count}})',
+      showFewerTags: '表示を減らす',
       confirmDelete: 'タグ「{{name}}」を削除しますか？',
       confirmDeleteMessage: 'カタログからタグを削除します。ファイル自体や他のタグはそのまま残ります。',
       confirmDeleteInUseMessage: 'このタグは{{count}}個のファイルに付いています。削除するとすべてのファイルからチップが消えますが、ファイル自体はそのままです。',
@@ -4088,6 +4101,7 @@ export default {
     folderIsEmpty: 'フォルダーは空です',
     noFilesOutsideFolders: 'フォルダー外のファイルはありません',
     noFilesYet: 'ファイルはまだありません',
+    highlightedFileNotFound: 'ファイルが見つかりません - 削除されたか、アクセス権がない可能性があります',
     folderEmptyDescription: 'ファイルをアップロードするか、このフォルダーにファイルを移動して開始しましょう。',
     noFilesDescription: '印刷関連ファイルの整理を始めるにはファイルをアップロードしてください。',
     noMatchingFiles: '一致するファイルがありません',

@@ -954,6 +954,7 @@ export default {
     noArchives: 'Inga arkiv hittade',
     noArchivesSearch: 'Inga arkiv matchar din sökning',
     originalPrintNotVisible: 'Originalutskriften syns inte – prova att nollställa filter',
+    linkedArchiveNotVisible: 'Det länkade arkivet syns inte – prova att nollställa filter',
     noArchivesYet: 'Inga arkiv än',
     prints: 'utskrifter',
     pagination: {
@@ -1351,6 +1352,14 @@ export default {
       lineItem: 'Fack {{slot}}: behöver {{required}} g, {{remaining}} g kvar',
       unknown: 'okänd',
       printAnyway: 'Skriv ut ändå',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament inte laddat',
+      confirmIntro: 'Skrivaren har inget fack med detta filament. Ladda det och tryck på Start igen, eller skriv ut ändå:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Fack {{slot}} skrev ut i {{got}}, filen kräver {{wanted}}',
+      rowTooltip: 'Spolen som facket skrev ut från har en annan färg än den i filen: ingen spole i den färgen var laddad, eller så valdes facket för hand.',
     },
     slicerAmsMapping: {
       rowBadge: 'AMS-fack sparade för denna skrivare',
@@ -4094,6 +4103,10 @@ errors: {
       noPermission: 'Du har inte behörighet att tagga filer.',
       filterLabel: 'Filtrerar efter:',
       clearAll: 'Rensa alla',
+      searchTags: 'Sök taggar',
+      noTagMatches: 'Inga taggar matchar',
+      showAllTags: 'Visa alla ({{count}})',
+      showFewerTags: 'Visa färre',
       confirmDelete: 'Ta bort tagg "{{name}}"?',
       confirmDeleteMessage: 'Detta tar bort taggen från katalogen. Filerna behåller sina andra taggar.',
       confirmDeleteInUseMessage: 'Denna tagg används på {{count}} fil(er). Om du tar bort den kommer taggen att tas bort från alla filer; själva filerna påverkas ej.',
@@ -4117,6 +4130,7 @@ errors: {
     folderIsEmpty: 'Mappen är tom',
     noFilesOutsideFolders: 'Inga filer utanför mappar',
     noFilesYet: 'Inga filer än',
+    highlightedFileNotFound: 'Filen hittades inte – den kan ha tagits bort eller så saknar du åtkomst till den',
     folderEmptyDescription: 'Ladda upp filer eller flytta filer till denna mapp för att komma igång.',
     noFilesDescription: 'Ladda upp filer för att börja organisera dina utskriftsrelaterade filer.',
     noMatchingFiles: 'Inga matchande filer',

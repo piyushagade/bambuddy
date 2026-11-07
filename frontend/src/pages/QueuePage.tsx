@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { queueItemDisplayName } from '../utils/queueItemName';
+import { queueItemThumbnailUrl } from '../utils/queueItemThumbnail';
 import { PageHeader } from '../components/PageHeader';
 import {
   Clock,
@@ -82,9 +83,11 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { QueueStatsBar } from '../components/QueueStatsBar';
 import { CompactHistoryRow } from '../components/CompactHistoryRow';
+import { ColorSubstitutionNotes } from '../components/ColorSubstitutionNotes';
 import { QueueTimelineView } from '../components/QueueTimelineView';
 import { compareQueueOrder } from '../utils/queueOrder';
 import { BatchOrdersView } from '../components/BatchOrdersView';
+import { ThumbnailHoverPreview } from '../components/ThumbnailHoverPreview';
 import { buildLoadedFilaments, type LoadedFilament } from '../hooks/useFilamentMapping';
 
 type QueueFilamentDisplay = {
@@ -123,6 +126,35 @@ function emptyMappedSlotLabel(status: PrinterStatus | undefined, trayId: number)
   return formatSlotLabel(amsId, slot, isHt, false);
 }
 
+/**
+ * The backup tray each mapped tray handed over to during the running print.
+ *
+ * With AMS Filament Backup on, a spool that runs out is replaced by an identical
+ * one in another slot, and the job's stored mapping still names the empty slot.
+ * The printer's tray log shows the switch: a tray the mapping doesn't name, right
+ * after the tray it took over from. A backup that runs out in turn hands over
+ * again, so the chain resolves to the slot the mapping named.
+ */
+function backupTrays(mapping: number[] | null | undefined, log: [number, number][] | undefined): Map<number, number> {
+  const backups = new Map<number, number>();
+  if (!mapping?.length || !log?.length) return backups;
+  const mapped = new Set(mapping.filter((tray) => tray >= 0));
+  // Backup tray -> the mapped tray it stands in for.
+  const standsInFor = new Map<number, number>();
+  let previous: number | undefined;
+  for (const [tray] of log) {
+    if (previous !== undefined && !mapped.has(tray) && !standsInFor.has(tray)) {
+      const original = mapped.has(previous) ? previous : standsInFor.get(previous);
+      if (original !== undefined) {
+        standsInFor.set(tray, original);
+        backups.set(original, tray);
+      }
+    }
+    previous = tray;
+  }
+  return backups;
+}
+
 function queueFilamentLabel(filament: QueueFilamentDisplay): string {
   return filament.slotLabel
     ? [
@@ -152,10 +184,15 @@ function resolveQueueFilaments(
   // slot. Once its live tray data is available, that is more specific than
   // either the queue override or the original slice. When the printer reports
   // that tray as empty, keep the intended colour but say the slot is empty.
+  // While the job prints, a slot whose spool ran out shows the backup spool the
+  // printer switched to instead.
+  const backups =
+    item.status === 'printing' ? backupTrays(item.ams_mapping, status?.tray_change_log) : new Map<number, number>();
   const resolveSlot = (planned: QueueFilamentDisplay): QueueFilamentDisplay => {
     const slotId = planned.slotId;
-    const mappedTrayId = slotId > 0 ? item.ams_mapping?.[slotId - 1] : undefined;
-    if (mappedTrayId == null || mappedTrayId < 0) return planned;
+    const storedTrayId = slotId > 0 ? item.ams_mapping?.[slotId - 1] : undefined;
+    if (storedTrayId == null || storedTrayId < 0) return planned;
+    const mappedTrayId = backups.get(storedTrayId) ?? storedTrayId;
     const loaded = loadedFilaments.find((filament) => filament.globalTrayId === mappedTrayId);
     if (loaded) {
       return {
@@ -748,33 +785,18 @@ function SortableQueueItem({
         )}
 
         {/* Thumbnail - use plate-specific thumbnail if plate_id is set */}
-        <div className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden">
-          {item.archive_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getArchivePlateThumbnail(item.archive_id!, item.plate_id)
-                  : api.getArchiveThumbnail(item.archive_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : item.library_file_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getLibraryFilePlateThumbnail(item.library_file_id!, item.plate_id)
-                  : api.getLibraryFileThumbnailUrl(item.library_file_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
+        <ThumbnailHoverPreview
+          src={queueItemThumbnailUrl(item)}
+          className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden"
+        >
+          {queueItemThumbnailUrl(item) ? (
+            <img src={queueItemThumbnailUrl(item)} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-bambu-gray">
               <Layers className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
           )}
-        </div>
+        </ThumbnailHoverPreview>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
@@ -793,7 +815,7 @@ function SortableQueueItem({
               </Link>
             ) : item.library_file_id ? (
               <Link
-                to={`/library?highlight=${item.library_file_id}`}
+                to={`/files?highlight=${item.library_file_id}`}
                 className="text-bambu-gray hover:text-bambu-green transition-colors flex-shrink-0"
                 title={t('queue.viewInFileManager')}
               >
@@ -1037,6 +1059,13 @@ function SortableQueueItem({
               <span>{t('queue.filamentShort.rowBadge')}</span>
             </p>
           )}
+
+          {/* Sent with a spool of another colour than the file asks for (#3279). */}
+          <ColorSubstitutionNotes
+            substitutions={item.color_substitutions}
+            t={t}
+            className="text-[10px] sm:text-xs mt-1.5 sm:mt-2"
+          />
 
           {/* Archive carries the slicer's own live-resolved AMS-slot pick
               (extra_data.slicer_ams_mapping) — reprints of this archive reuse
@@ -3109,6 +3138,7 @@ export function QueuePage() {
           archiveId={requeueItem.archive_id ?? undefined}
           libraryFileId={requeueItem.library_file_id ?? undefined}
           archiveName={queueItemDisplayName(requeueItem, (n) => t('common.plusNMore', { count: n }))}
+          preselectPlateId={requeueItem.plate_id}
           onClose={() => setRequeueItem(null)}
         />
       )}

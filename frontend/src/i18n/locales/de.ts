@@ -949,6 +949,7 @@ export default {
     noArchives: 'Keine Archive gefunden',
     noArchivesSearch: 'Keine Archive entsprechen Ihrer Suche',
     originalPrintNotVisible: 'Ursprünglicher Druck nicht sichtbar - versuchen Sie, die Filter zu löschen',
+    linkedArchiveNotVisible: 'Verknüpftes Archiv nicht sichtbar - versuchen Sie, die Filter zu löschen',
     noArchivesYet: 'Noch keine Archive',
     prints: 'Drucke',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: 'Slot {{slot}}: benoetigt {{required}} g, {{remaining}} g verbleibend',
       unknown: 'unbekannt',
       printAnyway: 'Trotzdem drucken',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament nicht geladen',
+      confirmIntro: 'Der Drucker hat kein Fach mit diesem Filament. Legen Sie es ein und drücken Sie erneut auf Start, oder drucken Sie trotzdem:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Slot {{slot}} wurde in {{got}} gedruckt, die Datei verlangt {{wanted}}',
+      rowTooltip: 'Die Spule, aus der dieser Slot gedruckt hat, hat eine andere Farbe als die in der Datei: Es war keine Spule in dieser Farbe geladen, oder der Slot wurde von Hand gewählt.',
     },
     slicerAmsMapping: {
       rowBadge: 'AMS-Steckplätze für diesen Drucker gespeichert',
@@ -4065,6 +4074,10 @@ export default {
       noPermission: 'Du hast keine Berechtigung, Dateien zu taggen.',
       filterLabel: 'Filtern nach:',
       clearAll: 'Alle entfernen',
+      searchTags: 'Tags suchen',
+      noTagMatches: 'Keine passenden Tags',
+      showAllTags: 'Alle anzeigen ({{count}})',
+      showFewerTags: 'Weniger anzeigen',
       confirmDelete: 'Tag "{{name}}" löschen?',
       confirmDeleteMessage: 'Entfernt den Tag aus dem Katalog. Dateien behalten ihre übrigen Tags.',
       confirmDeleteInUseMessage: 'Dieser Tag ist auf {{count}} Datei(en). Beim Löschen verschwindet er von allen; die Dateien selbst bleiben unverändert.',
@@ -4088,6 +4101,7 @@ export default {
     folderIsEmpty: 'Ordner ist leer',
     noFilesOutsideFolders: 'Keine Dateien außerhalb von Ordnern',
     noFilesYet: 'Noch keine Dateien',
+    highlightedFileNotFound: 'Datei nicht gefunden - sie wurde möglicherweise gelöscht oder Sie haben keinen Zugriff darauf',
     folderEmptyDescription: 'Laden Sie Dateien hoch oder verschieben Sie Dateien in diesen Ordner.',
     noFilesDescription: 'Laden Sie Dateien hoch, um Ihre Druckdateien zu organisieren.',
     noMatchingFiles: 'Keine passenden Dateien',

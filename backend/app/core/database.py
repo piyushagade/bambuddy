@@ -5381,6 +5381,11 @@ async def run_migrations(conn):
     await _safe_execute(conn, "ALTER TABLE spool ADD COLUMN last_dried_temp INTEGER")
     await _safe_execute(conn, f"ALTER TABLE spool ADD COLUMN last_dried_hours {float_type}")
 
+    # Migration: slots a queue item was sent with in another colour than the
+    # file asked for (#3279). Nullable TEXT (JSON), no default -- identical DDL
+    # on SQLite and Postgres.
+    await _safe_execute(conn, "ALTER TABLE print_queue ADD COLUMN color_substitutions TEXT")
+
 
 async def _migrate_confirm_prompt_body_template(conn) -> None:
     """Replace the one-tap verdict URLs in the outcome prompt's body (#1898).

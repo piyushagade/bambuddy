@@ -949,6 +949,7 @@ export default {
     noArchives: '未找到歸檔',
     noArchivesSearch: '沒有匹配搜尋的歸檔',
     originalPrintNotVisible: '原始列印不可見 - 請嘗試清除篩選條件',
+    linkedArchiveNotVisible: '關聯的封存不可見 - 請嘗試清除篩選條件',
     noArchivesYet: '尚無歸檔',
     prints: '條列印',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: '槽位 {{slot}}：需要 {{required}} g，剩餘 {{remaining}} g',
       unknown: '不明',
       printAnyway: '仍要列印',
+    },
+    filamentMissing: {
+      confirmTitle: '線材未裝載',
+      confirmIntro: '印表機上沒有裝有此線材的料槽。請裝載後再次按下開始，或仍要列印：',
+    },
+    colorSubstitution: {
+      rowBadge: '槽位 {{slot}} 使用 {{got}} 列印，檔案要求 {{wanted}}',
+      rowTooltip: '此槽位使用的線材顏色與檔案中的不同：未裝入該顏色的線材，或槽位為手動選擇。',
     },
     slicerAmsMapping: {
       rowBadge: '已為此印表機儲存 AMS 槽位',
@@ -4052,6 +4061,10 @@ export default {
       noPermission: '您沒有為檔案加標籤的權限。',
       filterLabel: '篩選條件：',
       clearAll: '全部清除',
+      searchTags: '搜尋標籤',
+      noTagMatches: '沒有符合的標籤',
+      showAllTags: '顯示全部（{{count}}）',
+      showFewerTags: '收合',
       confirmDelete: '刪除標籤 "{{name}}"？',
       confirmDeleteMessage: '此動作會從目錄中刪除該標籤。檔案保留其他標籤。',
       confirmDeleteInUseMessage: '此標籤存在於 {{count}} 個檔案上。刪除後所有檔案上的標籤都會消失，但檔案本身不會動。',
@@ -4075,6 +4088,7 @@ export default {
     folderIsEmpty: '資料夾為空',
     noFilesOutsideFolders: '資料夾外沒有檔案',
     noFilesYet: '尚無檔案',
+    highlightedFileNotFound: '找不到檔案 - 可能已被刪除，或您沒有存取權限',
     folderEmptyDescription: '上傳檔案或將檔案移入此資料夾以開始使用。',
     noFilesDescription: '上傳檔案以開始組織您的列印相關檔案。',
     noMatchingFiles: '沒有匹配的檔案',

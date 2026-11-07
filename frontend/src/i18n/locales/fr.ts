@@ -949,6 +949,7 @@ export default {
     noArchives: 'Aucune archive trouvée',
     noArchivesSearch: 'Aucune archive ne correspond',
     originalPrintNotVisible: 'Impression d\'origine non visible - essayez d\'effacer les filtres',
+    linkedArchiveNotVisible: 'Archive liée non visible - essayez d\'effacer les filtres',
     noArchivesYet: 'Pas encore d\'archive',
     prints: 'impressions',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: 'Emplacement {{slot}} : besoin de {{required}} g, {{remaining}} g restants',
       unknown: 'inconnu',
       printAnyway: 'Imprimer quand meme',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament non charge',
+      confirmIntro: 'L\'imprimante n\'a aucun emplacement avec ce filament. Chargez-le et appuyez de nouveau sur Demarrer, ou imprimez quand meme :',
+    },
+    colorSubstitution: {
+      rowBadge: 'L\'emplacement {{slot}} a imprimé en {{got}}, le fichier demande {{wanted}}',
+      rowTooltip: 'La bobine utilisée par cet emplacement n\'a pas la couleur du fichier : aucune bobine de cette couleur n\'était chargée, ou l\'emplacement a été choisi à la main.',
     },
     slicerAmsMapping: {
       rowBadge: 'Emplacements AMS enregistrés pour cette imprimante',
@@ -4053,6 +4062,10 @@ export default {
       noPermission: 'Vous n\'avez pas la permission d\'étiqueter les fichiers.',
       filterLabel: 'Filtré par :',
       clearAll: 'Tout effacer',
+      searchTags: 'Rechercher des étiquettes',
+      noTagMatches: 'Aucune étiquette ne correspond',
+      showAllTags: 'Tout afficher ({{count}})',
+      showFewerTags: 'Afficher moins',
       confirmDelete: 'Supprimer l\'étiquette « {{name}} » ?',
       confirmDeleteMessage: 'Cela supprime l\'étiquette du catalogue. Les fichiers conservent leurs autres étiquettes.',
       confirmDeleteInUseMessage: 'Cette étiquette est sur {{count}} fichier(s). La suppression la retire de tous ; les fichiers eux-mêmes ne sont pas touchés.',
@@ -4076,6 +4089,7 @@ export default {
     folderIsEmpty: 'Dossier vide',
     noFilesOutsideFolders: 'Aucun fichier hors des dossiers',
     noFilesYet: 'Aucun fichier',
+    highlightedFileNotFound: 'Fichier introuvable - il a peut-être été supprimé ou vous n\'y avez pas accès',
     folderEmptyDescription: 'Téléversez ou déplacez des fichiers ici.',
     noFilesDescription: 'Téléversez des fichiers pour organiser.',
     noMatchingFiles: 'Aucun fichier correspondant',

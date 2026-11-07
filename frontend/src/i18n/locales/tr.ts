@@ -949,6 +949,7 @@ export default {
     noArchives: 'Arşiv bulunamadı',
     noArchivesSearch: 'Aramanızla eşleşen arşiv yok',
     originalPrintNotVisible: 'Orijinal baskı görünmüyor - filtreleri temizlemeyi deneyin',
+    linkedArchiveNotVisible: 'Bağlı arşiv görünmüyor - filtreleri temizlemeyi deneyin',
     noArchivesYet: 'Henüz arşiv yok',
     prints: 'baskı',
     pagination: {
@@ -1341,6 +1342,14 @@ export default {
       lineItem: 'Yuva {{slot}}: {{required}} g gerekli, {{remaining}} g kaldı',
       unknown: 'bilinmiyor',
       printAnyway: 'Yine de Yazdır',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament yüklü değil',
+      confirmIntro: 'Yazıcıda bu filamente sahip bir yuva yok. Yükleyip yeniden Başlat\'a basın veya yine de yazdırın:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Yuva {{slot}} {{got}} renginde bastı, dosya {{wanted}} istiyor',
+      rowTooltip: 'Bu yuvanın kullandığı makaranın rengi dosyadakinden farklı: o renkte makara takılı değildi ya da yuva elle seçildi.',
     },
     slicerAmsMapping: {
       rowBadge: 'Bu yazıcı için kaydedilen AMS yuvaları',
@@ -4059,6 +4068,10 @@ export default {
       noPermission: 'Dosyaları etiketleme izniniz yok.',
       filterLabel: 'Filtre:',
       clearAll: 'Tümünü temizle',
+      searchTags: 'Etiket ara',
+      noTagMatches: 'Eşleşen etiket yok',
+      showAllTags: 'Tümünü göster ({{count}})',
+      showFewerTags: 'Daha az göster',
       confirmDelete: '"{{name}}" etiketi silinsin mi?',
       confirmDeleteMessage: 'Bu, etiketi katalogdan kaldırır. Dosyalar diğer etiketlerini korur.',
       confirmDeleteInUseMessage: 'Bu etiket {{count}} dosyada bulunuyor. Silmek hepsinden çıkarır; dosyaların kendisine dokunulmaz.',
@@ -4082,6 +4095,7 @@ export default {
     folderIsEmpty: 'Klasör boş',
     noFilesOutsideFolders: 'Klasör dışında dosya yok',
     noFilesYet: 'Henüz dosya yok',
+    highlightedFileNotFound: 'Dosya bulunamadı - silinmiş olabilir veya erişiminiz olmayabilir',
     folderEmptyDescription: 'Başlamak için bu klasöre dosya yükleyin veya dosyaları taşıyın.',
     noFilesDescription: 'Baskıyla ilgili dosyalarınızı organize etmeye başlamak için dosya yükleyin.',
     noMatchingFiles: 'Eşleşen dosya yok',

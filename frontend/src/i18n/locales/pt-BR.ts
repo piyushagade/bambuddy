@@ -949,6 +949,7 @@ export default {
     noArchives: 'Nenhum arquivo encontrado',
     noArchivesSearch: 'Nenhum arquivo corresponde à sua pesquisa',
     originalPrintNotVisible: 'Impressão original não visível - tente limpar os filtros',
+    linkedArchiveNotVisible: 'Arquivo vinculado não visível - tente limpar os filtros',
     noArchivesYet: 'Ainda não há arquivos',
     prints: 'impressões',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: 'Slot {{slot}}: precisa de {{required}} g, restam {{remaining}} g',
       unknown: 'desconhecido',
       printAnyway: 'Imprimir mesmo assim',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filamento nao carregado',
+      confirmIntro: 'A impressora nao tem nenhuma bandeja com este filamento. Carregue-o e pressione Iniciar novamente, ou imprima mesmo assim:',
+    },
+    colorSubstitution: {
+      rowBadge: 'O slot {{slot}} imprimiu em {{got}}, o arquivo pede {{wanted}}',
+      rowTooltip: 'O carretel usado por este slot é de uma cor diferente da do arquivo: nenhum carretel dessa cor estava carregado ou o slot foi escolhido manualmente.',
     },
     slicerAmsMapping: {
       rowBadge: 'Slots AMS salvos para esta impressora',
@@ -4052,6 +4061,10 @@ export default {
       noPermission: 'Você não tem permissão para marcar arquivos.',
       filterLabel: 'Filtrando por:',
       clearAll: 'Limpar tudo',
+      searchTags: 'Buscar tags',
+      noTagMatches: 'Nenhuma tag corresponde',
+      showAllTags: 'Mostrar todas ({{count}})',
+      showFewerTags: 'Mostrar menos',
       confirmDelete: 'Excluir a tag "{{name}}"?',
       confirmDeleteMessage: 'Isto remove a tag do catálogo. Os arquivos mantêm as outras tags.',
       confirmDeleteInUseMessage: 'Esta tag está em {{count}} arquivo(s). Excluí-la remove o chip de todos; os arquivos em si ficam intactos.',
@@ -4075,6 +4088,7 @@ export default {
     folderIsEmpty: 'A pasta está vazia',
     noFilesOutsideFolders: 'Nenhum arquivo fora das pastas',
     noFilesYet: 'Nenhum arquivo ainda',
+    highlightedFileNotFound: 'Arquivo não encontrado - ele pode ter sido excluído ou você pode não ter acesso a ele',
     folderEmptyDescription: 'Envie arquivos ou mova arquivos para esta pasta para começar.',
     noFilesDescription: 'Envie arquivos para começar a organizar seus arquivos relacionados à impressão.',
     noMatchingFiles: 'Nenhum arquivo correspondente',

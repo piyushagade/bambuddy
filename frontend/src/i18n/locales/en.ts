@@ -979,6 +979,7 @@ export default {
     noArchives: 'No archives found',
     noArchivesSearch: 'No archives match your search',
     originalPrintNotVisible: 'Original print not visible - try clearing filters',
+    linkedArchiveNotVisible: 'Linked archive not visible - try clearing filters',
     noArchivesYet: 'No archives yet',
     prints: 'prints',
     pagination: {
@@ -1376,6 +1377,14 @@ export default {
       lineItem: 'Slot {{slot}}: needs {{required}} g, {{remaining}} g remaining',
       unknown: 'unknown',
       printAnyway: 'Print Anyway',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filament not loaded',
+      confirmIntro: 'The printer has no tray with this filament. Load it and press Start again, or print anyway:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Slot {{slot}} printed in {{got}}, the file asks for {{wanted}}',
+      rowTooltip: 'The spool this slot printed from is a different colour than the one in the file: no spool of that colour was loaded, or the slot was picked by hand.',
     },
     slicerAmsMapping: {
       rowBadge: 'AMS slots saved for this printer',
@@ -4139,6 +4148,10 @@ export default {
       noPermission: 'You do not have permission to tag files.',
       filterLabel: 'Filtering by:',
       clearAll: 'Clear all',
+      searchTags: 'Search tags',
+      noTagMatches: 'No tags match',
+      showAllTags: 'Show all ({{count}})',
+      showFewerTags: 'Show fewer',
       confirmDelete: 'Delete tag "{{name}}"?',
       confirmDeleteMessage: 'This removes the tag from the catalog. Files keep their other tags.',
       confirmDeleteInUseMessage: 'This tag is on {{count}} file(s). Deleting removes the chip from all of them; files themselves are untouched.',
@@ -4162,6 +4175,7 @@ export default {
     folderIsEmpty: 'Folder is empty',
     noFilesOutsideFolders: 'No files outside folders',
     noFilesYet: 'No files yet',
+    highlightedFileNotFound: 'File not found - it may have been deleted or you may not have access to it',
     folderEmptyDescription: 'Upload files or move files into this folder to get started.',
     noFilesDescription: 'Upload files to start organizing your print-related files.',
     noMatchingFiles: 'No matching files',

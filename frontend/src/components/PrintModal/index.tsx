@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Layers, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -97,6 +97,7 @@ export function PrintModal({
   archiveName,
   queueItem,
   initialSelectedPrinterIds,
+  preselectPlateId,
   onClose,
   onSuccess,
   projectId,
@@ -159,6 +160,9 @@ export function PrintModal({
   const [selectedPlates, setSelectedPlates] = useState<Set<number>>(() => {
     if (mode === 'edit-queue-item' && queueItem?.plate_id != null) {
       return new Set([queueItem.plate_id]);
+    }
+    if (mode === 'create' && !isCrossModel && preselectPlateId != null) {
+      return new Set([preselectPlateId]);
     }
     return new Set();
   });
@@ -747,11 +751,19 @@ export function PrintModal({
     slotSpoolsPerPrinter,
   );
 
-  // Auto-select first plate when plates load (single or multi-plate)
+  // Auto-select first plate when plates load (single or multi-plate). A plate
+  // chosen before the plates were known (a reprint's or a queue item's) that
+  // the file doesn't have, because the file changed since, is dropped: left
+  // selected, it would be printed or keep the selection from ever falling
+  // back to a plate the file has (#3395).
   useEffect(() => {
-    if (platesData?.plates && platesData.plates.length >= 1 && selectedPlates.size === 0) {
-      setSelectedPlates(new Set([platesData.plates[0].index]));
-    }
+    const list = platesData?.plates;
+    if (!list?.length) return;
+    setSelectedPlates((prev) => {
+      const kept = [...prev].filter((index) => list.some((p) => p.index === index));
+      if (kept.length > 0 && kept.length === prev.size) return prev;
+      return new Set(kept.length > 0 ? kept : [list[0].index]);
+    });
   }, [platesData, selectedPlates.size]);
 
   // Cross-model: the candidate list owns plate choice, and `platesData` is the
@@ -875,6 +887,19 @@ export function PrintModal({
 
   const isMultiPlate = platesData?.is_multi_plate ?? false;
   const plates = platesData?.plates ?? [];
+  // The plates that will print, beside the buttons: in a long plate list the
+  // selected card can be far out of view (#3395).
+  const selectedPlatesSummary =
+    !isCrossModel && isMultiPlate && plates.length > 1
+      ? plates
+          .filter((p) => selectedPlates.has(p.index))
+          .map((p) => {
+            const label = t('printModal.plateN', 'Plate {{n}}', { n: p.index });
+            const name = p.name?.trim();
+            return name && name !== label ? `${label} – ${name}` : label;
+          })
+          .join(', ')
+      : '';
 
   const filamentWarningMessage = useMemo(() => {
     if (!filamentWarningItems || filamentWarningItems.length === 0) return '';
@@ -2193,6 +2218,16 @@ export function PrintModal({
               </div>
             )}
 
+            {selectedPlatesSummary && (
+              <p
+                className="flex items-center gap-1.5 text-sm text-bambu-gray min-w-0"
+                title={selectedPlatesSummary}
+                data-testid="selected-plates-summary"
+              >
+                <Layers className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">{selectedPlatesSummary}</span>
+              </p>
+            )}
             </div>
 
             {/* Footer */}

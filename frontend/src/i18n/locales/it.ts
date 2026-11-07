@@ -949,6 +949,7 @@ export default {
     noArchives: 'Nessun archivio trovato',
     noArchivesSearch: 'Nessun archivio corrisponde alla ricerca',
     originalPrintNotVisible: 'Stampa originale non visibile - prova a rimuovere i filtri',
+    linkedArchiveNotVisible: 'Archivio collegato non visibile - prova a rimuovere i filtri',
     noArchivesYet: 'Nessun archivio ancora',
     prints: 'stampe',
     pagination: {
@@ -1339,6 +1340,14 @@ export default {
       lineItem: 'Slot {{slot}}: servono {{required}} g, rimangono {{remaining}} g',
       unknown: 'sconosciuto',
       printAnyway: 'Stampa comunque',
+    },
+    filamentMissing: {
+      confirmTitle: 'Filamento non caricato',
+      confirmIntro: 'La stampante non ha nessuno slot con questo filamento. Caricalo e premi di nuovo Avvia, oppure stampa comunque:',
+    },
+    colorSubstitution: {
+      rowBadge: 'Lo slot {{slot}} ha stampato in {{got}}, il file richiede {{wanted}}',
+      rowTooltip: 'La bobina usata da questo slot è di un colore diverso da quello del file: non era caricata nessuna bobina di quel colore oppure lo slot è stato scelto a mano.',
     },
     slicerAmsMapping: {
       rowBadge: 'Slot AMS salvati per questa stampante',
@@ -4052,6 +4061,10 @@ export default {
       noPermission: 'Non hai il permesso per etichettare i file.',
       filterLabel: 'Filtraggio per:',
       clearAll: 'Pulisci tutto',
+      searchTags: 'Cerca tag',
+      noTagMatches: 'Nessun tag corrisponde',
+      showAllTags: 'Mostra tutti ({{count}})',
+      showFewerTags: 'Mostra meno',
       confirmDelete: 'Eliminare l\'etichetta "{{name}}"?',
       confirmDeleteMessage: 'Rimuove l\'etichetta dal catalogo. I file mantengono le altre etichette.',
       confirmDeleteInUseMessage: 'Questa etichetta è su {{count}} file. L\'eliminazione la rimuove da tutti; i file non vengono toccati.',
@@ -4075,6 +4088,7 @@ export default {
     folderIsEmpty: 'La cartella e vuota',
     noFilesOutsideFolders: 'Nessun file fuori dalle cartelle',
     noFilesYet: 'Nessun file ancora',
+    highlightedFileNotFound: 'File non trovato - potrebbe essere stato eliminato o potresti non avervi accesso',
     folderEmptyDescription: 'Carica file o sposta file in questa cartella per iniziare.',
     noFilesDescription: 'Carica file per iniziare a organizzare i file di stampa.',
     noMatchingFiles: 'Nessun file corrispondente',
