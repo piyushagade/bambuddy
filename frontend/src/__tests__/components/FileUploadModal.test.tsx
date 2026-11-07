@@ -651,4 +651,12 @@ describe('FileUploadModal', () => {
       });
     });
   });
+
+  describe('project selection popup before upload', () => {
+    it('does not show project selection popup when projectId is already provided', () => {
+      render(<FileUploadModal {...defaultProps} projectId={42} />);
+      expect(screen.getByText('Upload Files')).toBeInTheDocument();
+      expect(screen.queryByText('Select Project')).not.toBeInTheDocument();
+    });
+  });
 });

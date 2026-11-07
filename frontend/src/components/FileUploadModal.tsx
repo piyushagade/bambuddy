@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import {
   Upload,
   X,
@@ -10,9 +11,12 @@ import {
   Archive as ArchiveIcon,
   Printer,
   Image,
+  Briefcase,
+  AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api/client';
 import type { LibraryFileUploadResponse } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from './Button';
 
 interface UploadFile {
@@ -26,6 +30,7 @@ interface UploadFile {
 
 interface FileUploadModalProps {
   folderId: number | null;
+  projectId?: number | null;
   onClose: () => void;
   onUploadComplete: () => void;
   /** Called after each file is successfully uploaded with its response data. Return a string to show an error and prevent modal from closing. */
@@ -40,8 +45,33 @@ interface FileUploadModalProps {
   initialFiles?: File[];
 }
 
-export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUploaded, autoUpload, validateFile, accept, initialFiles }: FileUploadModalProps) {
+export function FileUploadModal({
+  folderId,
+  projectId,
+  onClose,
+  onUploadComplete,
+  onFileUploaded,
+  autoUpload,
+  validateFile,
+  accept,
+  initialFiles,
+}: FileUploadModalProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const requiresProject = Boolean(
+    user &&
+      !user.is_admin &&
+      !user.project_waiver &&
+      (user.requires_project || (user.groups ?? []).some((g) => !g.is_expired && g.require_project)),
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(projectId ?? null);
+  const [projectConfirmed, setProjectConfirmed] = useState<boolean>(() => projectId != null || !requiresProject);
+  const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
+    queryKey: ['projects', 'active'],
+    queryFn: () => api.getProjects('active'),
+    enabled: requiresProject && !projectConfirmed,
+  });
+
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -77,8 +107,9 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
     setFiles((prev) => prev.map((f) => (f.file === file ? { ...f, ...update } : f)));
   };
 
-  const uploadFiles = async (filesToUpload: UploadFile[]) => {
+  const uploadFiles = async (filesToUpload: UploadFile[], overrideProjectId?: number | null) => {
     setIsUploading(true);
+    const effectiveProjectId = overrideProjectId !== undefined ? overrideProjectId : selectedProjectId;
 
     for (const uf of filesToUpload) {
       if (uf.status !== 'pending') continue;
@@ -87,16 +118,32 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
 
       try {
         if (uf.isZip) {
-          const result = await api.extractZipFile(uf.file, folderId, preserveZipStructure, createFolderFromZip, generateStlThumbnails);
+          const result = await api.extractZipFile(
+            uf.file,
+            folderId,
+            preserveZipStructure,
+            createFolderFromZip,
+            generateStlThumbnails,
+            effectiveProjectId,
+          );
           updateFileStatus(uf.file, {
             status: result.errors.length > 0 && result.extracted === 0 ? 'error' : 'success',
             extractedCount: result.extracted,
             error: result.errors.length > 0 ? t('fileManager.zipFilesFailed', '{{count}} files failed', { count: result.errors.length }) : undefined,
           });
         } else {
-          const result = await api.uploadLibraryFile(uf.file, folderId, generateStlThumbnails);
+          const result = await api.uploadLibraryFile(
+            uf.file,
+            folderId,
+            generateStlThumbnails,
+            effectiveProjectId,
+          );
           updateFileStatus(uf.file, { status: 'success' });
-          const error = onFileUploaded?.(result);
+          const error = onFileUploaded?.(
+            effectiveProjectId != null && result.project_id === undefined
+              ? { ...result, project_id: effectiveProjectId }
+              : result,
+          );
           if (error) {
             setUploadError(error);
             setFiles([]);
@@ -127,7 +174,7 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
     });
   };
 
-  const addFiles = (newFiles: File[]) => {
+  const addFiles = (newFiles: File[], overrideProjectId?: number | null) => {
     setUploadError(null);
     if (validateFile) {
       for (const file of newFiles) {
@@ -147,7 +194,7 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
     setFiles((prev) => [...prev, ...toUpload]);
 
     if (autoUpload && newFiles.length > 0) {
-      uploadFiles(toUpload);
+      uploadFiles(toUpload, overrideProjectId);
     }
   };
 
@@ -155,17 +202,98 @@ export function FileUploadModal({ folderId, onClose, onUploadComplete, onFileUpl
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Seed once on mount when the parent passed initialFiles (page-wide drop).
+  // Seed once when project selection is confirmed (or immediately when no project
+  // selection popup is needed) and the parent passed initialFiles (page-wide drop).
   // The ref/list shape means a subsequent re-render with the same files won't
   // double-add — only the first non-empty initialFiles arg ever flows through.
   const seededInitialRef = useRef(false);
   useEffect(() => {
+    if (!projectConfirmed) return;
     if (seededInitialRef.current) return;
     if (!initialFiles || initialFiles.length === 0) return;
     seededInitialRef.current = true;
-    addFiles(initialFiles);
+    addFiles(initialFiles, selectedProjectId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [projectConfirmed]);
+
+  if (requiresProject && !projectConfirmed) {
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
+          <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-bambu-green" />
+              Select Project
+            </h2>
+            <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
+              <X className="w-5 h-5 text-bambu-gray" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+              <span>
+                Your group requires all uploaded models to belong to a project. Select a project below to continue.
+              </span>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
+              {loadingProjects ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+                </div>
+              ) : activeProjects.length > 0 ? (
+                activeProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => setSelectedProjectId(project.id)}
+                    className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
+                      selectedProjectId === project.id
+                        ? 'bg-bambu-green/20 text-bambu-green'
+                        : 'hover:bg-bambu-dark-tertiary text-white'
+                    }`}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: project.color || '#00ae42' }}
+                    />
+                    <span className="truncate flex-1">{project.name}</span>
+                    {project.created_by_username && project.created_by_id !== user?.id && (
+                      <span className="text-xs text-bambu-gray flex-shrink-0">
+                        {project.created_by_username}
+                      </span>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <p className="text-sm text-bambu-gray text-center py-4">
+                  No active projects found. Create a project on the Projects page or ask an instructor/teammate to share one with you.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedProjectId != null) {
+                  setProjectConfirmed(true);
+                }
+              }}
+              disabled={selectedProjectId == null || loadingProjects}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const hasZipFiles = files.some((f) => f.isZip && f.status === 'pending');
   const hasStlFiles = files.some((f) => f.file.name.toLowerCase().endsWith('.stl') && f.status === 'pending');

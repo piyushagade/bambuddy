@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, FolderKanban, Layers, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Layers, Loader2, Pencil, Printer, ThumbsUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -383,11 +383,6 @@ export function PrintModal({
       !user.project_waiver &&
       (user.requires_project || (user.groups ?? []).some((g) => !g.is_expired && g.require_project)),
   );
-
-  const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
-    queryKey: ['projects', 'active'],
-    queryFn: () => api.getProjects('active'),
-  });
 
   const printableCostCenters = useMemo(
     () => (myCostCenters || []).filter((center: CostCenterSummary) => center.can_print && center.is_active),
@@ -1683,7 +1678,7 @@ export function PrintModal({
 
     // When the user's group requires a project association (and the user does not
     // have an admin waiver), require an active project selection before queueing.
-    if (requiresProject && (loadingProjects || selectedProjectId == null)) return false;
+    if (requiresProject && selectedProjectId == null) return false;
 
     // Need valid printer/model selection
     if (assignmentMode === 'printer' && selectedPrinters.length === 0) return false;
@@ -1731,7 +1726,6 @@ export function PrintModal({
     loadingCostCenters,
     selectedCostCenter,
     requiresProject,
-    loadingProjects,
     selectedProjectId,
   ]);
 
@@ -2175,69 +2169,6 @@ export function PrintModal({
                 showDualNozzleOptions={showDualNozzleOptions}
               />
             )}
-
-            {/* Project association selector */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label htmlFor="printProjectSelect" className="text-sm font-medium text-white flex items-center gap-1.5">
-                  <FolderKanban className="w-4 h-4 text-bambu-green" />
-                  <span>Project</span>
-                  {requiresProject ? (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium">
-                      Required *
-                    </span>
-                  ) : (
-                    <span className="text-xs text-bambu-gray font-normal">(optional)</span>
-                  )}
-                </label>
-              </div>
-              {requiresProject && !loadingProjects && activeProjects.length === 0 ? (
-                <div
-                  role="alert"
-                  className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2"
-                >
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
-                  <span>
-                    A project association is required to print, but you do not have any active projects yet. Create a project on the <strong>Projects</strong> page or ask a teammate/instructor to share one with you.
-                  </span>
-                </div>
-              ) : (
-                <select
-                  id="printProjectSelect"
-                  value={selectedProjectId ?? ''}
-                  onChange={(e) => setSelectedProjectId(e.target.value ? Number(e.target.value) : null)}
-                  disabled={loadingProjects}
-                  required={requiresProject}
-                  className={`w-full px-3 py-2 text-sm bg-bambu-dark border rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-bambu-green ${
-                    requiresProject && selectedProjectId == null
-                      ? 'border-amber-500/60'
-                      : 'border-bambu-dark-tertiary'
-                  }`}
-                >
-                  <option value="">
-                    {loadingProjects
-                      ? 'Loading projects...'
-                      : requiresProject
-                        ? 'Select a project to attach & print (required)...'
-                        : 'No project'}
-                  </option>
-                  {activeProjects.map((proj) => (
-                    <option key={proj.id} value={proj.id}>
-                      {proj.name}
-                      {proj.created_by_username && proj.created_by_id !== user?.id ? ` (${proj.created_by_username})` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {requiresProject && !loadingProjects && activeProjects.length > 0 && selectedProjectId == null && (
-                <p className="text-xs text-amber-300 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                  <span>
-                    This model is not attached to a project. Your group requires all printed models to belong to a project — select one above to attach this model and print.
-                  </span>
-                </p>
-              )}
-            </div>
 
             {billingEnabled && printableCostCenters.length > 0 && (
               <CostCenterSelect

@@ -8214,12 +8214,14 @@ export const api = {
   uploadLibraryFile: async (
     file: File,
     folderId?: number | null,
-    generateStlThumbnails: boolean = true
+    generateStlThumbnails: boolean = true,
+    projectId?: number | null
   ): Promise<LibraryFileUploadResponse> => {
     const formData = new FormData();
     formData.append('file', file);
     const params = new URLSearchParams();
     if (folderId) params.set('folder_id', String(folderId));
+    if (projectId) params.set('project_id', String(projectId));
     params.set('generate_stl_thumbnails', String(generateStlThumbnails));
     const headers: Record<string, string> = {};
     if (authToken) {
@@ -8241,12 +8243,14 @@ export const api = {
     folderId?: number | null,
     preserveStructure: boolean = true,
     createFolderFromZip: boolean = false,
-    generateStlThumbnails: boolean = true
+    generateStlThumbnails: boolean = true,
+    projectId?: number | null
   ): Promise<ZipExtractResponse> => {
     const formData = new FormData();
     formData.append('file', file);
     const params = new URLSearchParams();
     if (folderId) params.set('folder_id', String(folderId));
+    if (projectId) params.set('project_id', String(projectId));
     params.set('preserve_structure', String(preserveStructure));
     params.set('create_folder_from_zip', String(createFolderFromZip));
     params.set('generate_stl_thumbnails', String(generateStlThumbnails));
@@ -9181,6 +9185,7 @@ export interface LibraryFileUploadResponse {
   thumbnail_path: string | null;
   duplicate_of: number | null;
   metadata: Record<string, unknown> | null;
+  project_id?: number | null;
 }
 
 export interface LibraryStats {

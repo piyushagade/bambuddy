@@ -4381,6 +4381,7 @@ export function FileManagerPage() {
       {showUploadModal && (
         <FileUploadModal
           folderId={selectedFolderId}
+          projectId={selectedFolder?.project_id ?? null}
           onClose={() => {
             setShowUploadModal(false);
             setDroppedFiles([]);

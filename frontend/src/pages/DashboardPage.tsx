@@ -137,6 +137,7 @@ export function DashboardPage() {
   const [printTarget, setPrintTarget] = useState<{
     libraryFileId?: number;
     archiveId?: number;
+    projectId?: number | null;
     name: string;
   } | null>(null);
   const [clearPlateTarget, setClearPlateTarget] = useState<{
@@ -1810,6 +1811,7 @@ export function DashboardPage() {
                             onClick={() =>
                               setPrintTarget({
                                 libraryFileId: file.id,
+                                projectId: file.project_id ?? null,
                                 name: file.print_name || file.filename,
                               })
                             }
@@ -2123,6 +2125,7 @@ export function DashboardPage() {
                           onClick={() =>
                             setPrintTarget({
                               archiveId: arch.id,
+                              projectId: arch.project_id ?? null,
                               name: arch.print_name || arch.filename,
                             })
                           }
@@ -2179,6 +2182,7 @@ export function DashboardPage() {
           mode="create"
           archiveId={printTarget.archiveId}
           libraryFileId={printTarget.libraryFileId}
+          projectId={printTarget.projectId ?? undefined}
           archiveName={printTarget.name}
           onClose={() => setPrintTarget(null)}
         />

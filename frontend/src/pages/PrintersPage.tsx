@@ -2178,10 +2178,11 @@ function PrinterCard({
   const [showResumeConfirm, setShowResumeConfirm] = useState(false);
   const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
   const [showUploadForPrint, setShowUploadForPrint] = useState(false);
+  const [droppedPrintFiles, setDroppedPrintFiles] = useState<File[]>([]);
   const [showPrinterInfo, setShowPrinterInfo] = useState(false);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
   const closePrinterInfo = useCallback(() => setShowPrinterInfo(false), []);
-  const [printAfterUpload, setPrintAfterUpload] = useState<{ id: number; filename: string } | null>(null);
+  const [printAfterUpload, setPrintAfterUpload] = useState<{ id: number; filename: string; projectId?: number | null } | null>(null);
   // AMS drying popover state: which AMS unit has the popover open
   const [dryingPopoverAmsId, setDryingPopoverAmsId] = useState<number | null>(null);
   const [dryingPopoverModuleType, setDryingPopoverModuleType] = useState<string>('n3f');
@@ -2245,7 +2246,7 @@ function PrinterCard({
   // a new identity and rearms the timeout below.
   const [dryStartWatch, setDryStartWatch] = useState<{ amsId: number } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [isDropUploading, setIsDropUploading] = useState(false);
+  const [isDropUploading] = useState(false);
   const printerActionsMenuRef = useRef<HTMLDivElement>(null);
   // Viewport coordinates, because the camera mode menu is a `ContextMenu` at
   // `position: fixed`. The button sits in the card's footer, so a menu drawn
@@ -3607,28 +3608,8 @@ function PrinterCard({
       return;
     }
 
-    setIsDropUploading(true);
-    try {
-      const result = await api.uploadLibraryFile(file, null);
-
-      // Check printer compatibility if sliced_for_model is available in metadata
-      const slicedFor = (result.metadata as Record<string, unknown>)?.sliced_for_model as string | undefined;
-      const printerModel = mapModelCode(printer.model);
-      if (slicedFor && printerModel && slicedFor.toLowerCase() !== printerModel.toLowerCase()) {
-        await api.deleteLibraryFile(result.id).catch(() => {});
-        showToast(
-          t('printers.incompatibleFile', 'This file was sliced for {{slicedFor}}, but this printer is a {{printerModel}}', { slicedFor, printerModel }),
-          'error'
-        );
-        return;
-      }
-
-      setPrintAfterUpload({ id: result.id, filename: result.filename });
-    } catch {
-      showToast(t('common.uploadFailed', 'Upload failed'), 'error');
-    } finally {
-      setIsDropUploading(false);
-    }
+    setDroppedPrintFiles([file]);
+    setShowUploadForPrint(true);
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -6966,10 +6947,14 @@ function PrinterCard({
       {showUploadForPrint && (
         <FileUploadModal
           folderId={null}
-          onClose={() => setShowUploadForPrint(false)}
+          onClose={() => {
+            setShowUploadForPrint(false);
+            setDroppedPrintFiles([]);
+          }}
           onUploadComplete={() => {}}
           autoUpload
           accept=".gcode,.3mf"
+          initialFiles={droppedPrintFiles.length > 0 ? droppedPrintFiles : undefined}
           validateFile={(file) => {
             const lower = file.name.toLowerCase();
             if (!lower.endsWith('.gcode') && !lower.includes('.gcode.')) {
@@ -6984,7 +6969,11 @@ function PrinterCard({
               api.deleteLibraryFile(uploadedFile.id).catch(() => {});
               return t('printers.incompatibleFile', 'This file was sliced for {{slicedFor}}, but this printer is a {{printerModel}}', { slicedFor, printerModel });
             }
-            setPrintAfterUpload({ id: uploadedFile.id, filename: uploadedFile.filename });
+            setPrintAfterUpload({
+              id: uploadedFile.id,
+              filename: uploadedFile.filename,
+              projectId: uploadedFile.project_id ?? null,
+            });
           }}
         />
       )}
@@ -6995,6 +6984,7 @@ function PrinterCard({
           mode="create"
           libraryFileId={printAfterUpload.id}
           archiveName={printAfterUpload.filename}
+          projectId={printAfterUpload.projectId ?? undefined}
           initialSelectedPrinterIds={[printer.id]}
           onClose={() => setPrintAfterUpload(null)}
           onSuccess={() => setPrintAfterUpload(null)}

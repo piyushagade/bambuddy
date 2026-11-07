@@ -3240,6 +3240,7 @@ async def upload_file(
             thumbnail_path=library_file.thumbnail_path,
             duplicate_of=duplicate_of,
             metadata=library_file.file_metadata,
+            project_id=library_file.project_id,
         )
     except HTTPException:
         raise
@@ -3252,6 +3253,7 @@ async def upload_file(
 async def extract_zip_file(
     file: UploadFile = File(...),
     folder_id: int | None = Query(default=None),
+    project_id: int | None = Query(default=None),
     preserve_structure: bool = Query(default=True),
     create_folder_from_zip: bool = Query(default=False),
     generate_stl_thumbnails: bool = Query(default=True),
@@ -3263,6 +3265,7 @@ async def extract_zip_file(
     Args:
         file: The ZIP file to extract
         folder_id: Target folder ID (None = root)
+        project_id: Optional project ID to associate extracted files/folders with
         preserve_structure: If True, recreate folder structure from ZIP; if False, extract all files flat
         create_folder_from_zip: If True, create a folder named after the ZIP file and extract into it
         generate_stl_thumbnails: If True, generate thumbnails for STL files
@@ -3272,6 +3275,7 @@ async def extract_zip_file(
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
 
+    target_folder = None
     # Verify target folder exists if specified
     if folder_id is not None:
         folder_result = await db.execute(select(LibraryFolder).where(LibraryFolder.id == folder_id))
@@ -3298,6 +3302,12 @@ async def extract_zip_file(
                     "Extract the ZIP on the external mount and run 'Scan External Folder' instead."
                 ),
             )
+
+    effective_upload_project_id = project_id
+    if effective_upload_project_id is None and target_folder and target_folder.project_id:
+        effective_upload_project_id = target_folder.project_id
+    if effective_upload_project_id is not None:
+        await get_accessible_project(db, current_user, effective_upload_project_id, require_write=False)
 
     # Save ZIP to temp file
     try:
@@ -3337,6 +3347,7 @@ async def extract_zip_file(
             new_folder = LibraryFolder(
                 name=zip_folder_name,
                 parent_id=folder_id,
+                project_id=effective_upload_project_id,
                 created_by_id=current_user.id if current_user else None,
             )
             db.add(new_folder)
@@ -3397,6 +3408,7 @@ async def extract_zip_file(
                                         new_folder = LibraryFolder(
                                             name=part,
                                             parent_id=current_parent,
+                                            project_id=effective_upload_project_id,
                                             created_by_id=current_user.id if current_user else None,
                                         )
                                         db.add(new_folder)
@@ -3502,6 +3514,7 @@ async def extract_zip_file(
                     # Create database entry (store relative paths for portability)
                     library_file = LibraryFile(
                         folder_id=target_folder_id,
+                        project_id=effective_upload_project_id,
                         filename=filename,
                         file_path=to_relative_path(file_path),
                         file_type=file_type,
