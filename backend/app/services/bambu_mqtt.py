@@ -1423,6 +1423,7 @@ class BambuMQTTClient:
         self._eop_probe_last: dict = {}
         self._last_valid_progress: float = 0.0  # Last non-zero progress (firmware resets on cancel)
         self._last_valid_layer_num: int = 0  # Last non-zero layer (firmware resets on cancel)
+        self._dismissed_hms_codes: set[str] = set()  # HMS/print_error codes dismissed via Clear Errors
         # The subtask_id minted for the most recent start_print() command. The
         # printer echoes it back in status, but often not within the first few
         # seconds — so on_print_start uses this as the id source when the
@@ -5053,6 +5054,7 @@ class BambuMQTTClient:
             logger.debug("[%s] HMS data received: %s", self.serial_number, hms_list)
             self.state.hms_errors = []
             verify_failed = False
+            current_hms_codes: set[str] = set()
             if isinstance(hms_list, list):
                 for hms in hms_list:
                     if isinstance(hms, dict):
@@ -5098,6 +5100,10 @@ class BambuMQTTClient:
                         if full_code == HMS_MQTT_VERIFY_FAILED:
                             verify_failed = True
                         actions = get_actions_for_error_code(self.serial_number[:3], full_code)
+                        current_hms_codes.add(full_code)
+                        current_hms_codes.add(short_code)
+                        if full_code in self._dismissed_hms_codes or short_code in self._dismissed_hms_codes:
+                            continue
                         if not actions:
                             actions = get_actions_for_error_code(self.serial_number[:3], short_code.replace("_", ""))
                         self.state.hms_errors.append(
@@ -5114,6 +5120,10 @@ class BambuMQTTClient:
                                 description=describe_fault(full_code, self.serial_number[:3]),
                             )
                         )
+            if self._dismissed_hms_codes:
+                self._dismissed_hms_codes = {
+                    c for c in self._dismissed_hms_codes if len(c) != 16 or c in current_hms_codes
+                }
             self._apply_mqtt_verify_state(verify_failed)
 
         # Parse print_error - this is a different error format than HMS
@@ -5123,6 +5133,8 @@ class BambuMQTTClient:
         # Format on printer screen: [0500-8061] -> short code: 0500_8061
         if "print_error" in data:
             print_error = data["print_error"]
+            if not print_error and self._dismissed_hms_codes:
+                self._dismissed_hms_codes = {c for c in self._dismissed_hms_codes if len(c) == 16}
             if print_error and print_error != 0:
                 # Extract components: MMMMEEEE -> MMMM_EEEE
                 module = (print_error >> 16) & 0xFFFF  # High 16 bits (e.g., 0x0500)
@@ -5146,7 +5158,11 @@ class BambuMQTTClient:
                     # Same user-action filter as the hms[] branch above — print_error
                     # carries the same cancel echoes (e.g. 0500_400E) and they must
                     # not surface as faults on the printer card.
-                    if short_code in _HMS_USER_ACTION_CODES:
+                    if (
+                        short_code in _HMS_USER_ACTION_CODES
+                        or short_code in self._dismissed_hms_codes
+                        or f"{print_error:08X}" in self._dismissed_hms_codes
+                    ):
                         pass  # cancel echo — silently drop
                     else:
                         # Only add if not already in HMS errors (avoid duplicates)
@@ -5590,6 +5606,7 @@ class BambuMQTTClient:
 
         if is_new_print or is_file_change:
             # Clear any old HMS errors when a new print starts
+            self._dismissed_hms_codes.clear()
             self.state.hms_errors = []
             # Reset layer tracking for new print (needed for layer-based timelapse)
             self.state.layer_num = 0
@@ -7360,9 +7377,21 @@ class BambuMQTTClient:
             logger.warning("[%s] Cannot clear HMS errors: not connected", self.serial_number)
             return False
 
-        command = {"print": {"command": "clean_print_error", "sequence_id": "0"}}
+        for err in self.state.hms_errors:
+            if err.full_code:
+                self._dismissed_hms_codes.add(err.full_code)
+            err_num = int(err.code.replace("0x", ""), 16) if err.code else 0
+            err_mod = (err.attr >> 16) & 0xFFFF
+            if err_mod or err_num:
+                self._dismissed_hms_codes.add(f"{err_mod:04X}_{err_num:04X}")
+
+        command: dict[str, Any] = {"print": {"command": "clean_print_error", "sequence_id": "0"}}
+        if self.state.subtask_id:
+            command["print"]["subtask_id"] = str(self.state.subtask_id)
         self._client.publish(self.topic_publish, json.dumps(command), qos=1)
         self.state.hms_errors = []
+        if self.on_state_change:
+            self.on_state_change(self.state)
         logger.info("[%s] Sent clear HMS errors command", self.serial_number)
         return True
 

@@ -125,6 +125,12 @@ export function HMSErrorModal({ printerName, errors, onClose, printerId, hasPerm
   const clearMutation = useMutation({
     mutationFn: () => api.clearHMSErrors(printerId),
     onSuccess: () => {
+      queryClient.setQueryData(['printerStatus', printerId], (old: Record<string, unknown> | undefined) => {
+        if (!old) return old;
+        return { ...old, hms_errors: [] };
+      });
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printerId] });
+      queryClient.invalidateQueries({ queryKey: ['printer-status', printerId] });
       showToast(t('hmsErrors.clearSuccess'), 'success');
       onClose();
     },
