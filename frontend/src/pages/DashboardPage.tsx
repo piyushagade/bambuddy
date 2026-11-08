@@ -1974,21 +1974,21 @@ export function DashboardPage() {
                         />
                       </div>
 
-                      {/* Row 3 (Last Row): AMS assignment pill(s) + Load & Edit buttons */}
+                      {/* Row 3 (Last Row): AMS assignment info + Load & Edit buttons */}
                       <div className="flex items-center justify-between gap-2 pt-0.5">
-                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
                           {assignments.length > 0 ? (
                             assignments.map((a) => (
                               <span
                                 key={a.id}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-bambu-dark-secondary text-gray-300 border border-bambu-dark-tertiary truncate"
+                                className="inline-flex items-center gap-1 text-[11px] text-bambu-gray truncate"
                               >
-                                <PrinterIcon className="w-2.5 h-2.5 text-bambu-gray shrink-0" />
+                                <PrinterIcon className="w-3 h-3 text-bambu-gray/70 shrink-0" />
                                 {a.printer_name || `#${a.printer_id}`} · {getAmsSlotLabel(a.ams_id, a.tray_id)}
                               </span>
                             ))
                           ) : (
-                            <span className="text-[10px] text-bambu-gray/60">
+                            <span className="text-[11px] text-bambu-gray/60">
                               {spool.storage_location || t('dashboard.spools.unassigned', 'Unloaded')}
                             </span>
                           )}
