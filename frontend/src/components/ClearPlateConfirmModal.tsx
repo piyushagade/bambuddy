@@ -5,7 +5,6 @@ import {
   Camera,
   CheckCircle2,
   FileText,
-  Lightbulb,
   Loader2,
   RefreshCw,
   User as UserIcon,
@@ -297,12 +296,6 @@ export function ClearPlateConfirmModal({
               <div className="flex items-center gap-2 text-xs font-medium text-bambu-gray">
                 <Camera className="w-3.5 h-3.5 text-bambu-green" />
                 <span>{t('printers.plateStatus.latestSnapshot', 'Latest Camera Snapshot')}</span>
-                {(lightTurnedOn || chamberLightOn) && connected && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-[10px]">
-                    <Lightbulb className="w-3 h-3" />
-                    {t('printers.plateStatus.lightOn', 'Chamber Light On')}
-                  </span>
-                )}
               </div>
               {connected && canViewCamera && (
                 <button
