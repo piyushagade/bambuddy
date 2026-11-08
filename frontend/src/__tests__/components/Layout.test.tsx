@@ -625,35 +625,8 @@ describe('Layout', () => {
     });
   });
 
-  describe('update banner suppression for HA addon', () => {
-    // HA Supervisor surfaces its own update notification natively in the HA
-    // UI, so the in-app banner would be duplicate noise that links to a page
-    // that just says "update via HA". Suppress it for HA addon deployments.
-    it('hides the update-available banner when running as an HA addon', async () => {
-      server.use(
-        http.get('/api/v1/updates/check', () => {
-          return HttpResponse.json({
-            update_available: true,
-            current_version: '0.2.4',
-            latest_version: '0.2.5',
-            is_docker: true,
-            is_ha_addon: true,
-            update_method: 'ha_addon',
-          });
-        }),
-      );
-
-      render(<Layout />);
-
-      await waitFor(() => {
-        const sidebar = document.querySelector('aside');
-        expect(sidebar).toBeInTheDocument();
-      });
-
-      expect(document.body.textContent).not.toContain('Update available');
-    });
-
-    it('still shows the update-available banner for plain Docker deployments', async () => {
+  describe('upstream update notifications removed', () => {
+    it('does not show update banner or sidebar update action even when upstream update is reported', async () => {
       server.use(
         http.get('/api/v1/updates/check', () => {
           return HttpResponse.json({
@@ -670,8 +643,13 @@ describe('Layout', () => {
       render(<Layout />);
 
       await waitFor(() => {
-        expect(document.body.textContent).toContain('0.2.5');
+        const sidebar = document.querySelector('aside');
+        expect(sidebar).toBeInTheDocument();
       });
+
+      expect(document.body.textContent).not.toContain('Update available');
+      expect(document.body.textContent).not.toContain('View update');
+      expect(document.body.textContent).not.toContain('0.2.5');
     });
   });
 

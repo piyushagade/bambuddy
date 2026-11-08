@@ -18,7 +18,7 @@ import {
 } from '../utils/locationSensorDefaults';
 import { describeHASensorReading, iconForHASensor } from '../utils/haSensorDisplay';
 import { PreheatFilamentTargetsEditor } from '../components/PreheatFilamentTargetsEditor';
-import type { APIKey, AppSettings, AppSettingsUpdate, PrinterHASensor, LocationHASensor, LocationHASensorReading, SmartPlug, SmartPlugStatus, NotificationProvider, NotificationTemplate, UpdateStatus, GitHubBackupStatus, CloudAuthStatus, UserCreate, UserUpdate, UserResponse, StorageUsageResponse, CalibrationMode } from '../api/client';
+import type { APIKey, AppSettings, AppSettingsUpdate, PrinterHASensor, LocationHASensor, LocationHASensorReading, SmartPlug, SmartPlugStatus, NotificationProvider, NotificationTemplate, GitHubBackupStatus, CloudAuthStatus, UserCreate, UserUpdate, UserResponse, StorageUsageResponse, CalibrationMode } from '../api/client';
 import { Card, CardContent, CardDensityProvider, CardHeader } from '../components/Card';
 import { SlicerPipelinesPanel } from '../components/SlicerPipelinesPanel';
 import { CameraTokensSection } from './CameraTokensPage';
@@ -335,7 +335,6 @@ export function SettingsPage() {
   const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
   const [showClearStorageConfirm, setShowClearStorageConfirm] = useState(false);
   const [showBulkPlugConfirm, setShowBulkPlugConfirm] = useState<'on' | 'off' | null>(null);
-  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showDisableAuthConfirm, setShowDisableAuthConfirm] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [changePasswordData, setChangePasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
@@ -738,26 +737,6 @@ export function SettingsPage() {
     });
   };
 
-  const { data: updateCheck, refetch: refetchUpdateCheck, isRefetching: isCheckingUpdate } = useQuery({
-    queryKey: ['updateCheck'],
-    queryFn: api.checkForUpdates,
-    enabled: settings?.check_updates !== false,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const { data: updateStatus, refetch: refetchUpdateStatus } = useQuery({
-    queryKey: ['updateStatus'],
-    queryFn: api.getUpdateStatus,
-    refetchInterval: (query) => {
-      const status = query.state.data as UpdateStatus | undefined;
-      // Poll while update is in progress
-      if (status?.status === 'downloading' || status?.status === 'installing') {
-        return 1000;
-      }
-      return false;
-    },
-  });
-
   // MQTT status for Network tab
   const { data: mqttStatus } = useQuery({
     queryKey: ['mqtt-status'],
@@ -1020,17 +999,6 @@ export function SettingsPage() {
         : [...prev.group_ids, groupId],
     }));
   };
-
-  const applyUpdateMutation = useMutation({
-    mutationFn: api.applyUpdate,
-    onSuccess: (data) => {
-      if (data.is_ha_addon || data.is_docker || data.is_windows_installer) {
-        showToast(data.message, 'error');
-      } else {
-        refetchUpdateStatus();
-      }
-    },
-  });
 
   // Test all notification providers
   const [testAllResult, setTestAllResult] = useState<{
@@ -1619,21 +1587,6 @@ export function SettingsPage() {
       }
     }, 50);
   };
-
-  // #2664 (reporter pchulpjoost): `docker compose pull` only works from the
-  // directory holding the compose file, so the bare command the update box
-  // printed could not be pasted anywhere useful. The saved setting wins; when
-  // it is blank we fall back to whatever the backend could infer, and when
-  // that is blank too we print the command without a `cd` rather than a made-up
-  // path that would fail on paste.
-  const composeDir =
-    (localSettings?.docker_compose_dir ?? '').trim() || (updateCheck?.compose_dir_detected ?? '');
-  // Quoted only when it has to be. The backend restricts this field to path
-  // characters, so quotes, $ and backticks cannot be in it and double-quoting
-  // a path with a space is safe.
-  const composeUpdateCommand = composeDir
-    ? `cd ${/\s/.test(composeDir) ? `"${composeDir}"` : composeDir} && docker compose pull && docker compose up -d`
-    : 'docker compose pull && docker compose up -d';
 
   return (
     <CardDensityProvider density="dense">
@@ -3081,195 +3034,13 @@ export function SettingsPage() {
               <div className="border-t border-bambu-dark-tertiary pt-4">
                 <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider mb-4">{t('settings.bambuddySoftware')}</p>
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-white">{t('settings.checkForUpdatesLabel')}</p>
-                  <p className="text-sm text-bambu-gray">
-                    {t('settings.autoCheckDescription')}
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={localSettings.check_updates}
-                    onChange={(e) => updateSetting('check_updates', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green"></div>
-                </label>
-              </div>
-              <div className={`flex items-center justify-between ${!localSettings.check_updates ? 'opacity-50' : ''}`}>
-                <div>
-                  <p className="text-white">{t('settings.includeBetaUpdates')}</p>
-                  <p className="text-sm text-bambu-gray">
-                    {t('settings.includeBetaUpdatesDesc')}
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={localSettings.include_beta_updates ?? false}
-                    onChange={(e) => updateSetting('include_beta_updates', e.target.checked)}
-                    disabled={!localSettings.check_updates}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green"></div>
-                </label>
-              </div>
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between">
                   <div>
                     <p className="text-white">{t('settings.currentVersion')}</p>
                     <p className="text-sm text-bambu-gray">v{versionInfo?.version || '...'}</p>
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => refetchUpdateCheck()}
-                    disabled={isCheckingUpdate}
-                  >
-                    {isCheckingUpdate ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-4 h-4" />
-                    )}
-                    {t('settings.checkNow')}
-                  </Button>
                 </div>
-
-                {updateCheck?.update_available ? (
-                  <div className="mt-4 p-3 bg-bambu-green/10 border border-bambu-green/30 rounded-lg">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-bambu-green font-medium">
-                          Update available: v{updateCheck.latest_version}
-                        </p>
-                        {updateCheck.release_name && updateCheck.release_name !== updateCheck.latest_version && (
-                          <p className="text-sm text-bambu-gray mt-1">{updateCheck.release_name}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {updateCheck.release_notes && (
-                          <button
-                            onClick={() => setShowReleaseNotes(true)}
-                            className="text-bambu-gray hover:text-white transition-colors text-sm underline"
-                          >
-                            {t('settings.releaseNotes')}
-                          </button>
-                        )}
-                        {updateCheck.release_url && (
-                          <a
-                            href={updateCheck.release_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-bambu-gray hover:text-white transition-colors"
-                            title={t('settings.viewReleaseOnGitHub')}
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    {updateStatus?.status === 'downloading' || updateStatus?.status === 'installing' ? (
-                      <div className="mt-3">
-                        <div className="flex items-center gap-2 text-sm text-bambu-gray">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>{updateStatus.message}</span>
-                        </div>
-                        <div className="mt-2 w-full bg-bambu-dark-tertiary rounded-full h-2">
-                          <div
-                            className="bg-bambu-green h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${updateStatus.progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    ) : updateStatus?.status === 'complete' ? (
-                      <div className="mt-3 p-2 bg-bambu-green/20 rounded text-sm text-bambu-green">
-                        {updateStatus.message}
-                      </div>
-                    ) : updateStatus?.status === 'error' ? (
-                      <div className="mt-3 p-2 bg-red-100 dark:bg-red-500/20 rounded text-sm text-red-700 dark:text-red-400">
-                        {updateStatus.error || updateStatus.message}
-                      </div>
-                    ) : updateCheck?.is_ha_addon ? (
-                      <div className="mt-3 p-3 bg-bambu-dark-tertiary rounded-lg">
-                        <p className="text-sm text-bambu-gray">
-                          {t('settings.updateViaHomeAssistant')}
-                        </p>
-                      </div>
-                    ) : updateCheck?.is_docker ? (
-                      <div className="mt-3 p-3 bg-bambu-dark-tertiary rounded-lg">
-                        <p className="text-sm text-bambu-gray mb-2">
-                          {t('settings.updateViaDocker')}
-                        </p>
-                        <div className="flex items-start gap-1">
-                          <code className="flex-1 block text-xs bg-bambu-dark p-2 rounded text-bambu-green font-mono break-all select-all">
-                            {composeUpdateCommand}
-                          </code>
-                          <CopyButton
-                            value={composeUpdateCommand}
-                            titleKey="settings.copyUpdateCommand"
-                            copiedTitleKey="printers.copied"
-                            className="ml-0 p-2 rounded hover:bg-bambu-dark text-bambu-gray hover:text-white transition-colors flex-shrink-0"
-                            iconClassName="w-4 h-4"
-                          />
-                        </div>
-                        <label className="block mt-3">
-                          <span className="block text-xs text-bambu-gray mb-1">
-                            {t('settings.composeDirectory')}
-                          </span>
-                          <input
-                            type="text"
-                            value={localSettings?.docker_compose_dir ?? ''}
-                            onChange={(e) => updateSetting('docker_compose_dir', e.target.value)}
-                            placeholder={updateCheck?.compose_dir_detected || '/opt/bambuddy'}
-                            className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded text-sm text-white font-mono placeholder:text-bambu-gray/60 focus:outline-none focus:border-bambu-green"
-                          />
-                          <span className="block text-xs text-bambu-gray mt-1">
-                            {t('settings.composeDirectoryHint')}
-                          </span>
-                        </label>
-                      </div>
-                    ) : updateCheck?.update_method === 'windows_installer' ? (
-                      <div className="mt-3 p-3 bg-bambu-dark-tertiary rounded-lg">
-                        <p className="text-sm text-bambu-gray mb-3">
-                          {t('settings.updateViaWindowsInstaller')}
-                        </p>
-                        <a
-                          href={updateCheck.installer_download_url || updateCheck.release_url || `https://github.com/maziggy/bambuddy/releases/tag/v${updateCheck.latest_version}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bambu-dark disabled:opacity-50 bg-bambu-green hover:bg-bambu-green-light text-white focus:ring-bambu-green px-4 py-2 text-sm gap-2 min-h-[44px] md:min-h-0"
-                        >
-                          <Download className="w-4 h-4" />
-                          {t('settings.downloadWindowsInstaller', { version: updateCheck.latest_version })}
-                        </a>
-                      </div>
-                    ) : (
-                      <Button
-                        className="mt-3"
-                        onClick={() => applyUpdateMutation.mutate()}
-                        disabled={applyUpdateMutation.isPending}
-                      >
-                        {applyUpdateMutation.isPending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Download className="w-4 h-4" />
-                        )}
-                        {t('settings.installUpdate')}
-                      </Button>
-                    )}
-                  </div>
-                ) : updateCheck?.error ? (
-                  <div className="mt-2 p-2 bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded text-sm text-red-700 dark:text-red-400">
-                    {t('settings.failedToCheckUpdates', { error: updateCheck.error })}
-                  </div>
-                ) : updateCheck && !updateCheck.update_available ? (
-                  <p className="mt-2 text-sm text-bambu-gray">
-                    {t('settings.latestVersionRunning')}
-                  </p>
-                ) : null}
               </div>
               <div className="border-t border-bambu-dark-tertiary pt-4">
                 <p className="text-xs font-medium text-bambu-gray uppercase tracking-wider mb-4">{t('announcements.title')}</p>
@@ -6713,59 +6484,6 @@ export function SettingsPage() {
           }}
           onCancel={() => setShowBulkPlugConfirm(null)}
         />
-      )}
-
-      {/* Release Notes Modal */}
-      {showReleaseNotes && updateCheck?.release_notes && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowReleaseNotes(false)}
-        >
-          <Card className="w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <CardHeader className="flex flex-row items-center justify-between shrink-0">
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Release Notes - v{updateCheck.latest_version}
-                </h2>
-                {updateCheck.release_name && updateCheck.release_name !== updateCheck.latest_version && (
-                  <p className="text-sm text-bambu-gray">{updateCheck.release_name}</p>
-                )}
-              </div>
-              <button
-                onClick={() => setShowReleaseNotes(false)}
-                className="p-1 rounded hover:bg-bambu-dark-tertiary text-bambu-gray hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </CardHeader>
-            <CardContent className="overflow-y-auto flex-1">
-              <pre className="text-sm text-bambu-gray whitespace-pre-wrap font-sans">
-                {updateCheck.release_notes}
-              </pre>
-            </CardContent>
-            <div className="p-4 border-t border-bambu-dark-tertiary shrink-0 flex gap-2">
-              {updateCheck.release_url && (
-                <a
-                  href={updateCheck.release_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1"
-                >
-                  <Button variant="secondary" className="w-full">
-                    <ExternalLink className="w-4 h-4" />
-                    View on GitHub
-                  </Button>
-                </a>
-              )}
-              <Button
-                onClick={() => setShowReleaseNotes(false)}
-                className="flex-1"
-              >
-                Close
-              </Button>
-            </div>
-          </Card>
-        </div>
       )}
 
       {/* Users Tab */}
