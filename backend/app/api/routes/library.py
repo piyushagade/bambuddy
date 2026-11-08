@@ -2964,6 +2964,12 @@ async def list_files(
         )
 
     user, can_read_all = auth_result
+    if project_id is not None:
+        from backend.app.api.routes.projects import user_can_read_project
+
+        if user is None or user.is_admin or await user_can_read_project(db, user, project_id):
+            await ensure_project_folder(db, project_id, user.id if user else None)
+            await db.commit()
     access_map = await _compute_folder_access_map(db, user)
     readable_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read}
     my_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read and not acc.is_shared}

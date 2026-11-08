@@ -1746,18 +1746,20 @@ export function ProjectDetailPage() {
       )}
 
       {/* Upload Files directly into this project */}
-      <FileUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        folderId={linkedFolders?.[0]?.id ?? null}
-        projectId={projectId}
-        onUploadComplete={() => {
-          queryClient.invalidateQueries({ queryKey: ['project-folders', projectId] });
-          queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
-          queryClient.invalidateQueries({ queryKey: ['library-folders'] });
-          queryClient.invalidateQueries({ queryKey: ['library-files'] });
-        }}
-      />
+      {showUploadModal && (
+        <FileUploadModal
+          onClose={() => setShowUploadModal(false)}
+          folderId={linkedFolders?.[0]?.id ?? null}
+          projectId={projectId}
+          onUploadComplete={() => {
+            setShowUploadModal(false);
+            queryClient.invalidateQueries({ queryKey: ['project-folders', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['library-folders'] });
+            queryClient.invalidateQueries({ queryKey: ['library-files'] });
+          }}
+        />
+      )}
 
       {/* Print from project */}
       {printFile && (
