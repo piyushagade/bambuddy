@@ -396,6 +396,7 @@ class FileUploadResponse(BaseModel):
     thumbnail_path: str | None
     duplicate_of: int | None = None  # ID of existing file with same hash
     metadata: dict | None = None
+    folder_id: int | None = None
     project_id: int | None = None
 
 

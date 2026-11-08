@@ -1131,14 +1131,31 @@ async def add_to_queue(
                     detail="Cannot queue prints under an archived project.",
                 )
         # Attach unattached source file/archive to the selected project when queued
+        from backend.app.api.routes.library import ensure_project_folder
+
+        proj_folder = None
         if archive is not None and archive.project_id is None:
             archive.project_id = effective_project_id
-        if library_file is not None and library_file.project_id is None:
-            library_file.project_id = effective_project_id
+        if library_file is not None:
+            if library_file.project_id is None:
+                library_file.project_id = effective_project_id
+            if library_file.folder_id is None:
+                proj_folder = await ensure_project_folder(
+                    db, effective_project_id, current_user.id if current_user else None
+                )
+                if proj_folder is not None:
+                    library_file.folder_id = proj_folder.id
         if variant_specs:
             for _spec, variant_file, _model in variant_specs:
                 if variant_file.project_id is None:
                     variant_file.project_id = effective_project_id
+                if variant_file.folder_id is None:
+                    if proj_folder is None:
+                        proj_folder = await ensure_project_folder(
+                            db, effective_project_id, current_user.id if current_user else None
+                        )
+                    if proj_folder is not None:
+                        variant_file.folder_id = proj_folder.id
 
     # Security boundary: the browser's estimated_cost is only a display hint.
     # Budget enforcement and the persisted reservation value must be derived
@@ -1349,7 +1366,7 @@ async def add_to_queue(
             preheat_override=data.preheat_override,
             preheat_chamber_target_override=data.preheat_chamber_target_override,
             gcode_injection=data.gcode_injection,
-            cleanup_library_after_dispatch=data.cleanup_library_after_dispatch,
+            cleanup_library_after_dispatch=False if effective_project_id is not None else data.cleanup_library_after_dispatch,
             project_id=effective_project_id,
             position=start_position + i,
             status=initial_status,

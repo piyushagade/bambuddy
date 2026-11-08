@@ -6951,7 +6951,13 @@ function PrinterCard({
             setShowUploadForPrint(false);
             setDroppedPrintFiles([]);
           }}
-          onUploadComplete={() => {}}
+          onUploadComplete={() => {
+            queryClient.invalidateQueries({ queryKey: ['library-files'] });
+            queryClient.invalidateQueries({ queryKey: ['library-folders'] });
+            queryClient.invalidateQueries({ queryKey: ['project-folders'] });
+            queryClient.invalidateQueries({ queryKey: ['project-files'] });
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+          }}
           autoUpload
           accept=".gcode,.3mf"
           initialFiles={droppedPrintFiles.length > 0 ? droppedPrintFiles : undefined}
@@ -6988,7 +6994,7 @@ function PrinterCard({
           initialSelectedPrinterIds={[printer.id]}
           onClose={() => setPrintAfterUpload(null)}
           onSuccess={() => setPrintAfterUpload(null)}
-          cleanupLibraryAfterDispatch
+          cleanupLibraryAfterDispatch={!printAfterUpload.projectId}
         />
       )}
 

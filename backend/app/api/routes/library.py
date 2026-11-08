@@ -140,6 +140,62 @@ _SHARED_ROOT_NAMES = {"course", "courses", "shared", "shared files", "groups", "
 _MAKERWORLD_FOLDER_NAMES = {"makerworld", "makerspace"}
 
 
+async def ensure_project_folder(
+    db: AsyncSession,
+    project_id: int,
+    fallback_user_id: int | None = None,
+) -> LibraryFolder | None:
+    """Return the LibraryFolder linked to ``project_id``, creating one if none exists.
+
+    Also moves any unfoldered (root) LibraryFiles that already carry ``project_id``
+    into the resolved folder so no project file remains an unfoldered orphan.
+    """
+    existing = (
+        await db.execute(
+            select(LibraryFolder)
+            .where(
+                LibraryFolder.project_id == project_id,
+                LibraryFolder.is_external.is_(False),
+            )
+            .order_by(LibraryFolder.parent_id.is_not(None), LibraryFolder.id.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if existing is None:
+        proj = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+        if proj is None:
+            return None
+        from backend.app.models.project import ProjectPermission
+
+        has_proj_perms = (
+            await db.execute(
+                select(ProjectPermission.id).where(ProjectPermission.project_id == project_id).limit(1)
+            )
+        ).scalar_one_or_none() is not None
+        existing = LibraryFolder(
+            name=proj.name,
+            parent_id=None,
+            project_id=proj.id,
+            is_shared=has_proj_perms,
+            created_by_id=proj.created_by_id if proj.created_by_id is not None else fallback_user_id,
+        )
+        db.add(existing)
+        await db.flush()
+
+    await db.execute(
+        update(LibraryFile)
+        .where(
+            LibraryFile.project_id == project_id,
+            LibraryFile.folder_id.is_(None),
+            LibraryFile.deleted_at.is_(None),
+            LibraryFile.is_external.is_(False),
+        )
+        .values(folder_id=existing.id)
+    )
+    return existing
+
+
 async def _compute_folder_access_map(
     db: AsyncSession,
     user: User | None,
@@ -151,7 +207,7 @@ async def _compute_folder_access_map(
       Only visible and accessible to the user who owns the folder (`created_by_id == user.id`)
       or owns files inside a legacy unowned `MakerWorld` / `MakerSpace` folder.
     - **Shared Files** (`is_shared=True`): Folders that have `is_shared=True`, explicit
-      `LibraryFolderPermission` grants, a linked `project_id`, `is_external=True`, or
+      `LibraryFolderPermission` grants, a linked shared `project_id`, `is_external=True`, or
       reside under a Course/Shared/Group root folder tree.
       - Admins (`user is None or user.is_admin`) have full access to Shared Files.
       - Non-admins have access via ownership (`created_by_id == user.id`),
@@ -200,6 +256,18 @@ async def _compute_folder_access_map(
         (await db.execute(select(LibraryFolderPermission.folder_id).distinct())).scalars().all()
     )
 
+    projects_with_any_perms: set[int] = set()
+    project_creator_by_id: dict[int, int | None] = {}
+    if any(proj_id is not None for proj_id in proj_by_id.values()):
+        from backend.app.models.project import ProjectPermission
+
+        projects_with_any_perms = set(
+            (await db.execute(select(ProjectPermission.project_id).distinct())).scalars().all()
+        )
+        project_creator_by_id = dict(
+            (await db.execute(select(Project.id, Project.created_by_id))).all()
+        )
+
     # Determine root folder for every node and whether each root tree is Shared vs My Files
     root_of: dict[int, int] = {}
     for fid in all_ids:
@@ -220,7 +288,17 @@ async def _compute_folder_access_map(
         tree_shared = root_name_clean in _SHARED_ROOT_NAMES or any(
             explicit_shared_by_id[nid]
             or nid in folders_with_any_perms
-            or proj_by_id[nid] is not None
+            or (
+                proj_by_id[nid] is not None
+                and (
+                    proj_by_id[nid] in projects_with_any_perms
+                    or (
+                        user is not None
+                        and (project_creator_by_id.get(proj_by_id[nid]) or creator_by_id[nid]) is not None
+                        and (project_creator_by_id.get(proj_by_id[nid]) or creator_by_id[nid]) != user.id
+                    )
+                )
+            )
             or external_by_id[nid]
             for nid in node_ids
         )
@@ -291,17 +369,22 @@ async def _compute_folder_access_map(
 
         project_access_map = await _compute_project_access_map(db, user)
 
+    user_can_upload = user.has_permission(Permission.LIBRARY_UPLOAD.value)
     access_map: dict[int, _FolderAccess] = {}
 
     for fid in all_ids:
         is_sh = effective_is_shared.get(fid, False)
         creator_id = creator_by_id[fid]
+        proj_id = proj_by_id[fid]
         fname_clean = name_by_id[fid].strip().lower()
 
         if not is_sh:
             # My Files section: strictly private to the owner of the folder/files
-            if creator_id is not None:
-                is_my_folder = creator_id == user.id
+            effective_owner_id = creator_id if creator_id is not None else (
+                project_creator_by_id.get(proj_id) if proj_id is not None else None
+            )
+            if effective_owner_id is not None:
+                is_my_folder = effective_owner_id == user.id
             elif fname_clean in _MAKERWORLD_FOLDER_NAMES:
                 # Legacy unowned MakerWorld / MakerSpace folder: visible to users who own files in it
                 is_my_folder = fid in user_owned_file_folders
@@ -309,9 +392,9 @@ async def _compute_folder_access_map(
                 # Legacy unowned folder (e.g., created when auth was disabled or via test fixtures)
                 is_my_folder = bool(user.is_admin or fid in user_owned_file_folders)
             access_map[fid] = _FolderAccess(
-                can_read=is_my_folder,
-                can_write=is_my_folder,
-                can_manage=is_my_folder,
+                can_read=is_my_folder or (proj_id is not None and user.is_admin),
+                can_write=is_my_folder or (proj_id is not None and user.is_admin),
+                can_manage=is_my_folder or (proj_id is not None and user.is_admin),
                 visible_in_tree=is_my_folder,
                 is_shared=False,
             )
@@ -327,10 +410,15 @@ async def _compute_folder_access_map(
                 )
             else:
                 is_owner = creator_id is not None and creator_id == user.id
-                proj_id = proj_by_id[fid]
                 proj_acc = project_access_map.get(proj_id) if proj_id is not None else None
                 p_read = bool(proj_acc and proj_acc.can_read)
-                p_write = bool(proj_acc and proj_acc.can_write)
+                p_write = bool(
+                    proj_acc
+                    and (
+                        proj_acc.can_write
+                        or (proj_acc.can_read and user_can_upload and fid not in folders_with_any_perms)
+                    )
+                )
                 p_manage = bool(proj_acc and proj_acc.can_manage)
                 access_map[fid] = _FolderAccess(
                     can_read=is_owner or p_read,
@@ -1225,6 +1313,27 @@ async def list_folders(
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
 
     user, _ = auth_result
+
+    # Auto-heal any unfoldered files that already belong to a project so they
+    # appear inside their project's folder in the File Manager.
+    orphan_project_ids = (
+        await db.execute(
+            select(LibraryFile.project_id)
+            .where(
+                LibraryFile.project_id.is_not(None),
+                LibraryFile.folder_id.is_(None),
+                LibraryFile.deleted_at.is_(None),
+                LibraryFile.is_external.is_(False),
+            )
+            .distinct()
+        )
+    ).scalars().all()
+    if orphan_project_ids:
+        for pid in orphan_project_ids:
+            if pid is not None:
+                await ensure_project_folder(db, pid, user.id if user else None)
+        await db.commit()
+
     access_map = await _compute_folder_access_map(db, user)
 
     # Get all folders with project, archive, and creator joins
@@ -1301,8 +1410,10 @@ async def list_folders(
         acc = access_map.get(folder.id, _FolderAccess())
         if not acc.visible_in_tree:
             continue
-        effective_counts = file_counts if acc.is_shared else own_file_counts
-        effective_activity = latest_file_activity if acc.is_shared else own_latest_file_activity
+        effective_counts = file_counts if (acc.is_shared or folder.project_id is not None) else own_file_counts
+        effective_activity = (
+            latest_file_activity if (acc.is_shared or folder.project_id is not None) else own_latest_file_activity
+        )
         own_activity = (folder.fs_modified_at or folder.updated_at) if acc.can_read else None
         latest_file = effective_activity.get(folder.id) if acc.can_read else None
         if latest_file is not None and (own_activity is None or latest_file > own_activity):
@@ -1378,6 +1489,15 @@ async def get_folders_by_project(
 ):
     """Get all folders linked to a specific project."""
     user, _ = auth_result
+
+    # Ensure the project has a linked folder (and move any orphan project files into it)
+    from backend.app.api.routes.projects import user_can_read_project
+
+    if await user_can_read_project(db, user, project_id):
+        proj_folder = await ensure_project_folder(db, project_id, user.id if user else None)
+        if proj_folder is not None:
+            await db.commit()
+
     access_map = await _compute_folder_access_map(db, user)
 
     result = await db.execute(
@@ -1641,7 +1761,7 @@ async def get_folder(
         LibraryFile.folder_id == folder_id,
         LibraryFile.deleted_at.is_(None),
     ]
-    if user is not None and not acc.is_shared:
+    if user is not None and not acc.is_shared and folder.project_id is None:
         file_where.append(LibraryFile.created_by_id == user.id)
     agg_result = await db.execute(
         select(
@@ -2890,7 +3010,11 @@ async def list_files(
                 LibraryFile.folder_id.in_(readable_folder_ids),
             )
             if folder_id in my_folder_ids:
-                query = query.where(LibraryFile.created_by_id == user.id)
+                folder_proj = (
+                    await db.execute(select(LibraryFolder.project_id).where(LibraryFolder.id == folder_id))
+                ).scalar_one_or_none()
+                if folder_proj is None:
+                    query = query.where(LibraryFile.created_by_id == user.id)
         else:
             query = query.where(LibraryFile.folder_id.in_(select(descendants.c.id)))
     elif folder_id is not None:
@@ -2899,22 +3023,35 @@ async def list_files(
             return []
         query = query.where(LibraryFile.folder_id == folder_id)
         if user is not None and folder_id in my_folder_ids:
-            query = query.where(LibraryFile.created_by_id == user.id)
+            folder_proj = (
+                await db.execute(select(LibraryFolder.project_id).where(LibraryFolder.id == folder_id))
+            ).scalar_one_or_none()
+            if folder_proj is None:
+                query = query.where(LibraryFile.created_by_id == user.id)
     elif project_id is not None:
-        # Single join instead of one query per folder (avoids N+1 pattern)
-        query = query.join(LibraryFolder, LibraryFile.folder_id == LibraryFolder.id)
-        query = query.where(LibraryFolder.project_id == project_id)
+        # Include both files in project-linked folders and files directly linked via project_id
+        query = query.outerjoin(LibraryFolder, LibraryFile.folder_id == LibraryFolder.id)
+        query = query.where(or_(LibraryFolder.project_id == project_id, LibraryFile.project_id == project_id))
         if user is not None and not user.is_admin:
-            if not readable_folder_ids:
+            from backend.app.api.routes.projects import user_can_read_project
+
+            can_read_proj = await user_can_read_project(db, user, project_id)
+            if not can_read_proj and not readable_folder_ids:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 return []
-            query = query.where(LibraryFile.folder_id.in_(readable_folder_ids))
+            if not can_read_proj:
+                query = query.where(
+                    or_(
+                        LibraryFile.folder_id.in_(readable_folder_ids),
+                        LibraryFile.created_by_id == user.id,
+                    )
+                )
     elif section == "my":
         if include_root:
             query = query.where(LibraryFile.folder_id.is_(None))
         else:
-            if my_folder_ids:
-                query = query.where(or_(LibraryFile.folder_id.is_(None), LibraryFile.folder_id.in_(my_folder_ids)))
+            if readable_folder_ids:
+                query = query.where(or_(LibraryFile.folder_id.is_(None), LibraryFile.folder_id.in_(readable_folder_ids)))
             else:
                 query = query.where(LibraryFile.folder_id.is_(None))
         if user is not None:
@@ -3103,6 +3240,15 @@ async def upload_file(
 
                 if not await user_can_read_project(db, current_user, effective_upload_project_id):
                     raise HTTPException(status_code=403, detail="You do not have access to the selected project")
+            if folder_id is None:
+                proj_folder = await ensure_project_folder(
+                    db,
+                    effective_upload_project_id,
+                    current_user.id if current_user else None,
+                )
+                if proj_folder is not None:
+                    folder_id = proj_folder.id
+                    target_folder = proj_folder
 
         # Writable external folders write through to the mount so the file is
         # visible outside Bambuddy (#1112); everything else lands under the
@@ -3240,6 +3386,7 @@ async def upload_file(
             thumbnail_path=library_file.thumbnail_path,
             duplicate_of=duplicate_of,
             metadata=library_file.file_metadata,
+            folder_id=library_file.folder_id,
             project_id=library_file.project_id,
         )
     except HTTPException:
@@ -3307,7 +3454,24 @@ async def extract_zip_file(
     if effective_upload_project_id is None and target_folder and target_folder.project_id:
         effective_upload_project_id = target_folder.project_id
     if effective_upload_project_id is not None:
-        await get_accessible_project(db, current_user, effective_upload_project_id, require_write=False)
+        proj_result = await db.execute(select(Project).where(Project.id == effective_upload_project_id))
+        target_proj = proj_result.scalar_one_or_none()
+        if not target_proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if current_user is not None and not current_user.is_admin:
+            from backend.app.api.routes.projects import user_can_read_project
+
+            if not await user_can_read_project(db, current_user, effective_upload_project_id):
+                raise HTTPException(status_code=403, detail="You do not have access to the selected project")
+        if folder_id is None:
+            proj_folder = await ensure_project_folder(
+                db,
+                effective_upload_project_id,
+                current_user.id if current_user else None,
+            )
+            if proj_folder is not None:
+                folder_id = proj_folder.id
+                target_folder = proj_folder
 
     # Save ZIP to temp file
     try:
@@ -6177,6 +6341,10 @@ async def update_file(
                 if not await user_can_read_project(db, user, data.project_id):
                     raise HTTPException(status_code=403, detail="You do not have access to the selected project")
             file.project_id = data.project_id
+            if file.folder_id is None and data.folder_id is None:
+                proj_folder = await ensure_project_folder(db, data.project_id, user.id if user else None)
+                if proj_folder is not None:
+                    file.folder_id = proj_folder.id
 
     if data.notes is not None:
         file.notes = data.notes if data.notes else None
@@ -6940,6 +7108,27 @@ async def get_library_stats(
 ):
     """Get library statistics."""
     user, _ = auth_result
+
+    # Auto-heal any unfoldered files that already belong to a project so they
+    # appear inside their project's folder in the File Manager.
+    orphan_project_ids = (
+        await db.execute(
+            select(LibraryFile.project_id)
+            .where(
+                LibraryFile.project_id.is_not(None),
+                LibraryFile.folder_id.is_(None),
+                LibraryFile.deleted_at.is_(None),
+                LibraryFile.is_external.is_(False),
+            )
+            .distinct()
+        )
+    ).scalars().all()
+    if orphan_project_ids:
+        for pid in orphan_project_ids:
+            if pid is not None:
+                await ensure_project_folder(db, pid, user.id if user else None)
+        await db.commit()
+
     access_map = await _compute_folder_access_map(db, user)
     shared_folder_ids = {fid for fid, acc in access_map.items() if acc.can_read and acc.is_shared}
 

@@ -863,6 +863,10 @@ async def create_project(
     )
     db.add(project)
     await db.flush()
+    if not project.is_template:
+        from backend.app.api.routes.library import ensure_project_folder
+
+        await ensure_project_folder(db, project.id, project.created_by_id)
     await db.refresh(project)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)
@@ -1025,6 +1029,9 @@ async def create_project_from_template(
         db.add(new_item)
 
     await db.flush()
+    from backend.app.api.routes.library import ensure_project_folder
+
+    await ensure_project_folder(db, project.id, project.created_by_id)
     await db.refresh(project)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)
@@ -1151,8 +1158,19 @@ async def update_project(
         raise HTTPException(status_code=403, detail="You do not have write access to this project")
 
     # Update fields if provided
+    old_name = project.name
     if data.name is not None:
         project.name = data.name
+        if data.name != old_name:
+            await db.execute(
+                update(LibraryFolder)
+                .where(
+                    LibraryFolder.project_id == project.id,
+                    LibraryFolder.name == old_name,
+                    LibraryFolder.is_external.is_(False),
+                )
+                .values(name=data.name)
+            )
     if data.description is not None:
         project.description = data.description
     if data.color is not None:
@@ -2643,6 +2661,9 @@ async def import_project(
             db.add(new_folder)
 
     await db.flush()
+    from backend.app.api.routes.library import ensure_project_folder
+
+    await ensure_project_folder(db, project.id, project.created_by_id)
     await db.refresh(project)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)
@@ -2844,6 +2865,9 @@ async def import_project_file(
             db.add(lib_file)
 
     await db.flush()
+    from backend.app.api.routes.library import ensure_project_folder
+
+    await ensure_project_folder(db, project.id, project.created_by_id)
     await db.refresh(project)
 
     stats = await compute_project_stats(db, project.id, project.target_count, project.target_parts_count)

@@ -68,6 +68,7 @@ import type {
   AppSettings,
   Archive,
   Permission,
+  ProjectCreate,
 } from '../api/client';
 import { Button } from '../components/Button';
 import { PageHeader, HeaderMoreMenu } from '../components/PageHeader';
@@ -86,9 +87,11 @@ import { FolderPermissionsModal } from '../components/FolderPermissionsModal';
 import { LibraryTagsModal } from '../components/LibraryTagsModal';
 import { LibraryFileDetailsModal } from '../components/LibraryFileDetailsModal';
 import { PurgeOldFilesModal } from '../components/PurgeOldFilesModal';
+import { ProjectModal } from './ProjectsPage';
 import { useToast } from '../contexts/ToastContext';
 import { usePageFileDrop } from '../hooks/usePageFileDrop';
 import { useAuth } from '../contexts/AuthContext';
+import { getCurrencySymbol } from '../utils/currency';
 import { formatDuration, parseUTCDate, formatDate } from '../utils/date';
 import { formatFileSize } from '../utils/file';
 import { assignableProjects } from '../utils/projectTree';
@@ -820,7 +823,12 @@ function LinkFileProjectModal({
   isLoading,
   t,
 }: LinkFileProjectModalProps) {
+  const { hasPermission } = useAuth();
+  const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  const canCreateProject = hasPermission('projects:create');
   const [selectedId, setSelectedId] = useState<number | null>(file.project_id ?? null);
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
 
   const { data: projects, isLoading: loadingProjects } = useQuery({
     queryKey: ['projects'],
@@ -828,101 +836,143 @@ function LinkFileProjectModal({
     select: (rows) =>
       assignableProjects([...rows].sort((a, b) => a.name.localeCompare(b.name)), file.project_id ?? null),
   });
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: api.getSettings,
+    enabled: showCreateProjectModal,
+  });
+  const currencySymbol = getCurrencySymbol(settings?.currency || 'USD');
+
+  const createProjectMutation = useMutation({
+    mutationFn: (data: ProjectCreate) => api.createProject(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setSelectedId(created.id);
+      setShowCreateProjectModal(false);
+      showToast(t('projects.toast.created'), 'success');
+    },
+    onError: (error: Error) => {
+      showToast(error.message, 'error');
+    },
+  });
 
   const isLinked = Boolean(file.project_id);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
-        <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-bambu-green" />
-            {printAfterLink
-              ? 'Attach File to Project Required'
-              : isLinked
-                ? 'Change File Project'
-                : 'Attach File to Project'}
-          </h2>
-          <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
-            <X className="w-5 h-5 text-bambu-gray" />
-          </button>
-        </div>
+    <>
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
+          <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-bambu-green" />
+              {printAfterLink
+                ? 'Attach File to Project Required'
+                : isLinked
+                  ? 'Change File Project'
+                  : 'Attach File to Project'}
+            </h2>
+            <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
+              <X className="w-5 h-5 text-bambu-gray" />
+            </button>
+          </div>
 
-        <div className="p-4 space-y-4">
-          {printAfterLink ? (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
-              <span>
-                <strong>{file.print_name || file.filename}</strong> is not attached to a project. Your group requires all printed models to belong to a project — select a project below to attach this file and continue to print.
-              </span>
-            </div>
-          ) : (
-            <p className="text-sm text-bambu-gray">
-              Select a project to associate with <strong className="text-white">{file.print_name || file.filename}</strong>.
-            </p>
-          )}
-
-          <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
-            {loadingProjects ? (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+          <div className="p-4 space-y-4">
+            {printAfterLink ? (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <span>
+                  <strong>{file.print_name || file.filename}</strong> is not attached to a project. Your group requires all printed models to belong to a project — select a project below to attach this file and continue to print.
+                </span>
               </div>
-            ) : projects && projects.length > 0 ? (
-              projects.map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  onClick={() => setSelectedId(project.id)}
-                  className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
-                    selectedId === project.id
-                      ? 'bg-bambu-green/20 text-bambu-green'
-                      : 'hover:bg-bambu-dark-tertiary text-white'
-                  }`}
-                >
-                  <div
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: project.color || '#00ae42' }}
-                  />
-                  <span className="truncate flex-1">{project.name}</span>
-                  {project.created_by_username && (
-                    <span className="text-xs text-bambu-gray flex-shrink-0">
-                      {project.created_by_username}
-                    </span>
-                  )}
-                </button>
-              ))
             ) : (
-              <p className="text-sm text-bambu-gray text-center py-4">
-                {t('fileManager.noProjectsFound')} Create a project on the Projects page or ask an instructor/teammate to share one with you.
+              <p className="text-sm text-bambu-gray">
+                Select a project to associate with <strong className="text-white">{file.print_name || file.filename}</strong>.
               </p>
             )}
-          </div>
-        </div>
 
-        <div className="p-4 border-t border-bambu-dark-tertiary flex justify-between">
-          {isLinked && !requiresProject && !printAfterLink && (
-            <Button variant="danger" onClick={onUnlink} disabled={isLoading}>
-              <Unlink className="w-4 h-4 mr-2" />
-              {t('fileManager.unlink')}
-            </Button>
-          )}
-          <div className={`flex gap-2 ${!(isLinked && !requiresProject && !printAfterLink) ? 'ml-auto' : ''}`}>
-            <Button variant="secondary" onClick={onClose}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={() => selectedId && onSave(selectedId)} disabled={!selectedId || isLoading}>
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : printAfterLink ? (
-                'Attach & Print'
+            <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
+              {loadingProjects ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+                </div>
+              ) : projects && projects.length > 0 ? (
+                projects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => setSelectedId(project.id)}
+                    className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
+                      selectedId === project.id
+                        ? 'bg-bambu-green/20 text-bambu-green'
+                        : 'hover:bg-bambu-dark-tertiary text-white'
+                    }`}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: project.color || '#00ae42' }}
+                    />
+                    <span className="truncate flex-1">{project.name}</span>
+                    {project.created_by_username && (
+                      <span className="text-xs text-bambu-gray flex-shrink-0">
+                        {project.created_by_username}
+                      </span>
+                    )}
+                  </button>
+                ))
               ) : (
-                'Save Project'
+                <p className="text-sm text-bambu-gray text-center py-4">
+                  No projects added
+                </p>
               )}
-            </Button>
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-bambu-dark-tertiary flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {canCreateProject && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowCreateProjectModal(true)}
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  {t('projects.newProject')}
+                </Button>
+              )}
+              {isLinked && !requiresProject && !printAfterLink && (
+                <Button variant="danger" onClick={onUnlink} disabled={isLoading}>
+                  <Unlink className="w-4 h-4 mr-2" />
+                  {t('fileManager.unlink')}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2 ml-auto">
+              <Button variant="secondary" onClick={onClose}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={() => selectedId && onSave(selectedId)} disabled={!selectedId || isLoading}>
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : printAfterLink ? (
+                  'Attach & Print'
+                ) : (
+                  'Save Project'
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      {showCreateProjectModal && (
+        <ProjectModal
+          onClose={() => setShowCreateProjectModal(false)}
+          onSave={(data) => createProjectMutation.mutate(data as ProjectCreate)}
+          isLoading={createProjectMutation.isPending}
+          currencySymbol={currencySymbol}
+          t={t}
+        />
+      )}
+    </>
   );
 }
 
@@ -2431,7 +2481,10 @@ export function FileManagerPage() {
     },
     onSuccess: ({ file, projectId, projectName, printAfterLink }) => {
       queryClient.invalidateQueries({ queryKey: ['library-files'] });
+      queryClient.invalidateQueries({ queryKey: ['library-folders'] });
       queryClient.invalidateQueries({ queryKey: ['library-file', file.id] });
+      queryClient.invalidateQueries({ queryKey: ['project-folders'] });
+      queryClient.invalidateQueries({ queryKey: ['project-files'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setLinkFileState(null);
       if (printAfterLink && projectId) {

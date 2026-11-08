@@ -34,6 +34,7 @@ import {
   FileBox,
   Shield,
   User,
+  Upload,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { parseUTCDate, formatDateOnly, formatDateTime, formatDurationFromHours, type TimeFormat } from '../utils/date';
@@ -45,6 +46,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { PrintModal } from '../components/PrintModal';
+import { FileUploadModal } from '../components/FileUploadModal';
 import { ProjectPermissionsModal } from '../components/ProjectPermissionsModal';
 
 // Project edit modal (reused from ProjectsPage)
@@ -207,6 +209,7 @@ export function ProjectDetailPage() {
   const { hasPermission } = useAuth();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesContent, setNotesContent] = useState('');
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
@@ -267,6 +270,12 @@ export function ProjectDetailPage() {
     }
     return map;
   }, [allProjectFiles]);
+
+  // Any project files that are not in one of the linked folders
+  const unfolderedProjectFiles = useMemo(() => {
+    const linkedIds = new Set((linkedFolders ?? []).map((f) => f.id));
+    return (allProjectFiles ?? []).filter((f) => f.folder_id == null || !linkedIds.has(f.folder_id));
+  }, [allProjectFiles, linkedFolders]);
 
   // Per-file completed-run counts (#1897); a file absent from the response has 0
   const { data: fileProgress } = useQuery({
@@ -1043,6 +1052,16 @@ export function ProjectDetailPage() {
               <FolderOpen className="w-5 h-5" />
               {t('projectDetail.files.title')}
             </h2>
+            {hasPermission('library:upload') && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowUploadModal(true)}
+              >
+                <Upload className="w-4 h-4 mr-1" />
+                {t('common.upload')}
+              </Button>
+            )}
           </div>
 
           <p className="text-xs text-bambu-gray mb-3">
@@ -1172,6 +1191,101 @@ export function ProjectDetailPage() {
                             </div>
                           );
                         })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {unfolderedProjectFiles.length > 0 && (
+                <div className="space-y-1 pl-3 pt-2 border-t border-bambu-dark-tertiary">
+                  {unfolderedProjectFiles.map((file) => {
+                    const printable = isPrintableLibraryFile(file);
+                    return (
+                      <div
+                        key={file.id}
+                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors"
+                      >
+                        <div className="w-10 h-10 shrink-0 rounded bg-bambu-dark overflow-hidden flex items-center justify-center">
+                          {file.thumbnail_path ? (
+                            <img
+                              src={api.getLibraryFileThumbnailUrl(file.id)}
+                              alt={file.print_name || file.filename}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <FileBox className="w-5 h-5 text-bambu-gray/40" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate" title={file.print_name || file.filename}>
+                            {file.print_name || file.filename}
+                          </p>
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            file.file_type === '3mf' ? 'bg-bambu-green/20 text-bambu-green'
+                            : (file.file_type === 'gcode' || file.file_type === 'gcode.3mf') ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400'
+                            : 'bg-bambu-gray/20 text-bambu-gray'
+                          }`}>
+                            {file.file_type.toUpperCase()}
+                          </span>
+                        </div>
+                        {printable && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => setPrintFile(file)}
+                              title={t('common.print')}
+                              className="p-1.5 rounded hover:bg-bambu-green/20 text-bambu-green transition-colors"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : unfolderedProjectFiles.length > 0 ? (
+            <div className="space-y-1">
+              {unfolderedProjectFiles.map((file) => {
+                const printable = isPrintableLibraryFile(file);
+                return (
+                  <div
+                    key={file.id}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-bambu-dark-tertiary transition-colors"
+                  >
+                    <div className="w-10 h-10 shrink-0 rounded bg-bambu-dark overflow-hidden flex items-center justify-center">
+                      {file.thumbnail_path ? (
+                        <img
+                          src={api.getLibraryFileThumbnailUrl(file.id)}
+                          alt={file.print_name || file.filename}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <FileBox className="w-5 h-5 text-bambu-gray/40" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate" title={file.print_name || file.filename}>
+                        {file.print_name || file.filename}
+                      </p>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                        file.file_type === '3mf' ? 'bg-bambu-green/20 text-bambu-green'
+                        : (file.file_type === 'gcode' || file.file_type === 'gcode.3mf') ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400'
+                        : 'bg-bambu-gray/20 text-bambu-gray'
+                      }`}>
+                        {file.file_type.toUpperCase()}
+                      </span>
+                    </div>
+                    {printable && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => setPrintFile(file)}
+                          title={t('common.print')}
+                          className="p-1.5 rounded hover:bg-bambu-green/20 text-bambu-green transition-colors"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1630,6 +1744,20 @@ export function ProjectDetailPage() {
           onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
         />
       )}
+
+      {/* Upload Files directly into this project */}
+      <FileUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        folderId={linkedFolders?.[0]?.id ?? null}
+        projectId={projectId}
+        onUploadComplete={() => {
+          queryClient.invalidateQueries({ queryKey: ['project-folders', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['library-folders'] });
+          queryClient.invalidateQueries({ queryKey: ['library-files'] });
+        }}
+      />
 
       {/* Print from project */}
       {printFile && (

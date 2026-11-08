@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Upload,
   X,
@@ -13,10 +13,14 @@ import {
   Image,
   Briefcase,
   AlertTriangle,
+  Plus,
 } from 'lucide-react';
 import { api } from '../api/client';
-import type { LibraryFileUploadResponse } from '../api/client';
+import type { LibraryFileUploadResponse, ProjectCreate } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { getCurrencySymbol } from '../utils/currency';
+import { ProjectModal } from '../pages/ProjectsPage';
 import { Button } from './Button';
 
 interface UploadFile {
@@ -57,7 +61,10 @@ export function FileUploadModal({
   initialFiles,
 }: FileUploadModalProps) {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  const canCreateProject = hasPermission('projects:create');
   const requiresProject = Boolean(
     user &&
       !user.is_admin &&
@@ -66,10 +73,30 @@ export function FileUploadModal({
   );
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(projectId ?? null);
   const [projectConfirmed, setProjectConfirmed] = useState<boolean>(() => projectId != null || !requiresProject);
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
     queryKey: ['projects', 'active'],
     queryFn: () => api.getProjects('active'),
     enabled: requiresProject && !projectConfirmed,
+  });
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: api.getSettings,
+    enabled: showCreateProjectModal,
+  });
+  const currencySymbol = getCurrencySymbol(settings?.currency || 'USD');
+
+  const createProjectMutation = useMutation({
+    mutationFn: (data: ProjectCreate) => api.createProject(data),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setSelectedProjectId(created.id);
+      setShowCreateProjectModal(false);
+      showToast(t('projects.toast.created', 'Project created'), 'success');
+    },
+    onError: (error: Error) => {
+      showToast(error.message, 'error');
+    },
   });
 
   const [files, setFiles] = useState<UploadFile[]>([]);
@@ -218,80 +245,105 @@ export function FileUploadModal({
 
   if (requiresProject && !projectConfirmed) {
     return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-        <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
-          <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Briefcase className="w-5 h-5 text-bambu-green" />
-              Select Project
-            </h2>
-            <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
-              <X className="w-5 h-5 text-bambu-gray" />
-            </button>
-          </div>
-
-          <div className="p-4 space-y-4">
-            <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
-              <span>
-                Your group requires all uploaded models to belong to a project. Select a project below to continue.
-              </span>
+      <>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-bambu-dark-secondary rounded-lg w-full max-w-md border border-bambu-dark-tertiary">
+            <div className="p-4 border-b border-bambu-dark-tertiary flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-bambu-green" />
+                Select Project
+              </h2>
+              <button onClick={onClose} className="p-1 hover:bg-bambu-dark rounded">
+                <X className="w-5 h-5 text-bambu-gray" />
+              </button>
             </div>
 
-            <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
-              {loadingProjects ? (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
-                </div>
-              ) : activeProjects.length > 0 ? (
-                activeProjects.map((project) => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    onClick={() => setSelectedProjectId(project.id)}
-                    className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
-                      selectedProjectId === project.id
-                        ? 'bg-bambu-green/20 text-bambu-green'
-                        : 'hover:bg-bambu-dark-tertiary text-white'
-                    }`}
-                  >
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: project.color || '#00ae42' }}
-                    />
-                    <span className="truncate flex-1">{project.name}</span>
-                    {project.created_by_username && project.created_by_id !== user?.id && (
-                      <span className="text-xs text-bambu-gray flex-shrink-0">
-                        {project.created_by_username}
-                      </span>
-                    )}
-                  </button>
-                ))
+            <div className="p-4 space-y-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <span>
+                  Your group requires all uploaded models to belong to a project. Select a project below to continue.
+                </span>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto space-y-1 bg-bambu-dark rounded-lg p-2">
+                {loadingProjects ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="w-5 h-5 animate-spin text-bambu-green" />
+                  </div>
+                ) : activeProjects.length > 0 ? (
+                  activeProjects.map((project) => (
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => setSelectedProjectId(project.id)}
+                      className={`w-full text-left px-3 py-2 rounded transition-colors flex items-center gap-2 ${
+                        selectedProjectId === project.id
+                          ? 'bg-bambu-green/20 text-bambu-green'
+                          : 'hover:bg-bambu-dark-tertiary text-white'
+                      }`}
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: project.color || '#00ae42' }}
+                      />
+                      <span className="truncate flex-1">{project.name}</span>
+                      {project.created_by_username && project.created_by_id !== user?.id && (
+                        <span className="text-xs text-bambu-gray flex-shrink-0">
+                          {project.created_by_username}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-sm text-bambu-gray text-center py-4">
+                    No projects added
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-bambu-dark-tertiary flex items-center justify-between gap-2">
+              {canCreateProject ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowCreateProjectModal(true)}
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  {t('projects.newProject', 'New Project')}
+                </Button>
               ) : (
-                <p className="text-sm text-bambu-gray text-center py-4">
-                  No active projects found. Create a project on the Projects page or ask an instructor/teammate to share one with you.
-                </p>
+                <div />
               )}
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={onClose}>
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (selectedProjectId != null) {
+                      setProjectConfirmed(true);
+                    }
+                  }}
+                  disabled={selectedProjectId == null || loadingProjects}
+                >
+                  Continue
+                </Button>
+              </div>
             </div>
-          </div>
-
-          <div className="p-4 border-t border-bambu-dark-tertiary flex justify-end gap-2">
-            <Button variant="secondary" onClick={onClose}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={() => {
-                if (selectedProjectId != null) {
-                  setProjectConfirmed(true);
-                }
-              }}
-              disabled={selectedProjectId == null || loadingProjects}
-            >
-              Continue
-            </Button>
           </div>
         </div>
-      </div>
+        {showCreateProjectModal && (
+          <ProjectModal
+            onClose={() => setShowCreateProjectModal(false)}
+            onSave={(data) => createProjectMutation.mutate(data as ProjectCreate)}
+            isLoading={createProjectMutation.isPending}
+            currencySymbol={currencySymbol}
+            t={t as unknown as (key: string, options?: Record<string, unknown>) => string}
+          />
+        )}
+      </>
     );
   }
 
