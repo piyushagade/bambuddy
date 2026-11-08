@@ -5012,8 +5012,8 @@ function PrinterCard({
               const isPrinting = isRunning || isPaused;
               const isControlBusy = stopPrintMutation.isPending || pausePrintMutation.isPending || resumePrintMutation.isPending;
               const unavailablePrintActionClass = 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed opacity-50';
-              const iconControlClass = 'flex h-8 w-8 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-              const printControlClass = 'flex h-8 w-20 items-center justify-center gap-1 px-2 rounded-lg text-xs font-medium transition-colors';
+              const iconControlClass = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+              const printControlClass = 'flex h-8 px-2.5 items-center justify-center gap-1 rounded-lg text-[length:var(--pc-t11,11px)] font-medium transition-colors whitespace-nowrap';
 
               return (
                 <div className="mt-3">
@@ -5025,9 +5025,9 @@ function PrinterCard({
                     <div className="flex-1 h-[2px] bg-bambu-dark-tertiary" />
                   </div>
 
-                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
+                  <div className="flex items-center justify-between gap-1.5">
                     {/* Left: Secondary controls */}
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <button
                         onClick={() => chamberLightMutation.mutate(!status.chamber_light)}
                         disabled={!status.connected || chamberLightMutation.isPending || !hasPermission('printers:control')}
@@ -5287,7 +5287,7 @@ function PrinterCard({
                         <button
                           onClick={handleOpenPlateManagement}
                           disabled={!status.connected || isCheckingPlate || !hasPermission('printers:update')}
-                          className={`flex h-8 w-8 items-center justify-center rounded-r-lg border-l border-bambu-dark-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          className={`flex h-8 w-5 items-center justify-center rounded-r-lg border-l border-bambu-dark-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                             printer.plate_detection_enabled
                               ? 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
                               : 'bg-bambu-dark text-bambu-gray/50 hover:bg-bambu-dark-tertiary hover:text-white'
@@ -5295,9 +5295,9 @@ function PrinterCard({
                           title={!hasPermission('printers:update') ? t('printers.plateDetection.noPermission') : t('printers.plateDetection.manageCalibration')}
                         >
                           {isCheckingPlate ? (
-                            <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
+                            <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
-                            <ChevronDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                            <ChevronDown className="w-3 h-3" />
                           )}
                         </button>
                       </div>
@@ -5352,7 +5352,7 @@ function PrinterCard({
                     </div>
 
                     {/* Right: Print Control Buttons */}
-                    <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
+                    <div className="ml-auto flex items-center justify-end gap-1.5 shrink-0">
                       {/* Pause/Resume button */}
                       {(() => {
                         const pauseUnavailable = !isPrinting || isControlBusy || !hasPermission('printers:control');
