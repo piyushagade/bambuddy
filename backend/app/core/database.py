@@ -6439,10 +6439,10 @@ async def seed_default_groups():
                                 new_permissions.append(all_perm)
                                 updated = True
 
-                    if group_name == "Operators" and "projects:create" in new_permissions:
-                        new_permissions.remove("projects:create")
+                    if group_name == "Operators" and "projects:create" not in new_permissions:
+                        new_permissions.append("projects:create")
                         updated = True
-                        logger.info("Removed 'projects:create' from group 'Operators'")
+                        logger.info("Restored 'projects:create' to group 'Operators'")
 
                     if updated:
                         group.permissions = new_permissions
@@ -6471,10 +6471,13 @@ async def seed_default_groups():
                     logger.info(
                         "Migrated permission '%s' to '%s' in custom group '%s'", old_perm, new_perm, group_name
                     )
-            if group.description == "Auto-created from roster import" and "projects:create" in new_permissions:
-                new_permissions.remove("projects:create")
+            if (
+                group.description == "Auto-created from roster import"
+                or getattr(group, "require_project", False)
+            ) and "projects:create" not in new_permissions:
+                new_permissions.append("projects:create")
                 updated = True
-                logger.info("Removed 'projects:create' from roster group '%s'", group_name)
+                logger.info("Added 'projects:create' to group '%s'", group_name)
             if updated:
                 group.permissions = new_permissions
 

@@ -67,6 +67,9 @@ def _require_project_read():
         Permission.PROJECTS_READ_ALL,
         Permission.PROJECTS_READ_OWN,
         Permission.PROJECTS_READ,
+        Permission.PROJECTS_CREATE,
+        Permission.LIBRARY_UPLOAD,
+        Permission.QUEUE_CREATE,
     )
 
 
@@ -75,6 +78,7 @@ def _require_project_write():
         Permission.PROJECTS_UPDATE_ALL,
         Permission.PROJECTS_UPDATE_OWN,
         Permission.PROJECTS_UPDATE,
+        Permission.PROJECTS_CREATE,
         Permission.PROJECTS_READ_ALL,
         Permission.PROJECTS_READ_OWN,
         Permission.PROJECTS_READ,
@@ -135,7 +139,8 @@ async def _compute_project_access_map(
         Permission.PROJECTS_UPDATE_OWN.value,
         Permission.PROJECTS_UPDATE_ALL.value,
         Permission.PROJECTS_UPDATE.value,
-    )
+        Permission.PROJECTS_CREATE.value,
+    ) or bool(getattr(user, "requires_project_for_print", False))
     can_delete_own = user.has_any_permission(
         Permission.PROJECTS_DELETE_OWN.value,
         Permission.PROJECTS_DELETE_ALL.value,
@@ -825,7 +830,12 @@ async def list_projects(
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.PROJECTS_CREATE),
+    current_user: User | None = RequireAnyPermissionIfAuthEnabled(
+        Permission.PROJECTS_CREATE,
+        Permission.PROJECTS_READ_OWN,
+        Permission.LIBRARY_UPLOAD,
+        Permission.QUEUE_CREATE,
+    ),
 ):
     """Create a new project."""
     # Verify parent exists if specified

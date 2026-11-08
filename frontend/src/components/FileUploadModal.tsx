@@ -61,10 +61,9 @@ export function FileUploadModal({
   initialFiles,
 }: FileUploadModalProps) {
   const { t } = useTranslation();
-  const { user, hasPermission } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const canCreateProject = hasPermission('projects:create');
   const requiresProject = Boolean(
     user &&
       !user.is_admin &&
@@ -77,8 +76,9 @@ export function FileUploadModal({
   const { data: activeProjects = [], isLoading: loadingProjects } = useQuery({
     queryKey: ['projects', 'active'],
     queryFn: () => api.getProjects('active'),
-    enabled: requiresProject && !projectConfirmed,
+    enabled: requiresProject || selectedProjectId != null,
   });
+  const selectedProject = activeProjects.find((p) => p.id === selectedProjectId) ?? null;
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: api.getSettings,
@@ -90,6 +90,7 @@ export function FileUploadModal({
     mutationFn: (data: ProjectCreate) => api.createProject(data),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['folders'] });
       setSelectedProjectId(created.id);
       setShowCreateProjectModal(false);
       showToast(t('projects.toast.created', 'Project created'), 'success');
@@ -262,7 +263,7 @@ export function FileUploadModal({
               <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
                 <span>
-                  Your group requires all uploaded models to belong to a project. Select a project below to continue.
+                  Your group requires all uploaded models to belong to a project. Select or create a project below — uploaded files will be added to the selected project and its folder in the File Manager.
                 </span>
               </div>
 
@@ -304,18 +305,14 @@ export function FileUploadModal({
             </div>
 
             <div className="p-4 border-t border-bambu-dark-tertiary flex items-center justify-between gap-2">
-              {canCreateProject ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowCreateProjectModal(true)}
-                >
-                  <Plus className="w-4 h-4 mr-1.5" />
-                  {t('projects.newProject', 'New Project')}
-                </Button>
-              ) : (
-                <div />
-              )}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowCreateProjectModal(true)}
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                {t('projects.newProject', 'New Project')}
+              </Button>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={onClose}>
                   {t('common.cancel')}
@@ -364,6 +361,29 @@ export function FileUploadModal({
         </div>
 
         <div className="p-4 space-y-4 overflow-y-auto flex-1">
+          {selectedProject && (
+            <div className="p-3 bg-bambu-dark rounded-lg border border-bambu-dark-tertiary flex items-center justify-between gap-2 text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <Briefcase className="w-4 h-4 text-bambu-green flex-shrink-0" />
+                <span className="text-bambu-gray">Project & Folder:</span>
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: selectedProject.color || '#00ae42' }}
+                />
+                <span className="text-white font-medium truncate">{selectedProject.name}</span>
+              </div>
+              {projectId == null && requiresProject && !isUploading && (
+                <button
+                  type="button"
+                  onClick={() => setProjectConfirmed(false)}
+                  className="text-xs text-bambu-green hover:underline flex-shrink-0"
+                >
+                  Change
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Drop Zone */}
           <div
             onDragOver={handleDragOver}

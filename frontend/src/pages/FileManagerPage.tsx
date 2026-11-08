@@ -823,10 +823,8 @@ function LinkFileProjectModal({
   isLoading,
   t,
 }: LinkFileProjectModalProps) {
-  const { hasPermission } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const canCreateProject = hasPermission('projects:create');
   const [selectedId, setSelectedId] = useState<number | null>(file.project_id ?? null);
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
 
@@ -834,7 +832,9 @@ function LinkFileProjectModal({
     queryKey: ['projects'],
     queryFn: () => api.getProjects(),
     select: (rows) =>
-      assignableProjects([...rows].sort((a, b) => a.name.localeCompare(b.name)), file.project_id ?? null),
+      [...rows]
+        .filter((p) => p.status !== 'archived' || p.id === (file.project_id ?? null))
+        .sort((a, b) => a.name.localeCompare(b.name)),
   });
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -847,6 +847,7 @@ function LinkFileProjectModal({
     mutationFn: (data: ProjectCreate) => api.createProject(data),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['folders'] });
       setSelectedId(created.id);
       setShowCreateProjectModal(false);
       showToast(t('projects.toast.created'), 'success');
@@ -881,12 +882,12 @@ function LinkFileProjectModal({
               <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-sm text-amber-200 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
                 <span>
-                  <strong>{file.print_name || file.filename}</strong> is not attached to a project. Your group requires all printed models to belong to a project — select a project below to attach this file and continue to print.
+                  <strong>{file.print_name || file.filename}</strong> is not attached to a project. Your group requires all printed models to belong to a project — select or create a project below to place this file in that project&apos;s folder and continue to print.
                 </span>
               </div>
             ) : (
               <p className="text-sm text-bambu-gray">
-                Select a project to associate with <strong className="text-white">{file.print_name || file.filename}</strong>.
+                Select or create a project to associate with <strong className="text-white">{file.print_name || file.filename}</strong> and place it in that project&apos;s folder.
               </p>
             )}
 
@@ -929,16 +930,14 @@ function LinkFileProjectModal({
 
           <div className="p-4 border-t border-bambu-dark-tertiary flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              {canCreateProject && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setShowCreateProjectModal(true)}
-                >
-                  <Plus className="w-4 h-4 mr-1.5" />
-                  {t('projects.newProject')}
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowCreateProjectModal(true)}
+              >
+                <Plus className="w-4 h-4 mr-1.5" />
+                {t('projects.newProject', 'New Project')}
+              </Button>
               {isLinked && !requiresProject && !printAfterLink && (
                 <Button variant="danger" onClick={onUnlink} disabled={isLoading}>
                   <Unlink className="w-4 h-4 mr-2" />
