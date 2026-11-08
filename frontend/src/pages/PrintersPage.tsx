@@ -2893,83 +2893,42 @@ function PrinterCard({
   // Rendered from two places: inside the live-status block for a connected printer,
   // and standalone below it for a powered-down one, whose status block isn't rendered
   // at all (#2864). Shared so the two can't drift apart.
-  const expandedClearPlateButton = (
+  const expandedClearPlateButton = pendingConfirmArchive ? (
     <>
-      {pendingConfirmArchive && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <span
-            className="flex-1 min-w-0 truncate text-xs text-bambu-gray"
-            title={pendingConfirmArchive.print_name || pendingConfirmArchive.filename}
-          >
-            {t('confirmOutcome.cardPrompt')}
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowConfirmOutcome(true)}
-            disabled={cardVerdictMutation.isPending}
-            className="p-1.5 rounded-lg border border-red-500/40 text-red-500 hover:bg-red-500/10 transition-colors"
-            title={t('confirmOutcome.reject')}
-          >
-            <ThumbsDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-          </button>
-          <button
-            type="button"
-            onClick={() => cardVerdictMutation.mutate('good')}
-            disabled={cardVerdictMutation.isPending}
-            className="p-1.5 rounded-lg border border-bambu-green/50 text-bambu-green hover:bg-bambu-green/10 transition-colors"
-            title={t('confirmOutcome.good')}
-          >
-            <ThumbsUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-          </button>
-        </div>
-      )}
-      <div className="mt-2 rounded-lg bg-yellow-100/80 dark:bg-yellow-500/15 border border-yellow-300 dark:border-yellow-400/40 p-2 space-y-1.5">
-        <div className="flex items-center justify-between gap-2 text-xs text-yellow-800 dark:text-yellow-300 px-0.5 min-w-0">
-          <span className="flex items-center gap-1.5 min-w-0 flex-1">
-            <User className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] shrink-0" />
-            <span className="shrink-0">
-              {t('printers.plateStatus.lastPrintBy', 'Last print by:')}
-            </span>
-            <MarqueeText
-              className="flex-1 min-w-0"
-              innerClassName="font-semibold text-yellow-900 dark:text-yellow-200"
-              title={lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
-            >
-              {lastPrintUser || t('printers.plateStatus.unknownUser', 'Unknown user')}
-            </MarqueeText>
-          </span>
-          {!status?.connected && lastPrintName && (
-            <span
-              className="text-[11px] text-yellow-700/80 dark:text-yellow-300/80 truncate max-w-[35%] shrink-0"
-              title={lastPrintName}
-            >
-              {lastPrintName}
-            </span>
-          )}
-        </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        <span
+          className="flex-1 min-w-0 truncate text-xs text-bambu-gray"
+          title={pendingConfirmArchive.print_name || pendingConfirmArchive.filename}
+        >
+          {t('confirmOutcome.cardPrompt')}
+        </span>
         <button
           type="button"
-          onClick={() => setShowClearPlateModal(true)}
-          disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
-          className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/40 text-yellow-800 dark:text-yellow-300 transition-colors text-xs font-medium disabled:opacity-50"
-          title={!hasPermission('printers:clear_plate') ? t('printers.permission.noControl') : t('printers.plateStatus.markCleared')}
+          onClick={() => setShowConfirmOutcome(true)}
+          disabled={cardVerdictMutation.isPending}
+          className="p-1.5 rounded-lg border border-red-500/40 text-red-500 hover:bg-red-500/10 transition-colors"
+          title={t('confirmOutcome.reject')}
         >
-          {clearPlateMutation.isPending ? (
-            <Loader2 className="w-[var(--pc-i3,0.75rem)] h-[var(--pc-i3,0.75rem)] animate-spin" />
-          ) : (
-            <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-          )}
-          {t('printers.plateStatus.markCleared')}
+          <ThumbsDown className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+        </button>
+        <button
+          type="button"
+          onClick={() => cardVerdictMutation.mutate('good')}
+          disabled={cardVerdictMutation.isPending}
+          className="p-1.5 rounded-lg border border-bambu-green/50 text-bambu-green hover:bg-bambu-green/10 transition-colors"
+          title={t('confirmOutcome.good')}
+        >
+          <ThumbsUp className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
         </button>
       </div>
-      {showConfirmOutcome && pendingConfirmArchive && (
+      {showConfirmOutcome && (
         <ConfirmOutcomeDialog
           archiveId={pendingConfirmArchive.id}
           onClose={() => setShowConfirmOutcome(false)}
         />
       )}
     </>
-  );
+  ) : null;
 
   const nozzleTemperatureMutation = useMutation({
     mutationFn: ({ target, nozzle }: { target: number; nozzle: number }) =>
@@ -6891,33 +6850,46 @@ function PrinterCard({
                 >
                   <HardDrive className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
                 </Button>
-                {/* Shown whatever the printer is doing (#2849): this uploads a
-                    file and queues it, which a busy or offline printer is no
-                    reason to refuse -- it only means the item waits. Hiding it
-                    while the drop zone accepted the same file would have left
-                    the two routes into this flow disagreeing. */}
-                <Button
-                  size="sm"
-                  onClick={() => setShowUploadForPrint(true)}
-                  disabled={needsPlateClear || !hasPermission('library:upload') || !hasPermission('queue:create')}
-                  title={
-                    needsPlateClear
-                      ? t('printers.plateStatus.cannotPrintUntilCleared', 'Clear the build plate before starting a new print')
-                      : !hasPermission('library:upload')
+                {/* When plate is not clear, replace Print button with Clear Plate button
+                    so the card height matches cards with a cleared plate. */}
+                {showClearPlateButton ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowClearPlateModal(true)}
+                    disabled={clearPlateMutation.isPending || !hasPermission('printers:clear_plate')}
+                    aria-label={t('printers.plateStatus.markCleared')}
+                    title={
+                      !hasPermission('printers:clear_plate')
+                        ? t('printers.permission.noControl')
+                        : t('printers.plateStatus.markCleared')
+                    }
+                    className={`${footerActionButtonClass} !bg-yellow-500/20 hover:!bg-yellow-500/30 !border !border-yellow-400/40 !text-yellow-700 dark:!text-yellow-300`}
+                  >
+                    {clearPlateMutation.isPending ? (
+                      <Loader2 className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)] animate-spin" />
+                    ) : (
+                      <PlateClearedIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                    )}
+                    {t('printers.plateStatus.clearPlateButton', 'Clear Plate')}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowUploadForPrint(true)}
+                    disabled={!hasPermission('library:upload') || !hasPermission('queue:create')}
+                    title={
+                      !hasPermission('library:upload')
                         ? t('fileManager.noPermissionUpload')
                         : !hasPermission('queue:create')
                           ? t('fileManager.noPermissionAddToQueue')
                           : t('common.print')
-                  }
-                  className={`${footerActionButtonClass} ${
-                    needsPlateClear
-                      ? '!bg-bambu-dark-tertiary !text-bambu-gray'
-                      : '!bg-bambu-green hover:!bg-bambu-green/80 !text-white'
-                  }`}
-                >
-                  <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
-                  {t('common.print')}
-                </Button>
+                    }
+                    className={`${footerActionButtonClass} !bg-bambu-green hover:!bg-bambu-green/80 !text-white`}
+                  >
+                    <PrinterIcon className="w-[var(--pc-i4,1rem)] h-[var(--pc-i4,1rem)]" />
+                    {t('common.print')}
+                  </Button>
+                )}
               </div>
             </div>
         </div>
