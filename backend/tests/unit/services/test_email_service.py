@@ -494,3 +494,26 @@ class TestResendAndMailgunDelivery:
             )
             assert ok_event is True
             assert mock_client.post.call_args.kwargs["json"]["to"] == ["maker@example.com"]
+            html_sent = mock_client.post.call_args.kwargs["json"]["html"]
+            assert "<!DOCTYPE html>" in html_sent
+            assert "BAMBUDDY &bull; PRINT COMPLETED" in html_sent
+            assert "Your print is ready" in html_sent
+
+    def test_render_modern_email_html_themes(self):
+        from backend.app.services.email_service import render_modern_email_html
+
+        brand_html = render_modern_email_html("Print Complete: Benchy", "Finished in 42m")
+        assert "#00ae42" in brand_html
+        assert "PRINT COMPLETED" in brand_html
+
+        danger_html = render_modern_email_html("Print Failed: Benchy", "Spaghetti detected")
+        assert "#e11d48" in danger_html
+        assert "ALERT - ATTENTION NEEDED" in danger_html
+
+        warning_html = render_modern_email_html("Build Plate Clear Required", "Please clear the plate")
+        assert "#d97706" in warning_html
+        assert "ACTION REQUIRED" in warning_html
+
+        security_html = render_modern_email_html("Password Reset Request", "Reset link")
+        assert "#4f46e5" in security_html
+        assert "SECURITY" in security_html

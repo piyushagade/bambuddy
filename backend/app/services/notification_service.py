@@ -888,7 +888,9 @@ class NotificationService:
                     'alt="Printer camera snapshot" '
                     'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
                 )
-                html_body = f"<html><body><p>{escaped_body.replace(escaped_url, img_tag)}</p></body></html>"
+                from backend.app.services.email_service import render_modern_email_html
+
+                html_body = render_modern_email_html(subject, escaped_body.replace(escaped_url, img_tag))
                 alt.attach(MIMEText(html_body, "html"))
                 msg.attach(alt)
 
@@ -903,7 +905,11 @@ class NotificationService:
                 msg["From"] = from_email
                 msg["To"] = to_email_header
                 msg["Subject"] = f"[Bambuddy] {subject}"
+                from backend.app.services.email_service import render_modern_email_html
+
                 msg.attach(MIMEText(body, "plain"))
+                escaped_body = html.escape(body).replace("\n", "<br>\n")
+                msg.attach(MIMEText(render_modern_email_html(subject, escaped_body), "html"))
 
             # smtplib is synchronous and blocking: a wedged / greylisting /
             # firewall-dropped relay leaves recv() stuck. Two problems, two
@@ -981,20 +987,22 @@ class NotificationService:
         if reply_to:
             payload["reply_to"] = reply_to
 
+        from backend.app.services.email_service import render_modern_email_html
+
+        escaped_body = html.escape(body).replace("\n", "<br>\n")
         inline_by_url = bool(image_data and finish_photo_url and finish_photo_url in body)
         if image_data:
-            escaped_body = html.escape(body).replace("\n", "<br>\n")
             img_tag = (
                 '<img src="cid:bambuddy-finish-photo" '
                 'alt="Printer camera snapshot" '
-                'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+                'style="max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;display:block;margin:18px auto 0 auto;box-shadow:0 4px 12px rgba(15,23,42,0.08);">'
             )
             if inline_by_url and finish_photo_url:
                 escaped_url = html.escape(finish_photo_url)
                 html_content = escaped_body.replace(escaped_url, img_tag)
             else:
-                html_content = f"{escaped_body}<p>{img_tag}</p>"
-            payload["html"] = f"<html><body><p>{html_content}</p></body></html>"
+                html_content = f'{escaped_body}<div style="margin-top: 20px;">{img_tag}</div>'
+            payload["html"] = render_modern_email_html(subject, html_content)
             payload["attachments"] = [
                 {
                     "filename": "finish-photo.jpg",
@@ -1002,6 +1010,8 @@ class NotificationService:
                     "content_id": "bambuddy-finish-photo",
                 }
             ]
+        else:
+            payload["html"] = render_modern_email_html(subject, escaped_body)
 
         try:
             client = await self._get_client()
@@ -1052,22 +1062,26 @@ class NotificationService:
         if reply_to:
             data["h:Reply-To"] = reply_to
 
+        from backend.app.services.email_service import render_modern_email_html
+
         files = None
+        escaped_body = html.escape(body).replace("\n", "<br>\n")
         inline_by_url = bool(image_data and finish_photo_url and finish_photo_url in body)
         if image_data:
-            escaped_body = html.escape(body).replace("\n", "<br>\n")
             img_tag = (
                 '<img src="cid:finish-photo.jpg" '
                 'alt="Printer camera snapshot" '
-                'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+                'style="max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;display:block;margin:18px auto 0 auto;box-shadow:0 4px 12px rgba(15,23,42,0.08);">'
             )
             if inline_by_url and finish_photo_url:
                 escaped_url = html.escape(finish_photo_url)
                 html_content = escaped_body.replace(escaped_url, img_tag)
             else:
-                html_content = f"{escaped_body}<p>{img_tag}</p>"
-            data["html"] = f"<html><body><p>{html_content}</p></body></html>"
+                html_content = f'{escaped_body}<div style="margin-top: 20px;">{img_tag}</div>'
+            data["html"] = render_modern_email_html(subject, html_content)
             files = [("inline", ("finish-photo.jpg", image_data, "image/jpeg"))]
+        else:
+            data["html"] = render_modern_email_html(subject, escaped_body)
 
         try:
             client = await self._get_client()

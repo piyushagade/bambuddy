@@ -579,6 +579,141 @@ def send_email(
         raise
 
 
+def infer_email_theme(subject: str, event_type: str | None = None) -> tuple[str, str]:
+    """Infer the visual theme and status badge label from an email subject or event type.
+
+    Returns:
+        Tuple of (theme_name, badge_text) where theme_name is one of:
+        'brand' (emerald), 'danger' (rose), 'warning' (amber), or 'security' (indigo).
+    """
+    ev = (event_type or "").lower()
+    sub = (subject or "").lower()
+
+    if any(k in ev or k in sub for k in ("password", "2fa", "verification", "otp", "security", "welcome", "account details")):
+        if "welcome" in sub or "user_created" in ev:
+            return "security", "ACCOUNT CREATED"
+        if "2fa" in sub or "verification" in sub or "otp" in sub:
+            return "security", "SECURITY VERIFICATION"
+        return "security", "SECURITY & ACCESS"
+
+    if any(k in ev or k in sub for k in ("failed", "error", "fault", "offline", "reject", "sensor")):
+        return "danger", "ALERT - ATTENTION NEEDED"
+
+    if any(
+        k in ev or k in sub
+        for k in (
+            "plate",
+            "clear",
+            "waiting",
+            "skipped",
+            "stopped",
+            "expir",
+            "warning",
+            "low_spool",
+            "confirm",
+            "maintenance",
+        )
+    ):
+        return "warning", "ACTION REQUIRED"
+
+    if any(k in ev or k in sub for k in ("complete", "finish", "ready", "success")):
+        return "brand", "PRINT COMPLETED"
+
+    if "test" in sub:
+        return "brand", "GATEWAY TEST"
+
+    return "brand", "PRINT NOTIFICATION"
+
+
+def render_modern_email_html(
+    title: str,
+    body_html: str,
+    *,
+    theme: str | None = None,
+    badge_text: str | None = None,
+    event_type: str | None = None,
+    details_html: str = "",
+    cta_html: str = "",
+    callout_html: str = "",
+    footer_note: str = "",
+) -> str:
+    """Render a modern, responsive HTML email card compatible with major email clients.
+
+    Preserves `<div style="font-size: 16px;">` around `body_html` and
+    `padding: 30px; border-radius: 8px 8px 0 0;` on the header banner for backwards
+    compatibility with existing template formatting tests.
+    """
+    inferred_theme, inferred_badge = infer_email_theme(title, event_type)
+    resolved_theme = theme or inferred_theme
+    resolved_badge = badge_text or inferred_badge
+
+    palettes = {
+        "brand": {
+            "gradient": "linear-gradient(135deg, #00ae42 0%, #007a2f 100%)",
+            "bg_fallback": "#00ae42",
+            "accent": "#00ae42",
+            "pill_bg": "rgba(255, 255, 255, 0.2)",
+        },
+        "danger": {
+            "gradient": "linear-gradient(135deg, #e11d48 0%, #9f1239 100%)",
+            "bg_fallback": "#e11d48",
+            "accent": "#e11d48",
+            "pill_bg": "rgba(255, 255, 255, 0.22)",
+        },
+        "warning": {
+            "gradient": "linear-gradient(135deg, #d97706 0%, #92400e 100%)",
+            "bg_fallback": "#d97706",
+            "accent": "#d97706",
+            "pill_bg": "rgba(255, 255, 255, 0.22)",
+        },
+        "security": {
+            "gradient": "linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)",
+            "bg_fallback": "#4f46e5",
+            "accent": "#4f46e5",
+            "pill_bg": "rgba(255, 255, 255, 0.2)",
+        },
+    }
+    palette = palettes.get(resolved_theme, palettes["brand"])
+    timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    footer_note_block = (
+        f'<p style="font-size: 13px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 16px; margin: 24px 0 0 0;">{footer_note}</p>'
+        if footer_note
+        else ""
+    )
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{html.escape(title)}</title>
+</head>
+<body style="margin: 0; padding: 32px 16px; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.65; color: #1e293b; -webkit-font-smoothing: antialiased;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 4px 10px -6px rgba(15, 23, 42, 0.04); overflow: hidden;">
+        <div style="background: {palette["gradient"]}; background-color: {palette["bg_fallback"]}; padding: 30px; border-radius: 8px 8px 0 0;">
+            <div style="margin-bottom: 12px;">
+                <span style="display: inline-block; background-color: {palette["pill_bg"]}; color: #ffffff; font-size: 11px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; padding: 4px 10px; border-radius: 999px;">BAMBUDDY &bull; {html.escape(resolved_badge)}</span>
+            </div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 23px; font-weight: 700; line-height: 1.3; letter-spacing: -0.3px; text-shadow: 0 1px 2px rgba(0,0,0,0.25);">{html.escape(title)}</h1>
+        </div>
+        <div style="background-color: #ffffff; padding: 32px 30px; color: #334155;">
+            <div style="font-size: 16px;">{body_html}</div>
+            {details_html}
+            {cta_html}
+            {callout_html}
+            {footer_note_block}
+        </div>
+        <div style="background-color: #f8fafc; padding: 18px 30px; border-top: 1px solid #e2e8f0; text-align: center;">
+            <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                BamBuddy 3D Printer Management &bull; {timestamp_str}
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+
 def create_welcome_email(username: str, password: str, login_url: str) -> tuple[str, str, str]:
     """Create welcome email content for new user.
 
@@ -607,40 +742,26 @@ Best regards,
 BamBuddy Team
 """
 
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">Welcome to BamBuddy!</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <p style="font-size: 16px;">Your account has been created. Here are your login details:</p>
+    details_html = f"""
+            <div style="background-color: #f8fafc; padding: 18px 20px; border-radius: 8px; margin: 22px 0; border: 1px solid #e2e8f0; border-left: 4px solid #4f46e5;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong style="color: #0f172a;">Username:</strong> <code style="background-color: #e2e8f0; color: #0f172a; padding: 3px 8px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 14px;">{html.escape(username)}</code></p>
+                <p style="margin: 0; font-size: 14px; color: #475569;"><strong style="color: #0f172a;">Password:</strong> <code style="background-color: #e2e8f0; color: #0f172a; padding: 3px 8px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 14px;">{html.escape(password)}</code></p>
+            </div>"""
 
-        <div style="background: white; padding: 20px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #667eea;">
-            <p style="margin: 0 0 10px 0;"><strong>Username:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{username}</code></p>
-            <p style="margin: 0;"><strong>Password:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{password}</code></p>
-        </div>
+    cta_html = f"""
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{html.escape(login_url)}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">Login Now</a>
+            </div>"""
 
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
-
-        <p style="font-size: 14px; color: #666; border-top: 1px solid #ddd; padding-top: 20px; margin-top: 20px;">
-            <strong>Security Note:</strong> For security reasons, please change your password after your first login.
-        </p>
-
-        <p style="font-size: 14px; color: #999; margin-top: 30px;">
-            Best regards,<br>
-            BamBuddy Team
-        </p>
-    </div>
-</body>
-</html>
-"""
+    html_body = render_modern_email_html(
+        "Welcome to BamBuddy!",
+        "<p style=\"margin: 0;\">Your account has been created. Here are your login details:</p>",
+        theme="security",
+        badge_text="ACCOUNT CREATED",
+        details_html=details_html,
+        cta_html=cta_html,
+        footer_note="<strong>Security Note:</strong> For security reasons, please change your password after your first login.",
+    )
 
     return subject, text_body, html_body
 
@@ -675,46 +796,34 @@ Best regards,
 BamBuddy Team
 """
 
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">Password Reset</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <p style="font-size: 16px;">Your BamBuddy password has been reset.</p>
+    details_html = f"""
+            <div style="background-color: #f8fafc; padding: 18px 20px; border-radius: 8px; margin: 22px 0; border: 1px solid #e2e8f0; border-left: 4px solid #4f46e5;">
+                <p style="margin: 0 0 10px 0; font-size: 14px; color: #475569;"><strong style="color: #0f172a;">Username:</strong> <code style="background-color: #e2e8f0; color: #0f172a; padding: 3px 8px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 14px;">{html.escape(username)}</code></p>
+                <p style="margin: 0; font-size: 14px; color: #475569;"><strong style="color: #0f172a;">New Password:</strong> <code style="background-color: #e2e8f0; color: #0f172a; padding: 3px 8px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 14px;">{html.escape(password)}</code></p>
+            </div>"""
 
-        <div style="background: white; padding: 20px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #667eea;">
-            <p style="margin: 0 0 10px 0;"><strong>Username:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{username}</code></p>
-            <p style="margin: 0;"><strong>New Password:</strong> <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">{password}</code></p>
-        </div>
+    cta_html = f"""
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{html.escape(login_url)}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">Login Now</a>
+            </div>"""
 
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
+    callout_html = """
+            <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 18px; margin: 22px 0;">
+                <p style="margin: 0; font-size: 14px; color: #92400e;">
+                    <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
+                </p>
+            </div>"""
 
-        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 14px; color: #856404;">
-                <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
-            </p>
-        </div>
-
-        <p style="font-size: 14px; color: #666; border-top: 1px solid #ddd; padding-top: 20px; margin-top: 20px;">
-            <strong>Security Note:</strong> For security reasons, please change your password after logging in.
-        </p>
-
-        <p style="font-size: 14px; color: #999; margin-top: 30px;">
-            Best regards,<br>
-            BamBuddy Team
-        </p>
-    </div>
-</body>
-</html>
-"""
+    html_body = render_modern_email_html(
+        "Password Reset",
+        "<p style=\"margin: 0;\">Your BamBuddy password has been reset.</p>",
+        theme="security",
+        badge_text="SECURITY & ACCESS",
+        details_html=details_html,
+        cta_html=cta_html,
+        callout_html=callout_html,
+        footer_note="<strong>Security Note:</strong> For security reasons, please change your password after logging in.",
+    )
 
     return subject, text_body, html_body
 
@@ -736,34 +845,29 @@ Best regards,
 BamBuddy Team
 """
 
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Password Reset Request</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <p style="font-size: 16px;">A password reset was requested for your BamBuddy account (<strong>{username}</strong>).</p>
-        <p>Click the button below to set a new password. This link is valid for <strong>1 hour</strong>.</p>
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{reset_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Reset Password</a>
-        </div>
-        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 14px; color: #856404;">
-                <strong>Did not request this?</strong> You can safely ignore this email. Your password has not been changed.
-            </p>
-        </div>
-        <p style="font-size: 14px; color: #999; margin-top: 30px;">
-            Best regards,<br>BamBuddy Team
-        </p>
-    </div>
-</body>
-</html>
-"""
+    cta_html = f"""
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{html.escape(reset_url)}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">Reset Password</a>
+            </div>"""
+
+    callout_html = """
+            <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 18px; margin: 22px 0;">
+                <p style="margin: 0; font-size: 14px; color: #92400e;">
+                    <strong>Did not request this?</strong> You can safely ignore this email. Your password has not been changed.
+                </p>
+            </div>"""
+
+    html_body = render_modern_email_html(
+        "Password Reset Request",
+        (
+            f"<p style=\"margin: 0 0 12px 0;\">A password reset was requested for your BamBuddy account (<strong>{html.escape(username)}</strong>).</p>"
+            "<p style=\"margin: 0;\">Click the button below to set a new password. This link is valid for <strong>1 hour</strong>.</p>"
+        ),
+        theme="security",
+        badge_text="SECURITY & ACCESS",
+        cta_html=cta_html,
+        callout_html=callout_html,
+    )
     return subject, text_body, html_body
 
 
@@ -817,26 +921,18 @@ async def create_welcome_email_from_template(
         # Create HTML version with embedded login button
         # Escape text_body to prevent XSS vulnerabilities and convert newlines to <br> tags
         escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
-        html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 30px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>
+        cta_html = f"""
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{html.escape(login_url)}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">Login Now</a>
+            </div>"""
 
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
-    </div>
-</body>
-</html>
-"""
+        html_body = render_modern_email_html(
+            subject,
+            escaped_text_body,
+            theme="security",
+            badge_text="ACCOUNT CREATED",
+            cta_html=cta_html,
+        )
 
         logger.info("Using custom welcome email template from database")
         return subject, text_body, html_body
@@ -879,32 +975,25 @@ async def create_password_reset_email_from_template(
         # Create HTML version with embedded login button
         # Escape text_body to prevent XSS vulnerabilities and convert newlines to <br> tags
         escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
-        html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); background-color: #667eea; padding: 30px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>
+        cta_html = f"""
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="{html.escape(login_url)}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">Login Now</a>
+            </div>"""
+        callout_html = """
+            <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 18px; margin: 22px 0;">
+                <p style="margin: 0; font-size: 14px; color: #92400e;">
+                    <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
+                </p>
+            </div>"""
 
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="{login_url}" style="display: inline-block; background-color: #667eea; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login Now</a>
-        </div>
-
-        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 14px; color: #856404;">
-                <strong>⚠️ Security Alert:</strong> If you did not request this password reset, please contact your administrator immediately.
-            </p>
-        </div>
-    </div>
-</body>
-</html>
-"""
+        html_body = render_modern_email_html(
+            subject,
+            escaped_text_body,
+            theme="security",
+            badge_text="SECURITY & ACCESS",
+            cta_html=cta_html,
+            callout_html=callout_html,
+        )
 
         logger.info("Using custom password reset email template from database")
         return subject, text_body, html_body
@@ -978,7 +1067,7 @@ async def send_user_print_notification(
     img_tag = (
         '<img src="cid:bambuddy-user-print-photo" '
         'alt="Printer camera snapshot" '
-        'style="max-width:100%;height:auto;border:1px solid #ddd;border-radius:4px;">'
+        'style="max-width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px;display:block;margin:18px auto 0 auto;box-shadow:0 4px 12px rgba(15,23,42,0.08);">'
     )
     if inline_photo_by_url and finish_photo_url:
         escaped_url = html.escape(finish_photo_url)
@@ -993,32 +1082,22 @@ async def send_user_print_notification(
         confirm_url = variables.get("confirm_url")
         if good_url and reject_url:
             action_buttons_html = f"""
-        <div style="text-align: center; margin: 24px 0;">
-            <a href="{html.escape(str(good_url))}" style="display: inline-block; background-color: #1db954; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-right: 12px;">👍 Good</a>
-            <a href="{html.escape(str(reject_url))}" style="display: inline-block; background-color: #e53e3e; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">👎 Reject</a>
-        </div>"""
+            <div style="text-align: center; margin: 26px 0;">
+                <a href="{html.escape(str(good_url))}" style="display: inline-block; background-color: #00ae42; color: #ffffff; padding: 11px 26px; text-decoration: none; border-radius: 8px; font-weight: 600; margin-right: 12px; box-shadow: 0 2px 6px rgba(0, 174, 66, 0.25);">👍 Good</a>
+                <a href="{html.escape(str(reject_url))}" style="display: inline-block; background-color: #e11d48; color: #ffffff; padding: 11px 26px; text-decoration: none; border-radius: 8px; font-weight: 600; box-shadow: 0 2px 6px rgba(225, 29, 72, 0.25);">👎 Reject</a>
+            </div>"""
         elif confirm_url:
             action_buttons_html = f"""
-        <div style="text-align: center; margin: 24px 0;">
-            <a href="{html.escape(str(confirm_url))}" style="display: inline-block; background-color: #1db954; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Confirm Print Outcome</a>
-        </div>"""
+            <div style="text-align: center; margin: 26px 0;">
+                <a href="{html.escape(str(confirm_url))}" style="display: inline-block; background-color: #00ae42; color: #ffffff; padding: 11px 26px; text-decoration: none; border-radius: 8px; font-weight: 600; box-shadow: 0 2px 6px rgba(0, 174, 66, 0.25);">Confirm Print Outcome</a>
+            </div>"""
 
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #1db954 0%, #158a3e 100%); background-color: #1db954; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>{action_buttons_html}
-    </div>
-</body>
-</html>
-"""
+    html_body = render_modern_email_html(
+        subject,
+        escaped_text_body,
+        event_type=event_type,
+        cta_html=action_buttons_html,
+    )
 
     try:
         send_email(
@@ -1074,22 +1153,12 @@ async def send_user_expiration_warning(
         )
 
     escaped_text_body = html.escape(text_body).replace("\n", "<br>\n")
-    html_body = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); background-color: #f59e0b; padding: 20px; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">{html.escape(subject)}</h1>
-    </div>
-    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #ddd; border-top: none;">
-        <div style="font-size: 16px;">{escaped_text_body}</div>
-    </div>
-</body>
-</html>
-"""
+    html_body = render_modern_email_html(
+        subject,
+        escaped_text_body,
+        theme="warning",
+        badge_text="ACCESS EXPIRING SOON",
+    )
 
     try:
         send_email(smtp_settings, user_email, subject, text_body, html_body)

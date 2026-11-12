@@ -876,13 +876,21 @@ async def test_smtp_connection(
                 message="No recipient email provided and the logged-in user has no email address configured.",
             )
 
+        from backend.app.services.email_service import render_modern_email_html
+
         # Send test email
         send_email(
             smtp_settings=smtp_settings,
             to_email=recipient,
             subject="BamBuddy SMTP Test",
             body_text="This is a test email from BamBuddy. If you received this, your SMTP settings are working correctly!",
-            body_html="<p>This is a test email from <strong>BamBuddy</strong>.</p><p>If you received this, your SMTP settings are working correctly!</p>",
+            body_html=render_modern_email_html(
+                "BamBuddy Email Gateway Test",
+                "<p style=\"margin: 0 0 12px 0;\">This is a test email from <strong>BamBuddy</strong>.</p>"
+                "<p style=\"margin: 0;\">If you received this message, your email gateway settings are configured and working properly!</p>",
+                theme="brand",
+                badge_text="GATEWAY TEST",
+            ),
         )
 
         logger.info(f"Test email sent successfully to {recipient}")

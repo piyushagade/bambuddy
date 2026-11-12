@@ -959,6 +959,8 @@ async def enable_email_otp(
     await db.commit()
 
     try:
+        from backend.app.services.email_service import render_modern_email_html
+
         send_email(
             smtp_settings=smtp_settings,
             to_email=current_user.email,
@@ -968,12 +970,17 @@ async def enable_email_otp(
                 "Enter this code to confirm email-based two-factor authentication.\n"
                 "The code expires in 10 minutes."
             ),
-            body_html=(
-                "<p>To enable <strong>email-based two-factor authentication</strong> on your Bambuddy account, "
-                "enter the code below:</p>"
-                f"<h2 style='letter-spacing:4px'>{code}</h2>"
-                "<p>The code expires in <strong>10 minutes</strong>. "
-                "If you did not request this, you can safely ignore this email.</p>"
+            body_html=render_modern_email_html(
+                "Verify Email for Two-Factor Authentication",
+                "<p style=\"margin: 0;\">To enable <strong>email-based two-factor authentication</strong> on your BamBuddy account, enter the verification code below:</p>",
+                theme="security",
+                badge_text="SECURITY VERIFICATION",
+                details_html=(
+                    '<div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 22px 0; text-align: center;">'
+                    f'<h2 style="margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 30px; letter-spacing: 6px; color: #4f46e5;">{code}</h2>'
+                    "</div>"
+                ),
+                footer_note="The code expires in <strong>10 minutes</strong>. If you did not request this, you can safely ignore this email.",
             ),
         )
         await record_email_otp_send(db, current_user.username)
@@ -1123,16 +1130,24 @@ async def send_email_otp(
     # If the send fails we raise an exception here; the session is uncommitted so
     # the OTP record is discarded and the original token remains valid for retry.
     try:
+        from backend.app.services.email_service import render_modern_email_html
+
         send_email(
             smtp_settings=smtp_settings,
             to_email=user.email,
             subject="Your Bambuddy verification code",
             body_text=f"Your Bambuddy login code is: {code}\n\nThis code expires in {UserOTPCode.OTP_TTL_MINUTES} minutes and can only be used once.",
-            body_html=(
-                f"<p>Your <strong>Bambuddy</strong> login verification code is:</p>"
-                f"<h2 style='letter-spacing:4px'>{code}</h2>"
-                f"<p>This code expires in <strong>{UserOTPCode.OTP_TTL_MINUTES} minutes</strong> and can only be used once.</p>"
-                f"<p>If you did not request this code, you can safely ignore this email.</p>"
+            body_html=render_modern_email_html(
+                "Your Login Verification Code",
+                "<p style=\"margin: 0;\">Your <strong>BamBuddy</strong> login verification code is:</p>",
+                theme="security",
+                badge_text="SECURITY VERIFICATION",
+                details_html=(
+                    '<div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 22px 0; text-align: center;">'
+                    f'<h2 style="margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 30px; letter-spacing: 6px; color: #4f46e5;">{code}</h2>'
+                    "</div>"
+                ),
+                footer_note=f"This code expires in <strong>{UserOTPCode.OTP_TTL_MINUTES} minutes</strong> and can only be used once. If you did not request this code, you can safely ignore this email.",
             ),
         )
         await record_email_otp_send(db, username)
