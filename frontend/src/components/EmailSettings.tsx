@@ -172,12 +172,8 @@ export function EmailSettings() {
   };
 
   const handleTest = () => {
-    if (!testEmail) {
-      showToast(t('settings.email.errors.enterTestEmail'), 'error');
-      return;
-    }
     testMutation.mutate({
-      test_recipient: testEmail,
+      test_recipient: testEmail.trim(),
     });
   };
 
@@ -540,10 +536,10 @@ export function EmailSettings() {
                   {t('settings.email.testRecipient') || 'Test Recipient Email'}
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   value={testEmail}
                   onChange={(e) => setTestEmail(e.target.value)}
-                  placeholder="test@example.com"
+                  placeholder="Leave empty for logged-in user, or user1@example.com:user2@example.com"
                   className={inputClasses}
                 />
               </div>

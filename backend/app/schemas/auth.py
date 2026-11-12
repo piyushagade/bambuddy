@@ -306,7 +306,7 @@ class SMTPSettings(BaseModel):
 
 
 class TestSMTPRequest(BaseModel):
-    test_recipient: str
+    test_recipient: str | None = None
 
 
 class TestSMTPResponse(BaseModel):

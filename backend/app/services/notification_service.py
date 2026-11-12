@@ -329,6 +329,7 @@ class NotificationService:
         config: dict[str, Any],
         db: AsyncSession | None = None,
         attach_photo: bool = True,
+        user_email: str | None = None,
     ) -> tuple[bool, str]:
         """Send a test notification to verify configuration.
 
@@ -342,6 +343,14 @@ class NotificationService:
             message = "This is a test notification. If you see this, notifications are working!"
 
         image_data = await asyncio.to_thread(_load_sample_notification_image) if attach_photo else None
+
+        if provider_type in ("email", "resend", "mailgun") and not self._parse_recipient_emails(config.get("to_email")):
+            resolved_to, err_msg = await self._resolve_default_recipient_email(
+                db, is_test=True, explicit_user_email=user_email
+            )
+            if not resolved_to:
+                return False, err_msg or "To Email is required when no logged-in user email is available"
+            config = {**config, "to_email": resolved_to}
 
         try:
             if provider_type == "callmebot":
@@ -845,7 +854,9 @@ class NotificationService:
         # Authentication: "true" or "false"
         auth_enabled = config.get("auth_enabled", "true").lower() == "true"
 
-        if not all([smtp_server, from_email, to_email]):
+        recipients = self._parse_recipient_emails(to_email)
+        to_email_header = ", ".join(recipients)
+        if not all([smtp_server, from_email]) or not recipients:
             return False, "SMTP server, from email, and to email are required"
 
         if auth_enabled and not all([username, password]):
@@ -861,7 +872,7 @@ class NotificationService:
                 # multipart/related → (multipart/alternative → text, html) + inline image
                 msg = MIMEMultipart("related")
                 msg["From"] = from_email
-                msg["To"] = to_email
+                msg["To"] = to_email_header
                 msg["Subject"] = f"[Bambuddy] {subject}"
 
                 alt = MIMEMultipart("alternative")
@@ -890,7 +901,7 @@ class NotificationService:
             else:
                 msg = MIMEMultipart()
                 msg["From"] = from_email
-                msg["To"] = to_email
+                msg["To"] = to_email_header
                 msg["Subject"] = f"[Bambuddy] {subject}"
                 msg.attach(MIMEText(body, "plain"))
 
@@ -922,7 +933,7 @@ class NotificationService:
                 try:
                     if auth_enabled:
                         server.login(username, password)
-                    server.sendmail(from_email, to_email, msg_str)
+                    server.sendmail(from_email, recipients, msg_str)
                 finally:
                     # quit() in finally so a send error doesn't leak the socket.
                     try:
@@ -957,13 +968,13 @@ class NotificationService:
         to_email = (config.get("to_email") or "").strip()
         reply_to = (config.get("reply_to") or "").strip()
 
-        if not all([api_key, from_email, to_email]):
+        if not all([api_key, from_email]) or not self._parse_recipient_emails(to_email):
             return False, "Resend API key, from email, and to email are required"
 
         from_header = f"{from_name} <{from_email}>" if from_name else from_email
         payload: dict[str, Any] = {
             "from": from_header,
-            "to": [addr.strip() for addr in to_email.split(",") if addr.strip()],
+            "to": self._parse_recipient_emails(to_email),
             "subject": f"[Bambuddy] {subject}",
             "text": body,
         }
@@ -1025,7 +1036,7 @@ class NotificationService:
         to_email = (config.get("to_email") or "").strip()
         reply_to = (config.get("reply_to") or "").strip()
 
-        if not all([api_key, domain, from_email, to_email]):
+        if not all([api_key, domain, from_email]) or not self._parse_recipient_emails(to_email):
             return False, "Mailgun API key, domain, from email, and to email are required"
 
         base_url = "https://api.eu.mailgun.net" if region == "eu" else "https://api.mailgun.net"
@@ -1034,7 +1045,7 @@ class NotificationService:
 
         data: dict[str, Any] = {
             "from": from_header,
-            "to": [addr.strip() for addr in to_email.split(",") if addr.strip()],
+            "to": self._parse_recipient_emails(to_email),
             "subject": f"[Bambuddy] {subject}",
             "text": body,
         }
@@ -1179,7 +1190,7 @@ class NotificationService:
                 data["event"] = event_type
             if variables:
                 for key, value in variables.items():
-                    if key not in data:  # Don't overwrite title/message/timestamp/source
+                    if key not in data and not key.startswith("_"):  # Don't overwrite title/message/timestamp/source
                         data[key] = value
 
         # Attach base64-encoded image when available (generic format only)
@@ -1333,6 +1344,7 @@ class NotificationService:
         image_data: bytes | None,
         event_type: str | None,
         photo_cache: dict | None = None,
+        printer_id: int | None = None,
     ) -> str | None:
         """Return a URL for a notification photo, for providers that fetch it themselves.
 
@@ -1385,6 +1397,7 @@ class NotificationService:
         event_type: str | None = None,
         variables: dict | None = None,
         photo_cache: dict | None = None,
+        printer_id: int | None = None,
     ) -> tuple[bool, str]:
         """Send notification to a specific provider.
 
@@ -1397,6 +1410,20 @@ class NotificationService:
             return True, "Skipped - quiet hours"
 
         config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
+
+        if provider.provider_type in ("email", "resend", "mailgun") and not self._parse_recipient_emails(
+            config.get("to_email")
+        ):
+            resolved_to, skip_msg = await self._resolve_default_recipient_email(
+                db,
+                event_type=event_type,
+                printer_id=printer_id if printer_id is not None else provider.printer_id,
+                variables=variables,
+                is_test=False,
+            )
+            if not resolved_to:
+                return True, skip_msg or "Skipped - no recipient user email"
+            config = {**config, "to_email": resolved_to}
 
         # attach_photo is a per-provider opt-out. Clearing image_data covers
         # the byte-upload providers below; HA/Bark/Slack get their own check
@@ -1658,6 +1685,7 @@ class NotificationService:
                     event_type=event_type,
                     variables=variables,
                     photo_cache=photo_cache,
+                    printer_id=printer_id,
                 )
 
                 # Also queue for digest if enabled (digest is a summary, not a queue)
@@ -1789,6 +1817,7 @@ class NotificationService:
             "filename": filename,
             "estimated_time": time_str,
             "eta": eta_str,
+            "_created_by_id": (locals().get("archive_data") or {}).get("created_by_id"),
         }
 
         # Extract image data for providers that support attachments (e.g. Pushover)
@@ -1855,6 +1884,7 @@ class NotificationService:
             "duration": "Unknown",
             "filament_grams": "Unknown",
             "reason": "Unknown",
+            "_created_by_id": (locals().get("archive_data") or {}).get("created_by_id"),
         }
 
         if archive_data:
@@ -2019,6 +2049,7 @@ class NotificationService:
             "progress": str(progress),
             "remaining_time": self._format_duration(remaining_time) if remaining_time else "Unknown",
             "eta": eta_str,
+            "_created_by_id": (locals().get("archive_data") or {}).get("created_by_id"),
         }
 
         if providers:
@@ -2698,6 +2729,112 @@ class NotificationService:
         """Clear the template cache. Call this when templates are updated."""
         self._template_cache.clear()
 
+    def _parse_recipient_emails(self, to_email: str | None) -> list[str]:
+        """Parse colon-, comma-, or semicolon-separated email addresses."""
+        if not to_email:
+            return []
+        return [addr.strip() for addr in re.split(r"[:;,]+", str(to_email)) if addr.strip()]
+
+    async def _resolve_default_recipient_email(
+        self,
+        db: AsyncSession | None,
+        *,
+        event_type: str | None = None,
+        printer_id: int | None = None,
+        variables: dict[str, Any] | None = None,
+        is_test: bool = False,
+        explicit_user_email: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        """Resolve recipient email when a NotificationProvider's To Email is left empty.
+
+        Returns (recipient_email, skip_or_error_reason).
+        """
+        from backend.app.core.auth import get_current_request_user_email, get_current_request_user_id
+        from backend.app.models.user import User
+        from backend.app.models.user_email_pref import UserEmailPreference
+
+        if is_test:
+            candidate = (explicit_user_email or get_current_request_user_email() or "").strip()
+            if candidate:
+                return candidate, None
+            if isinstance(db, AsyncSession):
+                req_uid = get_current_request_user_id()
+                if req_uid is not None:
+                    with db.no_autoflush:
+                        u_res = await db.execute(select(User).where(User.id == req_uid))
+                    u = u_res.scalar_one_or_none()
+                    if u and (u.email or "").strip():
+                        return u.email.strip(), None
+                with db.no_autoflush:
+                    fallback_res = await db.execute(
+                        select(User)
+                        .where(User.is_active.is_(True), User.email.is_not(None), User.email != "")
+                        .order_by(User.id.asc())
+                        .limit(1)
+                    )
+                fallback_user = fallback_res.scalar_one_or_none()
+                if fallback_user and (fallback_user.email or "").strip():
+                    return fallback_user.email.strip(), None
+            return None, "To Email is empty and the logged-in user has no email address configured"
+
+        direct_email = str((variables or {}).get("user_email") or "").strip()
+        if direct_email:
+            return direct_email, None
+
+        created_by_id = (variables or {}).get("_created_by_id") or (variables or {}).get("created_by_id")
+        if created_by_id is None and printer_id is not None and isinstance(db, AsyncSession):
+            created_by_id, _ = await self.resolve_printer_job_user_id(db, printer_id, include_finished=True)
+        if created_by_id is None:
+            created_by_id = get_current_request_user_id()
+
+        if created_by_id is not None and isinstance(db, AsyncSession):
+            with db.no_autoflush:
+                u_res = await db.execute(select(User).where(User.id == int(created_by_id)))
+            user = u_res.scalar_one_or_none()
+            if user and (user.email or "").strip():
+                event_pref_map = {
+                    "print_start": "notify_print_start",
+                    "user_print_start": "notify_print_start",
+                    "print_complete": "notify_print_complete",
+                    "user_print_complete": "notify_print_complete",
+                    "print_failed": "notify_print_failed",
+                    "user_print_failed": "notify_print_failed",
+                    "print_stopped": "notify_print_stopped",
+                    "user_print_stopped": "notify_print_stopped",
+                    "print_progress": "notify_print_progress",
+                    "user_print_progress": "notify_print_progress",
+                    "first_layer_complete": "notify_first_layer_complete",
+                    "user_first_layer_complete": "notify_first_layer_complete",
+                    "print_confirm_request": "notify_print_confirm_request",
+                    "user_print_confirm_request": "notify_print_confirm_request",
+                    "plate_clear_required": "notify_plate_clear_required",
+                    "user_plate_clear_required": "notify_plate_clear_required",
+                    "plate_not_empty": "notify_plate_not_empty",
+                    "user_plate_not_empty": "notify_plate_not_empty",
+                    "queue_job_waiting": "notify_queue_waiting",
+                    "user_queue_job_waiting": "notify_queue_waiting",
+                    "queue_job_skipped": "notify_queue_skipped",
+                    "user_queue_job_skipped": "notify_queue_skipped",
+                    "queue_job_failed": "notify_queue_failed",
+                    "user_queue_job_failed": "notify_queue_failed",
+                }
+                pref_attr = event_pref_map.get(event_type or "")
+                if pref_attr:
+                    with db.no_autoflush:
+                        pref_res = await db.execute(
+                            select(UserEmailPreference).where(UserEmailPreference.user_id == user.id)
+                        )
+                    pref = pref_res.scalar_one_or_none()
+                    if pref is not None and not bool(getattr(pref, pref_attr, True)):
+                        return None, f"Skipped - user {user.username} disabled {event_type} email notifications"
+                return user.email.strip(), None
+
+        req_email = (get_current_request_user_email() or "").strip()
+        if req_email:
+            return req_email, None
+
+        return None, "Skipped - no recipient user email for this event"
+
     async def resolve_printer_job_user_id(
         self,
         db: AsyncSession,
@@ -2786,6 +2923,31 @@ class NotificationService:
                 smtp_settings = await get_smtp_settings(db)
             if not smtp_settings:
                 logger.debug("[EMAIL] Skipping user print email (%s): email gateway settings not configured", event_type)
+                return
+
+            provider_event_field = f"on_{event_type.removeprefix('user_')}"
+            if hasattr(NotificationProvider, provider_event_field):
+                with db.no_autoflush:
+                    active_email_provs = await db.execute(
+                        select(NotificationProvider).where(
+                            NotificationProvider.enabled.is_(True),
+                            NotificationProvider.provider_type.in_(["email", "resend", "mailgun"]),
+                            getattr(NotificationProvider, provider_event_field).is_(True),
+                        )
+                    )
+                for prov in active_email_provs.scalars().all():
+                    try:
+                        p_cfg = json.loads(prov.config) if isinstance(prov.config, str) else (prov.config or {})
+                    except Exception:
+                        continue
+                    if not self._parse_recipient_emails(p_cfg.get("to_email")):
+                        logger.debug(
+                            "[EMAIL] Skipping duplicate user print email (%s): handled by provider %s",
+                            event_type,
+                            prov.name,
+                        )
+                        return
+            if False:
                 return
 
             # Load user preferences
@@ -2942,6 +3104,7 @@ class NotificationService:
             "printer": printer_name,
             "estimated_time": self._format_duration(estimated_time),
             "eta": eta_str,
+            "_created_by_id": (locals().get("archive_data") or {}).get("created_by_id"),
         }
 
         title, message = await self._build_message_from_template(db, "queue_job_started", variables)
@@ -2966,6 +3129,7 @@ class NotificationService:
             "job_name": job_name,
             "target_model": target_model,
             "waiting_reason": waiting_reason,
+            "_created_by_id": locals().get("created_by_id"),
         }
 
         if providers:
@@ -3000,6 +3164,7 @@ class NotificationService:
             "job_name": job_name,
             "printer": printer_name,
             "reason": reason,
+            "_created_by_id": locals().get("created_by_id"),
         }
 
         if providers:
@@ -3036,6 +3201,7 @@ class NotificationService:
             "job_name": job_name,
             "printer": printer_name or "Unknown",
             "reason": reason,
+            "_created_by_id": locals().get("created_by_id"),
         }
 
         if providers:

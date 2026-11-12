@@ -403,7 +403,7 @@ class EmailConfig(BaseModel):
     username: str = Field(..., description="SMTP username/email")
     password: str = Field(..., description="SMTP password or app password")
     from_email: str = Field(..., description="From email address")
-    to_email: str = Field(..., description="Recipient email address")
+    to_email: str | None = Field(default=None, description="Colon-separated recipient email addresses; leave empty to send to the logged-in/job user")
     use_tls: bool = Field(default=True, description="Use TLS encryption")
 
 
@@ -413,7 +413,7 @@ class ResendConfig(BaseModel):
     api_key: str = Field(..., description="Resend API key (starts with re_)")
     from_email: str = Field(..., description="Verified sender email address")
     from_name: str | None = Field(default="Bambuddy", description="Sender display name")
-    to_email: str = Field(..., description="Recipient email address")
+    to_email: str | None = Field(default=None, description="Colon-separated recipient email addresses; leave empty to send to the logged-in/job user")
     reply_to: str | None = Field(default=None, description="Optional Reply-To email address")
 
 
@@ -425,7 +425,7 @@ class MailgunConfig(BaseModel):
     region: Literal["us", "eu"] = Field(default="us", description="Mailgun API region ('us' or 'eu')")
     from_email: str = Field(..., description="Sender email address")
     from_name: str | None = Field(default="Bambuddy", description="Sender display name")
-    to_email: str = Field(..., description="Recipient email address")
+    to_email: str | None = Field(default=None, description="Colon-separated recipient email addresses; leave empty to send to the logged-in/job user")
     reply_to: str | None = Field(default=None, description="Optional Reply-To email address")
 
 

@@ -104,6 +104,102 @@ def _format_from_address(from_name: str | None, from_email: str) -> str:
     return cleaned_email
 
 
+def _parse_recipient_emails(to_email: str | None) -> list[str]:
+    """Parse colon-, comma-, or semicolon-separated email addresses."""
+    if not to_email:
+        return []
+    return [addr.strip() for addr in re.split(r"[:;,]+", to_email) if addr.strip()]
+
+
+async def _get_smtp_settings_from_notification_provider(db: AsyncSession) -> SMTPSettings | None:
+    """Fall back to an enabled email/Resend/Mailgun NotificationProvider whose To Email is empty."""
+    import json
+
+    from backend.app.models.notification import NotificationProvider
+
+    try:
+        with db.no_autoflush:
+            result = await db.execute(
+                select(NotificationProvider)
+                .where(
+                    NotificationProvider.enabled.is_(True),
+                    NotificationProvider.provider_type.in_(["resend", "mailgun", "email"]),
+                )
+                .order_by(NotificationProvider.id.asc())
+            )
+        providers = result.scalars().all()
+    except Exception:
+        return None
+
+    for provider in providers:
+        try:
+            cfg = json.loads(provider.config) if isinstance(provider.config, str) else (provider.config or {})
+        except Exception:
+            continue
+        if _parse_recipient_emails(cfg.get("to_email")):
+            # Provider has explicit fixed recipients; do not use as user-gateway fallback.
+            continue
+        from_email = (cfg.get("from_email") or "").strip()
+        if not from_email:
+            continue
+        from_name = (cfg.get("from_name") or "BamBuddy").strip() or "BamBuddy"
+        reply_to = (cfg.get("reply_to") or "").strip() or None
+
+        if provider.provider_type == "resend":
+            api_key = (cfg.get("api_key") or "").strip()
+            if api_key:
+                return SMTPSettings(
+                    email_provider="resend",
+                    smtp_from_email=from_email,
+                    smtp_from_name=from_name,
+                    smtp_reply_to=reply_to,
+                    resend_api_key=api_key,
+                    resend_api_key_configured=True,
+                )
+        elif provider.provider_type == "mailgun":
+            api_key = (cfg.get("api_key") or "").strip()
+            domain = (cfg.get("domain") or "").strip()
+            region = (cfg.get("region") or "us").strip().lower()
+            if region not in ("us", "eu"):
+                region = "us"
+            if api_key and domain:
+                return SMTPSettings(
+                    email_provider="mailgun",
+                    smtp_from_email=from_email,
+                    smtp_from_name=from_name,
+                    smtp_reply_to=reply_to,
+                    mailgun_api_key=api_key,
+                    mailgun_domain=domain,
+                    mailgun_region=region,  # type: ignore[arg-type]
+                    mailgun_api_key_configured=True,
+                )
+        elif provider.provider_type == "email":
+            smtp_host = (cfg.get("smtp_server") or "").strip()
+            if smtp_host:
+                try:
+                    smtp_port = int(cfg.get("smtp_port") or 587)
+                except (TypeError, ValueError):
+                    smtp_port = 587
+                security = (cfg.get("security") or "starttls").strip()
+                auth_enabled = str(cfg.get("auth_enabled", "true")).lower() == "true"
+                username = (cfg.get("username") or "").strip() or None
+                password = (cfg.get("password") or "").strip() or None
+                return SMTPSettings(
+                    email_provider="smtp",
+                    smtp_host=smtp_host,
+                    smtp_port=smtp_port,
+                    smtp_username=username,
+                    smtp_password=password,
+                    smtp_security=security,
+                    smtp_auth_enabled=auth_enabled,
+                    smtp_from_email=from_email,
+                    smtp_from_name=from_name,
+                    smtp_reply_to=reply_to,
+                    smtp_password_configured=bool(password),
+                )
+    return None
+
+
 async def get_smtp_settings(db: AsyncSession) -> SMTPSettings | None:
     """Get email gateway settings (SMTP, Resend, or Mailgun) from database.
 
@@ -145,17 +241,17 @@ async def get_smtp_settings(db: AsyncSession) -> SMTPSettings | None:
 
     from_email = (settings_dict.get("smtp_from_email") or "").strip()
     if not from_email:
-        return None
+        return await _get_smtp_settings_from_notification_provider(db)
 
     if provider == "smtp":
         if not settings_dict.get("smtp_host") or not settings_dict.get("smtp_port"):
-            return None
+            return await _get_smtp_settings_from_notification_provider(db)
     elif provider == "resend":
         if not settings_dict.get("resend_api_key"):
-            return None
+            return await _get_smtp_settings_from_notification_provider(db)
     elif provider == "mailgun":
         if not settings_dict.get("mailgun_api_key") or not settings_dict.get("mailgun_domain"):
-            return None
+            return await _get_smtp_settings_from_notification_provider(db)
 
     # Handle migration: convert old smtp_use_tls to smtp_security if needed
     smtp_security = settings_dict.get("smtp_security")
@@ -251,7 +347,7 @@ def send_via_resend_sync(
     """Send an email via the Resend HTTP API (https://api.resend.com/emails)."""
     if not api_key or not api_key.strip():
         raise ValueError("Resend API key is required")
-    recipients = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+    recipients = _parse_recipient_emails(to_email)
     if not recipients:
         raise ValueError("Recipient email address is required")
 
@@ -313,7 +409,7 @@ def send_via_mailgun_sync(
         raise ValueError("Mailgun API key is required")
     if not domain or not domain.strip():
         raise ValueError("Mailgun domain is required")
-    recipients = [addr.strip() for addr in to_email.split(",") if addr.strip()]
+    recipients = _parse_recipient_emails(to_email)
     if not recipients:
         raise ValueError("Recipient email address is required")
 
@@ -411,12 +507,17 @@ def send_email(
             logger.info("Email sent successfully via Mailgun to %s", to_email)
             return
 
+        recipients = _parse_recipient_emails(to_email)
+        if not recipients:
+            raise ValueError("Recipient email address is required")
+        to_header = ", ".join(recipients)
+
         if image_data and body_html:
             # multipart/related wraps multipart/alternative so the inline image
             # travels with the HTML part without becoming a visible attachment.
             msg = MIMEMultipart("related")
             msg["From"] = _format_from_address(smtp_settings.smtp_from_name, smtp_settings.smtp_from_email)
-            msg["To"] = to_email
+            msg["To"] = to_header
             msg["Subject"] = subject
             if reply_to:
                 msg["Reply-To"] = reply_to
@@ -433,7 +534,7 @@ def send_email(
         else:
             msg = MIMEMultipart("alternative")
             msg["From"] = _format_from_address(smtp_settings.smtp_from_name, smtp_settings.smtp_from_email)
-            msg["To"] = to_email
+            msg["To"] = to_header
             msg["Subject"] = subject
             if reply_to:
                 msg["Reply-To"] = reply_to
@@ -458,20 +559,20 @@ def send_email(
             with smtplib.SMTP_SSL(smtp_settings.smtp_host, smtp_settings.smtp_port, timeout=10) as server:
                 if auth_enabled and smtp_settings.smtp_password and smtp_settings.smtp_username:
                     server.login(smtp_settings.smtp_username, smtp_settings.smtp_password)
-                server.send_message(msg)
+                server.send_message(msg, to_addrs=recipients)
         elif security == "starttls":
             # STARTTLS upgrade (typically port 587)
             with smtplib.SMTP(smtp_settings.smtp_host, smtp_settings.smtp_port, timeout=10) as server:
                 server.starttls()
                 if auth_enabled and smtp_settings.smtp_password and smtp_settings.smtp_username:
                     server.login(smtp_settings.smtp_username, smtp_settings.smtp_password)
-                server.send_message(msg)
+                server.send_message(msg, to_addrs=recipients)
         else:
             # No encryption (typically port 25) - use with caution
             with smtplib.SMTP(smtp_settings.smtp_host, smtp_settings.smtp_port, timeout=10) as server:
                 if auth_enabled and smtp_settings.smtp_password and smtp_settings.smtp_username:
                     server.login(smtp_settings.smtp_username, smtp_settings.smtp_password)
-                server.send_message(msg)
+                server.send_message(msg, to_addrs=recipients)
         logger.info(f"Email sent successfully to {to_email}")
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")

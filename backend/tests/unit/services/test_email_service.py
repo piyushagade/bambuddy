@@ -419,3 +419,78 @@ class TestResendAndMailgunDelivery:
             assert ok_m is True
             assert "Mailgun" in msg_m
             assert mock_client.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_to_email_empty_sends_to_logged_in_user_or_colon_separated_list(self, db_session):
+        import json
+        from unittest.mock import MagicMock
+
+        from backend.app.models.notification import NotificationProvider
+        from backend.app.models.user import User
+        from backend.app.services.notification_service import NotificationService
+
+        user = User(
+            username="makeruser",
+            password_hash="hash",
+            email="maker@example.com",
+            role="user",
+            is_active=True,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
+        service = NotificationService()
+        mock_resp = MagicMock(status_code=200, text="ok")
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch.object(service, "_get_client", new_callable=AsyncMock, return_value=mock_client):
+            # 1. Empty to_email on test notification -> sent to logged-in user
+            ok_test, _ = await service.send_test_notification(
+                "resend",
+                {"api_key": "re_abc", "from_email": "from@example.com", "to_email": ""},
+                db_session,
+                attach_photo=False,
+                user_email="loggedin@example.com",
+            )
+            assert ok_test is True
+            assert mock_client.post.call_args.kwargs["json"]["to"] == ["loggedin@example.com"]
+
+            # 2. Colon-separated to_email -> sent ONLY to the colon-separated emails
+            ok_colon, _ = await service.send_test_notification(
+                "resend",
+                {
+                    "api_key": "re_abc",
+                    "from_email": "from@example.com",
+                    "to_email": "alpha@example.com:beta@example.com: gamma@example.com",
+                },
+                db_session,
+                attach_photo=False,
+                user_email="loggedin@example.com",
+            )
+            assert ok_colon is True
+            assert mock_client.post.call_args.kwargs["json"]["to"] == [
+                "alpha@example.com",
+                "beta@example.com",
+                "gamma@example.com",
+            ]
+
+            # 3. Empty to_email on event notification -> sent to print/job owner
+            provider = NotificationProvider(
+                name="Resend User Provider",
+                provider_type="resend",
+                enabled=True,
+                config=json.dumps({"api_key": "re_abc", "from_email": "from@example.com", "to_email": ""}),
+                attach_photo=False,
+            )
+            ok_event, _ = await service._send_to_provider(
+                provider,
+                "Print Complete",
+                "Your print is ready",
+                db=db_session,
+                event_type="print_complete",
+                variables={"_created_by_id": user.id},
+            )
+            assert ok_event is True
+            assert mock_client.post.call_args.kwargs["json"]["to"] == ["maker@example.com"]

@@ -1153,12 +1153,30 @@ async def is_jti_revoked(jti: str, db: AsyncSession | None = None) -> bool:
         return await _query(own_db)
 
 
+_current_request_user_email: ContextVar[str | None] = ContextVar("_current_request_user_email", default=None)
+_current_request_user_id: ContextVar[int | None] = ContextVar("_current_request_user_id", default=None)
+
+
+def get_current_request_user_email() -> str | None:
+    """Return the email of the authenticated user for the current request, if any."""
+    return _current_request_user_email.get()
+
+
+def get_current_request_user_id() -> int | None:
+    """Return the ID of the authenticated user for the current request, if any."""
+    return _current_request_user_id.get()
+
+
 async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     """Get a user by username (case-insensitive) with groups loaded for permission checks."""
     result = await db.execute(
         select(User).where(func.lower(User.username) == func.lower(username)).options(selectinload(User.groups))
     )
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    if user is not None and user.is_effectively_active:
+        _current_request_user_id.set(user.id)
+        _current_request_user_email.set((user.email or "").strip() or None)
+    return user
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -1288,6 +1306,8 @@ async def _user_from_api_key(db: AsyncSession, api_key: APIKey) -> User | None:
         # gain an "anonymous" identity — drop the request to None so cloud
         # access fails closed.
         return None
+    _current_request_user_id.set(user.id)
+    _current_request_user_email.set((user.email or "").strip() or None)
     return user
 
 

@@ -235,11 +235,16 @@ async def create_notification_provider(
 async def test_notification_config(
     test_request: NotificationTestRequest,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_CREATE),
 ):
     """Test notification configuration before saving."""
+    user_email = (current_user.email or "").strip() if current_user and current_user.email else None
     success, message = await notification_service.send_test_notification(
-        test_request.provider_type.value, test_request.config, db, attach_photo=test_request.attach_photo
+        test_request.provider_type.value,
+        test_request.config,
+        db,
+        attach_photo=test_request.attach_photo,
+        user_email=user_email,
     )
 
     return NotificationTestResponse(success=success, message=message)
@@ -248,7 +253,7 @@ async def test_notification_config(
 @router.post("/test-all")
 async def test_all_notification_providers(
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
 ):
     """Send a test notification to all enabled providers."""
     result = await db.execute(select(NotificationProvider).where(NotificationProvider.enabled.is_(True)))
@@ -260,11 +265,12 @@ async def test_all_notification_providers(
     results = []
     success_count = 0
     failed_count = 0
+    user_email = (current_user.email or "").strip() if current_user and current_user.email else None
 
     for provider in providers:
         config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
         success, message = await notification_service.send_test_notification(
-            provider.provider_type, config, db, attach_photo=provider.attach_photo
+            provider.provider_type, config, db, attach_photo=provider.attach_photo, user_email=user_email
         )
 
         # Update provider status
@@ -585,7 +591,7 @@ async def delete_notification_provider(
 async def test_notification_provider(
     provider_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
+    current_user: User | None = RequirePermissionIfAuthEnabled(Permission.NOTIFICATIONS_UPDATE),
 ):
     """Send a test notification using an existing provider."""
     result = await db.execute(select(NotificationProvider).where(NotificationProvider.id == provider_id))
@@ -594,9 +600,10 @@ async def test_notification_provider(
     if not provider:
         raise HTTPException(status_code=404, detail="Notification provider not found")
 
+    user_email = (current_user.email or "").strip() if current_user and current_user.email else None
     config = json.loads(provider.config) if isinstance(provider.config, str) else provider.config
     success, message = await notification_service.send_test_notification(
-        provider.provider_type, config, db, attach_photo=provider.attach_photo
+        provider.provider_type, config, db, attach_photo=provider.attach_photo, user_email=user_email
     )
 
     # Update provider status

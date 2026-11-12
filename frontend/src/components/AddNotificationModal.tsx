@@ -302,14 +302,28 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
           { key: 'username', label: 'Username', placeholder: 'your@email.com', type: 'text', required: false },
           { key: 'password', label: 'Password', placeholder: 'App password', type: 'password', required: false },
           { key: 'from_email', label: 'From Email', placeholder: 'your@email.com', type: 'text', required: true },
-          { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+          {
+            key: 'to_email',
+            label: 'To Email',
+            placeholder: 'Leave empty for user email, or user1@email.com:user2@email.com',
+            type: 'text',
+            required: false,
+            help: 'Leave empty to send to the logged-in/job user. When filled out, emails are only sent to the addresses in this field (colon-separated).',
+          },
         ];
       case 'resend':
         return [
           { key: 'api_key', label: 'Resend API Key', placeholder: 're_123456789...', type: 'password', required: true },
           { key: 'from_email', label: 'From Email', placeholder: 'noreply@yourdomain.com', type: 'text', required: true },
           { key: 'from_name', label: 'From Name', placeholder: 'Bambuddy', type: 'text', required: false },
-          { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+          {
+            key: 'to_email',
+            label: 'To Email',
+            placeholder: 'Leave empty for user email, or user1@email.com:user2@email.com',
+            type: 'text',
+            required: false,
+            help: 'Leave empty to send to the logged-in/job user. When filled out, emails are only sent to the addresses in this field (colon-separated).',
+          },
           { key: 'reply_to', label: 'Reply-To Email', placeholder: 'support@yourdomain.com', type: 'text', required: false },
         ];
       case 'mailgun':
@@ -322,7 +336,14 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
           ]},
           { key: 'from_email', label: 'From Email', placeholder: 'noreply@mg.example.com', type: 'text', required: true },
           { key: 'from_name', label: 'From Name', placeholder: 'Bambuddy', type: 'text', required: false },
-          { key: 'to_email', label: 'To Email', placeholder: 'recipient@email.com', type: 'text', required: true },
+          {
+            key: 'to_email',
+            label: 'To Email',
+            placeholder: 'Leave empty for user email, or user1@email.com:user2@email.com',
+            type: 'text',
+            required: false,
+            help: 'Leave empty to send to the logged-in/job user. When filled out, emails are only sent to the addresses in this field (colon-separated).',
+          },
           { key: 'reply_to', label: 'Reply-To Email', placeholder: 'support@example.com', type: 'text', required: false },
         ];
       case 'discord':
